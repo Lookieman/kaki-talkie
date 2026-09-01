@@ -1,0 +1,203 @@
+# =============================================================================
+# KaKi-Talkie .gitignore
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Secrets and local environment files
+# -----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+*.p12
+*.pfx
+
+credentials.json
+credentials.*.json
+credentials-*.json
+secrets.json
+secrets.*.json
+secrets-*.json
+service-account.json
+service-account-*.json
+service_account.json
+service_account_*.json
+
+# Cloud/service credentials accidentally copied into the repository
+.cloudflared/
+.tailscale/
+.auth/
+.tokens/
+
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+.venv/
+venv/
+env/
+ENV/
+
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# -----------------------------------------------------------------------------
+# Node / browser simulator
+# -----------------------------------------------------------------------------
+node_modules/
+.next/
+.nuxt/
+.svelte-kit/
+out/
+.npm/
+.yarn/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Browser/test tooling
+playwright-report/
+test-results/
+blob-report/
+.nyc_output/
+
+# -----------------------------------------------------------------------------
+# Local AI models and downloaded model artefacts
+# -----------------------------------------------------------------------------
+models/
+model_cache/
+model-cache/
+huggingface/
+.huggingface/
+
+*.gguf
+*.ggml
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.tflite
+
+# Keep dependency lock files tracked.
+# Do NOT ignore uv.lock, poetry.lock, package-lock.json, pnpm-lock.yaml or yarn.lock.
+
+# -----------------------------------------------------------------------------
+# Runtime databases and generated vector indexes
+# -----------------------------------------------------------------------------
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+
+.chroma/
+chroma/
+chroma_db/
+chroma-data/
+vector_store/
+vector-store/
+
+# -----------------------------------------------------------------------------
+# Runtime audio and temporary captures
+# -----------------------------------------------------------------------------
+recordings/
+runtime_audio/
+runtime-audio/
+audio_tmp/
+audio-tmp/
+*.pcm
+*.raw
+
+# Consent-cleared fixtures under tests/audio_samples/ may be committed.
+# Do not globally ignore WAV/MP3/M4A files because curated test clips may use them.
+
+# -----------------------------------------------------------------------------
+# Generated output and caches
+# -----------------------------------------------------------------------------
+.cache/
+cache/
+tmp/
+temp/
+*.tmp
+
+logs/
+*.log
+
+generated/
+artifacts/
+outputs/
+
+# Preserve source-corpus snapshots unless deliberately excluded.
+# rag/corpus/snapshots/ is part of the provenance design and is NOT ignored.
+
+# -----------------------------------------------------------------------------
+# Local development / IDE
+# -----------------------------------------------------------------------------
+.vscode/
+.idea/
+*.code-workspace
+
+# -----------------------------------------------------------------------------
+# Operating systems
+# -----------------------------------------------------------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# -----------------------------------------------------------------------------
+# Packaging / archives created locally
+# -----------------------------------------------------------------------------
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+
+# -----------------------------------------------------------------------------
+# Miscellaneous local-only files
+# -----------------------------------------------------------------------------
+.local/
+.local-data/
+scratch/
+sandbox/
