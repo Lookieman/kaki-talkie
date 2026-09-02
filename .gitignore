@@ -155,8 +155,22 @@ generated/
 artifacts/
 outputs/
 
-# Preserve source-corpus snapshots unless deliberately excluded.
-# rag/corpus/snapshots/ is part of the provenance design and is NOT ignored.
+# KaKi-Talkie generated/runtime data
+# The baseline keeps generated corpus snapshots, processed corpus data,
+# Chroma indexes and other runtime state outside Git under KAKI_DATA_ROOT.
+# These rules also protect the repository if runtime data is accidentally
+# generated inside the working tree.
+rag/corpus/snapshots/
+rag/corpus/processed/
+rag/corpus/generated/
+kaki-talkie-data/
+runtime-data/
+.runtime-data/
+
+# Keep source definitions and curated fixtures tracked, including:
+# - rag/corpus/allowlist.yaml
+# - consent-cleared tests/audio_samples/
+# - committed regression/evaluation datasets under agent/data/
 
 # -----------------------------------------------------------------------------
 # Local development / IDE
