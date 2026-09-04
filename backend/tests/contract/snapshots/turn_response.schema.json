@@ -1,0 +1,133 @@
+{
+  "$defs": {
+    "SourceRecord": {
+      "description": "Application-derived provenance; canned responses have no source records.",
+      "properties": {
+        "source_url": {
+          "title": "Source Url",
+          "type": "string"
+        },
+        "page_title": {
+          "title": "Page Title",
+          "type": "string"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "source_updated_at": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Updated At"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        }
+      },
+      "required": [
+        "source_url",
+        "page_title",
+        "captured_at"
+      ],
+      "title": "SourceRecord",
+      "type": "object"
+    },
+    "TurnState": {
+      "enum": [
+        "answered",
+        "refused",
+        "handed_off",
+        "acted",
+        "failed"
+      ],
+      "title": "TurnState",
+      "type": "string"
+    }
+  },
+  "description": "Shared device response; unavailable audio and case references are null.",
+  "properties": {
+    "turn_id": {
+      "title": "Turn Id",
+      "type": "string"
+    },
+    "reply_audio": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reply Audio"
+    },
+    "reply_text": {
+      "title": "Reply Text",
+      "type": "string"
+    },
+    "display_text": {
+      "title": "Display Text",
+      "type": "string"
+    },
+    "slip_text": {
+      "title": "Slip Text",
+      "type": "string"
+    },
+    "language": {
+      "title": "Language",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/TurnState"
+    },
+    "case_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Case Id"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/SourceRecord"
+      },
+      "title": "Sources",
+      "type": "array"
+    }
+  },
+  "required": [
+    "turn_id",
+    "reply_audio",
+    "reply_text",
+    "display_text",
+    "slip_text",
+    "language",
+    "state",
+    "case_id",
+    "sources"
+  ],
+  "title": "TurnResponse",
+  "type": "object"
+}

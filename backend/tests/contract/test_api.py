@@ -1,3 +1,4 @@
+# v1.1 | 04-Sep-2026 | Isolate WP1.1 assertions from the WP1.2 memory store.
 # v1.0 | 02-Sep-2026 | Verify canned HTTP behaviour and the shared turn schema.
 
 import io
@@ -23,6 +24,7 @@ def synthetic_audio() -> bytes:
 
 class ApiContractTests(unittest.TestCase):
     def setUp(self) -> None:
+        app.state.turn_service.reset()  #v1.1
         self.client = TestClient(app)
         self.addCleanup(self.client.close)
         self.fields = {

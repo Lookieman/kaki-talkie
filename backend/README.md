@@ -1,6 +1,6 @@
 # Backend foundation
 
-This implements only the canned backend foundation, not the complete WP1 gate.
+This implements the canned backend through WP1.2, not the complete WP1 gate.
 The authoritative contract is in `../docs/04-prototype/design.md`.
 
 Use Python 3.11 or newer. From the repository root:
@@ -32,6 +32,9 @@ slip. An empty upload returns a `failed` turn; missing or invalid required field
 return HTTP 422. Audio contents and duration are not decoded or validated yet.
 Use synthetic audio when exercising this foundation.
 
+`GET /api/device/pending` returns an empty list in WP1. Meaningful pending items,
+delivery acknowledgement and case state remain deferred to WP4.
+
 Every successful HTTP turn response includes all nine design fields. `reply_audio`
 is null because no recorded reply or TTS exists in this foundation. `case_id` is
 null and `sources` is empty because no case or retrieved evidence exists.
@@ -44,9 +47,14 @@ API routes handle transport, contracts define the input/output types, and
 `orchestration/turn_pipeline.py` supplies canned behaviour. No model, retrieval,
 database, external service or adapter is invoked.
 
-Retries of the same valid request yield identical canned JSON. This is not an
-idempotency store: reusing a turn ID with different input does not retrieve an
-earlier result. Persistent idempotency and side-effect handling are deferred.
+Completed responses are cached in process memory by `turn_id`. Reusing a turn ID
+returns the stored first response without executing the canned pipeline again,
+even if retry content differs. The cache is intentionally lost on restart;
+durable SQLite idempotency and side-effect handling remain deferred to WP4.
+
+Each first execution records an in-memory log with audio-preparation, STT,
+routing, retrieval, live-lookup, LLM, TTS, overall and future first-audio timing
+fields. Stages not invoked in WP1 remain null.
 
 This is a local development foundation. Authentication and public deployment are
 not implemented; use the documented localhost binding.
