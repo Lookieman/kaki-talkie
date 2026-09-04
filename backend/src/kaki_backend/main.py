@@ -1,0 +1,10 @@
+# v1.0 | 02-Sep-2026 | Bootstrap the backend with health and canned turn routes.
+
+from fastapi import FastAPI
+
+from kaki_backend.api.health import router as health_router
+from kaki_backend.api.turn import router as turn_router
+
+app = FastAPI(title="KaKi-Talkie", version="0.1.0")
+app.include_router(health_router)
+app.include_router(turn_router)

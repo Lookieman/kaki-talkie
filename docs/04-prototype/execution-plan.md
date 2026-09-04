@@ -1,8 +1,8 @@
 # KaKi-Talkie MVP execution plan
 
-**Six work packages, each a tested gate on the way to the September pitch**
+**Six work packages, decomposed into bounded Codex implementation units with independent test checkpoints**
 
-Version 1.0 | 02-Sep-2026 | SGLN Group 10
+Version 1.1 | 03-Sep-2026 | SGLN Group 10
 
 Suggested repository location: `docs/04-prototype/execution-plan.md`
 
@@ -10,7 +10,7 @@ This document translates the locked MVP backend design (`docs/04-prototype/desig
 
 `design.md` is the single source of truth. This execution plan controls sequencing only. If this plan conflicts with the design, the design wins and this plan must be corrected before implementation proceeds.
 
-The plan is written for two readers: a team member checking progress and a coding agent implementing one work package at a time.
+The plan is written for two readers: a team member controlling progress and a coding agent implementing one bounded unit at a time. A work package is a delivery gate; it is not normally the unit to hand wholesale to Codex.
 
 ---
 
@@ -57,29 +57,97 @@ A package passes its gate when:
 
 Live allowlisted lookup stays in WP5. WP3 proves the bounded static-RAG trust path first.
 
-### 1.3 Agent execution rules
+### 1.3 Work package versus Codex implementation unit
 
-Before implementing any package, the coding agent must read:
+A **work package (WP)** is a delivery gate. It groups several related capabilities that should be demonstrated together before the project moves on.
+
+A **Codex implementation unit (IU)** is the normal coding-session boundary inside a work package. Use the notation `WPn.m`, for example `WP1.2`.
+
+The distinction is deliberate:
+
+```text
++----------------------+-----------------------------------------------------------+
+| Level                | Purpose                                                   |
++----------------------+-----------------------------------------------------------+
+| Work package         | Delivery milestone and end-to-end gate.                   |
+| Implementation unit  | One bounded Codex build/review/test iteration.            |
+| Acceptance test      | Machine-verifiable behaviour inside or across units.      |
+| Owner smoke test     | Short manual check by the project owner after key units.  |
+| Package gate         | Full manual procedure before the next WP begins.          |
++----------------------+-----------------------------------------------------------+
+```
+
+An implementation unit should normally:
+
+- create or change one coherent behaviour or architectural boundary;
+- be independently reviewable in a diff;
+- have a small set of automated exit tests;
+- stop before the next materially different capability is introduced;
+- leave the repository runnable at the end of the unit;
+- be safe to revert without unpicking unrelated later work.
+
+Do **not** size a unit by number of files or lines. A unit may touch several files when they are required to make one behaviour complete. Conversely, do not split one behaviour into tiny file-by-file prompts merely to make the diff smaller.
+
+Codex must stop at the end of the named implementation unit even when the next step appears obvious.
+
+### 1.4 Owner validation levels
+
+Every implementation unit gets one owner-validation level:
+
+```text
++-------+-------------------+------------------------------------------------------+
+| Level | Name              | What the project owner does                           |
++-------+-------------------+------------------------------------------------------+
+| R     | Review            | Read the Codex completion summary and diff; confirm   |
+|       |                   | automated tests passed. No separate runtime test is   |
+|       |                   | required unless something looks suspicious.           |
+| S     | Smoke             | Do R, then personally exercise the new observable     |
+|       |                   | behaviour once before authorising the next unit.       |
+| G     | Package gate      | Run the complete WP manual test procedure and all      |
+|       |                   | applicable regressions before starting the next WP.    |
++-------+-------------------+------------------------------------------------------+
+```
+
+Use **S** whenever a unit introduces or changes:
+
+- a public API behaviour;
+- browser interaction;
+- a local model/runtime;
+- persistence;
+- retrieval/provenance;
+- an external side effect;
+- authentication/network boundaries;
+- physical hardware behaviour.
+
+Use **R** mainly for deterministic internal structure where automated tests directly prove the change.
+
+The project owner does not need to re-run every unit test by hand. The manual check exists to catch a different class of failure: "the tests are green, but this is not what I meant."
+
+### 1.5 Agent execution rules
+
+Before implementing any unit, the coding agent must read:
 
 1. `docs/04-prototype/design.md`;
 2. `AGENTS.md`;
 3. this execution plan;
-4. the active work package only.
+4. the active work package and named implementation unit only.
 
 Standing rules:
 
-- Implement only the named work package.
-- Do not pre-build later packages.
+- Implement only the named `WPn.m` implementation unit unless the prompt explicitly names an entire WP gate task.
+- Do not pre-build later units merely because their interfaces are obvious.
 - Preserve existing repository files and unrelated user changes.
 - Do not modify `design.md`, `execution-plan.md` or `AGENTS.md` unless explicitly instructed.
 - Do not weaken, remove, skip or rewrite an acceptance test merely to make code pass.
 - Do not change the WP1 turn-contract schema without a design revision.
 - Create directories only when their first real implementation requires them.
 - Do not create speculative adapters or placeholder modules.
+- Keep the repository runnable at the unit boundary.
+- At completion, stop and report what the owner should manually verify before the next unit.
 
 Low-level implementation decisions may proceed inside a locked design boundary. Changes to security, API contracts, data retention, interaction semantics, external integrations, architecture boundaries or MVP scope require a design decision and must not be silently implemented.
 
-### 1.4 Test tiers
+### 1.6 Test tiers
 
 ```text
 +--------+----------------------+--------------------------------------------+
@@ -96,7 +164,7 @@ Low-level implementation decisions may proceed inside a locked design boundary. 
 
 A Tier B or C test that cannot run in hosted CI is not a failure. It must be executed at the appropriate package gate on the actual target environment.
 
-### 1.5 Parallel hardware readiness lane
+### 1.7 Parallel hardware readiness lane
 
 Hardware smoke testing starts as soon as parts arrive. It is not a seventh work package and must not pull business logic onto the Pi.
 
@@ -113,7 +181,7 @@ Before WP6 begins, independently verify where hardware is available:
 
 Record failures early. WP6 should integrate known-working parts, not become the first time the printer is plugged in.
 
-### 1.6 Golden-path suite
+### 1.8 Golden-path suite
 
 From WP3 onward, keep a small binary must-pass suite alongside percentage-based regression metrics.
 
@@ -134,6 +202,23 @@ Initial golden paths:
 
 A percentage regression score may fluctuate. A golden path is binary.
 
+### 1.9 Per-unit Codex completion report
+
+For every implementation unit, Codex must report:
+
+1. the unit implemented and the design sections it relied on;
+2. files created, modified and deleted;
+3. behaviour added or changed;
+4. automated tests run and their results;
+5. tests not run and why;
+6. any assumptions or low-level implementation choices made;
+7. the exact owner smoke test to perform when the unit is level S;
+8. known limitations that remain intentionally deferred;
+9. confirmation that later units were not implemented.
+
+Treat the completion report and the diff as the review artefacts. A green test run is necessary, but it is not by itself permission to move to the next unit.
+
+
 ---
 
 ## 2. WP1 - Contract + simulator vertical slice
@@ -141,6 +226,56 @@ A percentage regression score may fluctuate. A golden path is binary.
 ### Goal
 
 Fix the public client contract and prove it end to end with a canned backend. Everything later plugs into this contract.
+
+### Codex implementation units
+
+```text
++--------+------------------------------+-----------------------------------------+-------+
+| Unit   | Build together               | Codex exits when                        | Owner |
++--------+------------------------------+-----------------------------------------+-------+
+| WP1.1  | FastAPI bootstrap, health,   | Canned turn API is runnable and its     | S     |
+|        | turn endpoint, typed request | baseline backend tests pass.            |       |
+|        | /response contracts, canned |                                         |       |
+|        | pipeline and baseline tests. |                                         |       |
+| WP1.2  | Pending endpoint, ports,     | Contract semantics, idempotency, timing | S     |
+|        | state enum, in-memory         | shape, failure shape and schema snapshot|       |
+|        | idempotency, timing/failure  | are covered by deterministic tests.     |       |
+|        | semantics and schema snapshot.|                                        |       |
+| WP1.3  | Simulator recording, chime,  | Browser can execute one complete canned | S     |
+|        | 15-second cap, device states,| turn locally; web build/tests pass.     |       |
+|        | API client, audio/display/   |                                         |       |
+|        | receipt rendering.           |                                         |       |
+| WP1.4  | Localhost/deployment wiring, | CI is green, Cloudflare path is protected| G    |
+|        | Cloudflare notes/config, CI  | and the complete WP1 manual procedure    |       |
+|        | and WP1 integration gate.    | passes.                                  |       |
++--------+------------------------------+-----------------------------------------+-------+
+```
+
+Primary acceptance ownership:
+
+```text
+WP1.1 -> WP1-AT-01, WP1-AT-02, WP1-AT-06
+WP1.2 -> WP1-AT-03, WP1-AT-04, WP1-AT-05, WP1-AT-07, WP1-AT-12
+WP1.3 -> WP1-AT-08, WP1-AT-09, WP1-AT-10
+WP1.4 -> WP1-AT-11 + complete WP1 regression/gate
+```
+
+**Current project position on 03-Sep-2026:** the first Codex iteration maps to **WP1.1**. The backend skeleton was implemented and Codex reported its tests passing. Treat WP1.1 as **implementation complete / owner smoke pending** until you personally exercise the API once.
+
+#### Immediate owner smoke test for WP1.1
+
+This is intentionally small; do not try to prove all of WP1 yet.
+
+1. Start the FastAPI backend using the repository's documented development command.
+2. Open `http://127.0.0.1:8000/api/health` in a browser and confirm it returns HTTP 200 with a well-formed application response.
+3. Open `http://127.0.0.1:8000/docs` and use FastAPI's interactive API documentation.
+4. Submit one `POST /api/device/turn` using a small non-empty audio file and clearly recognisable test values for `device_id`, `session_id` and `turn_id`.
+5. Confirm HTTP 200 and inspect the returned canned response against the current response model.
+6. Submit one obviously invalid request, such as omitting a required field, and confirm the API fails in a controlled validation shape rather than crashing.
+7. Stop the backend and confirm no unrelated services or later-WP components were required.
+
+At this point you are checking **"does the skeleton I now own actually run and expose the contract I asked for?"** You are not yet testing idempotency, pending items, browser recording, Cloudflare or real speech. Those belong to later WP1 units.
+
 
 ### User-visible outcome
 
@@ -290,6 +425,38 @@ The content is canned. The contract, browser recording, state flow, deployment p
 
 Replace canned inference ports with the locked initial local stack so speech in becomes a spoken answer out. No retrieval yet. The loop must work and be measured.
 
+### Codex implementation units
+
+```text
++--------+------------------------------+-----------------------------------------+-------+
+| Unit   | Build together               | Codex exits when                        | Owner |
++--------+------------------------------+-----------------------------------------+-------+
+| WP2.1  | Browser/device audio input   | Supported fixtures normalise reliably   | S     |
+|        | handling and 16 kHz mono PCM | and audio-preparation tests pass.       |       |
+|        | normalisation.               |                                         |       |
+| WP2.2  | whisper.cpp adapter, STT     | A real English fixture transcribes      | S     |
+|        | readiness and default raw-   | usefully; language evidence/readiness   |       |
+|        | audio deletion lifecycle.    | and deletion behaviour are proven.      |       |
+| WP2.3  | MLX/Qwen adapter and minimal | Real transcript -> short real reply_text| S     |
+|        | WP2 routing/generation path. | works without retrieval or TTS.         |       |
+| WP2.4  | macOS say adapter, complete  | Speech-in -> speech-out works; debug    | G     |
+|        | voice loop, debug panel, dev | timings and latency script are available|       |
+|        | scripts and latency capture. | and the WP2 manual procedure passes.    |       |
++--------+------------------------------+-----------------------------------------+-------+
+```
+
+Primary acceptance ownership:
+
+```text
+WP2.1 -> WP2-AT-01
+WP2.2 -> WP2-AT-02, WP2-AT-03, WP2-AT-07, WP2-AT-08
+WP2.3 -> WP2-AT-04
+WP2.4 -> WP2-AT-05, WP2-AT-06, WP2-AT-09, WP2-AT-10, WP2-AT-11, WP2-AT-12
+```
+
+Do not combine WP2.2, WP2.3 and WP2.4 into one "add the models" prompt. Each runtime has a different failure surface. A short owner smoke after each adapter makes faults much easier to localise while keeping the overall package fast.
+
+
 ### User-visible outcome
 
 A colleague asks an English question in the simulator and hears a short spoken reply related to what was said. The protected debug view shows transcript, language evidence and timing per invoked stage.
@@ -415,6 +582,39 @@ A colleague asks an English question in the simulator and hears a short spoken r
 ### Goal
 
 Make supported answers evidence-backed, sourced and bounded. WP3 proves the static trusted path before introducing volatile live lookup.
+
+### Codex implementation units
+
+```text
++--------+------------------------------+-----------------------------------------+-------+
+| Unit   | Build together               | Codex exits when                        | Owner |
++--------+------------------------------+-----------------------------------------+-------+
+| WP3.1  | Allowlist, fetch/snapshot,   | Dated runtime snapshots and processed   | S     |
+|        | clean/chunk and provenance   | chunks are reproducible under           |       |
+|        | metadata pipeline.           | KAKI_DATA_ROOT with stable hashes.      |       |
+| WP3.2  | Multilingual embeddings,     | CDC/CHAS and multilingual retrieval     | S     |
+|        | Chroma store, dense + lexical| fixtures return expected evidence and   |       |
+|        | hybrid retrieval and merge.  | do not duplicate chunks.                |       |
+| WP3.3  | Grounded answerer, evidence- | Supported turns produce evidence-bound  | S     |
+|        | only generation, application | answers, application sources, display   |       |
+|        | provenance and output/slip.  | text and <=40-word English slips.       |       |
+| WP3.4  | Refusal/no-coverage path,    | Unsupported/unsafe-shaped cases refuse; | G     |
+|        | volunteered-secret handling, | golden paths and regression suite pass. |       |
+|        | dev set and golden paths.    |                                         |       |
++--------+------------------------------+-----------------------------------------+-------+
+```
+
+Primary acceptance ownership:
+
+```text
+WP3.1 -> WP3-AT-01, WP3-AT-02
+WP3.2 -> WP3-AT-03, WP3-AT-04, WP3-AT-10
+WP3.3 -> WP3-AT-06, WP3-AT-07
+WP3.4 -> WP3-AT-05, WP3-AT-08, WP3-AT-09, WP3-AT-11, WP3-AT-12, WP3-AT-13
+```
+
+WP3.1 and WP3.2 stay separate deliberately: first prove that the evidence is captured and traceable, then prove that retrieval can find it. This prevents a weak scraper from being disguised by a seemingly good retrieval result.
+
 
 ### User-visible outcome
 
@@ -572,6 +772,43 @@ chroma/
 
 Give the backend durable memory, deterministic actions and the case-follow-up behaviour that differentiates KaKi-Talkie. Prove the full software MVP through the simulator before Pi integration.
 
+### Codex implementation units
+
+```text
++--------+------------------------------+-----------------------------------------+-------+
+| Unit   | Build together               | Codex exits when                        | Owner |
++--------+------------------------------+-----------------------------------------+-------+
+| WP4.1  | SQLite schema/migrations,    | Turns/sources/cases can persist and      | S     |
+|        | repositories and durable     | same turn_id survives a backend restart.|       |
+|        | turn idempotency.            |                                         |       |
+| WP4.2  | repeat_previous,             | Both actions reuse stored content and    | S     |
+|        | print_previous and print     | no LLM regeneration occurs.             |       |
+|        | policy behaviour.            |                                         |       |
+| WP4.3  | kaki_handoff case creation, | One real Telegram handoff occurs and     | S     |
+|        | Telegram adapter and side-   | retrying the same turn_id cannot send a |       |
+|        | effect idempotency.          | duplicate.                               |       |
+| WP4.4  | Calendar confirmation state, | No event exists before confirmation; one | S     |
+|        | Google Calendar adapter and  | confirmed turn creates exactly one event.|       |
+|        | idempotency.                 |                                         |       |
+| WP4.5  | Pending item contract, case  | Due follow-up is delivered once, next    | G     |
+|        | follow-up lifecycle, presenter| response deterministically closes/keeps |       |
+|        | controls, backup and gate.   | the case and full WP4 procedure passes. |       |
++--------+------------------------------+-----------------------------------------+-------+
+```
+
+Primary acceptance ownership:
+
+```text
+WP4.1 -> WP4-AT-01, WP4-AT-02, WP4-AT-03
+WP4.2 -> WP4-AT-04, WP4-AT-05, WP4-AT-06
+WP4.3 -> WP4-AT-07, WP4-AT-08
+WP4.4 -> WP4-AT-09
+WP4.5 -> WP4-AT-10, WP4-AT-11, WP4-AT-12, WP4-AT-13, WP4-AT-14
+```
+
+Keep Telegram and Google Calendar in separate units even though both are "actions". They use different credentials, confirmation semantics and duplicate-side-effect risks; combining them makes a failed integration needlessly difficult to diagnose.
+
+
 ### User-visible outcome
 
 A colleague can repeat an answer, request printing, accept a kaki handoff, create a permitted calendar action after confirmation, and later receive a due case follow-up. Telegram and Google Calendar are real in this package, not deferred to hardware integration.
@@ -722,6 +959,47 @@ flowchart LR
 
 Improve Singapore-language quality and introduce programmable prompting without destabilising the already-working baseline. Add one volatile live-information path only after static grounded retrieval is proven.
 
+### Codex implementation units
+
+```text
++--------+------------------------------+-----------------------------------------+-------+
+| Unit   | Build together               | Codex exits when                        | Owner |
++--------+------------------------------+-----------------------------------------+-------+
+| WP5.1  | Language policy and baseline | Curated Malay/code-switch cases choose  | S     |
+|        | Malay reply/display path with| expected reply language; slip remains   |       |
+|        | English slip retained.       | English.                                |       |
+| WP5.2  | MERaLiON STT challenger     | Adapter is viable and measured, or a    | S     |
+|        | adapter and sequential STT   | documented viability result explains why|       |
+|        | bake-off.                    | the baseline remains.                   |       |
+| WP5.3  | SEA-LION LLM challenger and | Grounding/refusal/language/latency result| S     |
+|        | sequential LLM bake-off.     | file supports keep/promote decision.    |       |
+| WP5.4  | OmniVoice English/Malay TTS  | Playable output and human-reviewed Malay| S     |
+|        | target path; optional Hokkien| result exist if adopted; unavailable     |       |
+|        | viability only if practical. | challengers do not block the baseline.  |       |
+| WP5.5  | DSPy Router, GroundedAnswerer| Contract is unchanged and DSPy matches/ | S     |
+|        | and OutputFormatter migration| improves the working baseline, otherwise |       |
+|        | plus one optimiser pass where| baseline remains active.                |       |
+|        | justified.                   |                                         |       |
+| WP5.6  | One allowlisted live lookup, | Fresh-source and failure/refusal cases   | G     |
+|        | evidence-result view, shipped| pass; model-selection ADR is complete   |       |
+|        | configuration and WP5 gate.  | and full WP5 procedure passes.          |       |
++--------+------------------------------+-----------------------------------------+-------+
+```
+
+Primary acceptance ownership:
+
+```text
+WP5.1 -> WP5-AT-01, WP5-AT-02, WP5-AT-03, WP5-AT-04
+WP5.2 -> WP5-AT-08
+WP5.3 -> WP5-AT-09
+WP5.4 -> WP5-AT-05
+WP5.5 -> WP5-AT-06, WP5-AT-07
+WP5.6 -> WP5-AT-10, WP5-AT-11, WP5-AT-12
+```
+
+Challenger units are experiments with explicit keep/reject outcomes, not commitments to ship new models. This protects speed: an unsuccessful challenger can still complete its unit cleanly and the working baseline continues.
+
+
 ### User-visible outcome
 
 A colleague can ask in Malay and receive a Malay spoken/display answer with an English slip, use Singlish naturally, and exercise code-switching. Model challenger results are measured rather than assumed. One selected current-information use case uses an allowlisted live lookup or refuses when current evidence cannot be confirmed.
@@ -864,6 +1142,42 @@ A colleague can ask in Malay and receive a Malay spoken/display answer with an E
 ### Goal
 
 Connect the already-working software MVP to the Raspberry Pi without changing the backend contract. Harden the demo, rehearse failures and prove that the Pi remains a thin client.
+
+### Codex implementation units
+
+```text
++--------+------------------------------+-----------------------------------------+-------+
+| Unit   | Build together               | Codex exits when                        | Owner |
++--------+------------------------------+-----------------------------------------+-------+
+| WP6.1  | Thin Pi client state loop,   | Client works against mocked hardware/API| S     |
+|        | config, API client and mocked| and contains no model/RAG/business logic.|       |
+|        | I/O boundaries.              |                                         |       |
+| WP6.2  | Dome button, debounce, audio | Real press-and-hold records/plays audio | S     |
+|        | capture/playback and LED     | and LED states behave correctly.        |       |
+|        | state integration.           |                                         |       |
+| WP6.3  | ESC/POS printer, print policy| Real slip prints; printer failure never | S     |
+|        | and printer-failure handling.| suppresses spoken answer.               |       |
+| WP6.4  | Device service auth, timeout/| External unauthenticated requests are   | S     |
+|        | retry with same turn_id,     | blocked before inference; service starts|       |
+|        | systemd and recovery.        | on boot and recovers from failure.      |       |
+| WP6.5  | Pending/action Pi regression,| Five-scenario canned fallback, two-     | G     |
+|        | canned mode, presenter tools,| connectivity rehearsal, restore test and|       |
+|        | demo hardening and freeze.   | complete WP6 gate pass.                 |       |
++--------+------------------------------+-----------------------------------------+-------+
+```
+
+Primary acceptance ownership:
+
+```text
+WP6.1 -> WP6-AT-13
+WP6.2 -> WP6-AT-01, WP6-AT-02, WP6-AT-03 where double-press is enabled
+WP6.3 -> WP6-AT-09
+WP6.4 -> WP6-AT-04, WP6-AT-05, WP6-AT-10
+WP6.5 -> WP6-AT-06, WP6-AT-07, WP6-AT-08, WP6-AT-11, WP6-AT-12, WP6-AT-14
+```
+
+WP6 must not become a backend redesign package. If a Pi unit appears to require a new backend contract or business rule, stop and resolve that as a design issue rather than "fixing" the backend to suit the hardware.
+
 
 ### User-visible outcome
 
@@ -1101,13 +1415,44 @@ Date protection rules:
 
 ---
 
-## 11. Work-package handoff prompt for Codex
+## 11. Codex handoff prompts
 
-Use this pattern for each implementation session:
+### 11.1 Normal implementation-unit prompt
 
-> Read `docs/04-prototype/design.md`, `AGENTS.md`, and `docs/04-prototype/execution-plan.md`. Implement **WPn only**. Do not implement later work packages. Preserve existing repository artefacts and unrelated changes. Run the WPn Tier A tests and any Tier B/C tests available in this environment. Do not weaken acceptance tests. Stop if implementation requires a design-level change. At completion, report files created/modified, behaviour implemented, tests run/results, tests not run, and deferred later-package work.
+Use an implementation unit, not an entire work package, as the default Codex scope:
 
-The active work package is the unit of authority for coding scope.
+> Read `docs/04-prototype/design.md`, `AGENTS.md`, and `docs/04-prototype/execution-plan.md`. Implement **WPn.m only**. Treat `design.md` as the architecture source of truth and the WPn.m row as the coding boundary. Do not implement later units or later work packages. Preserve existing repository artefacts and unrelated changes. Run the automated tests relevant to this unit plus applicable earlier contract/regression tests. Do not weaken tests. Stop if implementation requires a design-level change. At completion, report files created/modified/deleted, behaviour implemented, tests run/results, tests not run, assumptions, deferred work, and the owner smoke test required by the unit's R/S/G level. Then stop.
+
+For the next iteration from the current project position, the scope should therefore be **WP1.2**, not "WP1" and not "Stage 1", once the WP1.1 owner smoke passes.
+
+### 11.2 Package-gate prompt
+
+At the final unit of a WP, Codex may be asked to run the automated package gate without adding new scope:
+
+> Review the completed **WPn** against its acceptance tests and Definition of Done. Do not add later-WP features. Run all available automated WPn and earlier regression tests. Report each acceptance test as pass, fail, or not runnable in this environment with evidence. Identify the exact remaining owner manual steps. Do not mark the work package complete on the owner's behalf.
+
+The owner then runs the WP manual procedure. Only after that manual gate passes does the next work package begin.
+
+### 11.3 Review rhythm
+
+The intended rhythm is:
+
+```mermaid
+flowchart LR
+    P["Prompt one WPn.m unit"] --> C["Codex implements + tests"]
+    C --> D["Review completion report + diff"]
+    D --> S{"Owner level"}
+    S -->|R| A["Approve / commit"]
+    S -->|S| M["Run short smoke test"]
+    M --> A
+    A --> N{"Last unit in WP?"}
+    N -->|No| P
+    N -->|Yes| G["Run package automated gate"]
+    G --> H["Owner full manual WP gate"]
+    H --> X["Start next WP"]
+```
+
+This makes the control point explicit. Codex can move quickly inside one unit, but the project owner decides when the project crosses each behavioural boundary.
 
 ---
 
@@ -1117,6 +1462,10 @@ The active work package is the unit of authority for coding scope.
 +---------+-------------+------------------------------------------------------+
 | Version | Date        | Change                                               |
 +---------+-------------+------------------------------------------------------+
+| 1.1     | 03-Sep-2026 | Added Codex-sized WPn.m implementation units,       |
+|         |             | owner R/S/G validation levels, per-unit completion  |
+|         |             | reports, current WP1.1 smoke test, and unit/gate    |
+|         |             | handoff prompts.                                    |
 | 1.0     | 02-Sep-2026 | Baselined six-package plan against design v1.1.     |
 |         |             | Moved live lookup to WP5; fixed MLX/say baselines;  |
 |         |             | moved Telegram/Calendar to WP4; added runtime-data  |
