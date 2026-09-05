@@ -1,0 +1,246 @@
+/* v1.0 | 04-Sep-2026 | Style the responsive WP1.3 simulator and receipt. */
+
+:root {
+  color-scheme: light;
+  --ink: #173229;
+  --muted: #587168;
+  --cream: #f2ead8;
+  --paper: #fffdf7;
+  --green: #27745b;
+  --coral: #e56950;
+  --shadow: rgba(23, 50, 41, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background: radial-gradient(circle at 15% 15%, #fff8e9 0, transparent 28%), linear-gradient(135deg, #dce9df, var(--cream));
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button {
+  font: inherit;
+}
+
+.simulator-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(15rem, 0.8fr) minmax(20rem, 1fr) minmax(15rem, 0.7fr);
+  gap: clamp(1.25rem, 4vw, 4rem);
+  align-items: center;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: clamp(1.25rem, 5vw, 4rem);
+}
+
+.intro h1 {
+  margin: 0.1em 0 0.2em;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(3rem, 7vw, 6.4rem);
+  font-weight: 500;
+  line-height: 0.9;
+  letter-spacing: -0.06em;
+}
+
+.intro > p:last-child {
+  max-width: 30rem;
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.eyebrow,
+.receipt-label {
+  margin: 0;
+  color: var(--green);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.device {
+  padding: clamp(1.2rem, 3vw, 2rem);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 3rem;
+  background: rgba(255, 253, 247, 0.72);
+  box-shadow: 0 2rem 5rem var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.state-track {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.35rem;
+  margin: 0 0 1.1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.state-track li {
+  min-width: 0;
+  color: #82928c;
+  font-size: clamp(0.58rem, 1vw, 0.7rem);
+  text-align: center;
+  text-transform: capitalize;
+}
+
+.state-track span {
+  display: block;
+  height: 0.28rem;
+  margin-bottom: 0.4rem;
+  border-radius: 1rem;
+  background: #cfdbd5;
+}
+
+.state-track li.active {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.state-track li.active span {
+  background: var(--coral);
+  box-shadow: 0 0 0.8rem rgba(229, 105, 80, 0.5);
+}
+
+.display {
+  min-height: 8rem;
+  display: grid;
+  place-items: center;
+  padding: 1.4rem;
+  border-radius: 1.2rem;
+  color: #d9fae9;
+  background: #173229;
+  font-size: clamp(1.2rem, 2.5vw, 1.7rem);
+  font-weight: 650;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.talk-button {
+  width: min(13rem, 70%);
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: 2rem auto 0.5rem;
+  border: 0.65rem solid #f7bdac;
+  border-radius: 50%;
+  color: white;
+  background: var(--coral);
+  box-shadow: 0 0.8rem 0 #ae4839, 0 1.4rem 2.5rem rgba(84, 39, 30, 0.25);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+
+.talk-button span {
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.talk-button small {
+  opacity: 0.8;
+  font-size: 0.72rem;
+}
+
+.talk-button:active:not(:disabled) {
+  transform: translateY(0.45rem);
+  box-shadow: 0 0.35rem 0 #ae4839, 0 0.8rem 1.5rem rgba(84, 39, 30, 0.2);
+}
+
+.talk-button:disabled {
+  filter: saturate(0.55);
+  cursor: wait;
+}
+
+.error {
+  margin: 1rem 0 0;
+  color: #8d2d21;
+  text-align: center;
+}
+
+.receipt {
+  align-self: center;
+}
+
+.receipt-label {
+  margin: 0 0 0.7rem 1rem;
+}
+
+.receipt-paper {
+  width: min(100%, 18rem);
+  min-height: 22rem;
+  padding: 1.8rem 1.25rem 2.5rem;
+  overflow: hidden;
+  color: #272727;
+  background: var(--paper);
+  box-shadow: 0 1.2rem 2.8rem var(--shadow);
+  font-family: "Courier New", Courier, monospace;
+  font-size: clamp(0.74rem, 1.1vw, 0.88rem);
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.receipt-paper > p {
+  color: #928f86;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+.printed .receipt-paper {
+  animation: print-slip 650ms ease-out;
+}
+
+@keyframes print-slip {
+  from {
+    clip-path: inset(0 0 100% 0);
+    transform: translateY(-1rem);
+  }
+  to {
+    clip-path: inset(0);
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 900px) {
+  .simulator-shell {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .intro {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .simulator-shell {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .intro {
+    grid-column: auto;
+  }
+
+  .receipt-paper {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
