@@ -2,7 +2,7 @@
 
 **Six work packages, decomposed into bounded Codex implementation units with independent test checkpoints**
 
-Version 1.1 | 03-Sep-2026 | SGLN Group 10
+Version 1.2 | 05-Sep-2026 | SGLN Group 10
 
 Suggested repository location: `docs/04-prototype/execution-plan.md`
 
@@ -260,21 +260,28 @@ WP1.3 -> WP1-AT-08, WP1-AT-09, WP1-AT-10
 WP1.4 -> WP1-AT-11 + complete WP1 regression/gate
 ```
 
-**Current project position on 03-Sep-2026:** the first Codex iteration maps to **WP1.1**. The backend skeleton was implemented and Codex reported its tests passing. Treat WP1.1 as **implementation complete / owner smoke pending** until you personally exercise the API once.
+### WP1 closure record
 
-#### Immediate owner smoke test for WP1.1
+**Status: CLOSED on 05-Sep-2026.**
 
-This is intentionally small; do not try to prove all of WP1 yet.
+The WP1 package gate was completed against the WP1.4 deployment candidate after the owner exercised the deployed simulator on both desktop and iPhone.
 
-1. Start the FastAPI backend using the repository's documented development command.
-2. Open `http://127.0.0.1:8000/api/health` in a browser and confirm it returns HTTP 200 with a well-formed application response.
-3. Open `http://127.0.0.1:8000/docs` and use FastAPI's interactive API documentation.
-4. Submit one `POST /api/device/turn` using a small non-empty audio file and clearly recognisable test values for `device_id`, `session_id` and `turn_id`.
-5. Confirm HTTP 200 and inspect the returned canned response against the current response model.
-6. Submit one obviously invalid request, such as omitting a required field, and confirm the API fails in a controlled validation shape rather than crashing.
-7. Stop the backend and confirm no unrelated services or later-WP components were required.
+```text
++----------------------+------------------------------------------------------+
+| Closure item         | Recorded result                                      |
++----------------------+------------------------------------------------------+
+| Final unit           | WP1.4 - localhost/deployment wiring and WP1 gate    |
+| Branch               | feat/wp1-4-deployment-wiring                         |
+| Tested commit        | 6ef5342 - WP 1.4: deployment wiring                 |
+| Desktop simulator    | Passed                                               |
+| iPhone simulator     | Passed                                               |
+| Cloudflare path      | Protected deployed simulator exercised successfully  |
+| Localhost binding    | Owner gate completed with loopback-only deployment   |
+| Package outcome      | WP1 closed; next implementation unit is WP2.1        |
++----------------------+------------------------------------------------------+
+```
 
-At this point you are checking **"does the skeleton I now own actually run and expose the contract I asked for?"** You are not yet testing idempotency, pending items, browser recording, Cloudflare or real speech. Those belong to later WP1 units.
+The exact tested commit is retained above so later regressions can be compared against the package boundary that actually passed the owner gate. WP1 should not be reopened merely to accommodate later model/runtime work; any such change must be handled in the relevant later work package or through an explicit design revision.
 
 
 ### User-visible outcome
@@ -1413,6 +1420,8 @@ Date protection rules:
 5. Caregiver UI work does not exist in this MVP schedule.
 6. Once WP4 passes, the complete software case/action experience already works through the simulator; WP6 only adds the physical client.
 
+**Actual progress:** WP1 closed on 05-Sep-2026 at commit `6ef5342`. The next planned execution point is **WP2.1**.
+
 ---
 
 ## 11. Codex handoff prompts
@@ -1423,7 +1432,7 @@ Use an implementation unit, not an entire work package, as the default Codex sco
 
 > Read `docs/04-prototype/design.md`, `AGENTS.md`, and `docs/04-prototype/execution-plan.md`. Implement **WPn.m only**. Treat `design.md` as the architecture source of truth and the WPn.m row as the coding boundary. Do not implement later units or later work packages. Preserve existing repository artefacts and unrelated changes. Run the automated tests relevant to this unit plus applicable earlier contract/regression tests. Do not weaken tests. Stop if implementation requires a design-level change. At completion, report files created/modified/deleted, behaviour implemented, tests run/results, tests not run, assumptions, deferred work, and the owner smoke test required by the unit's R/S/G level. Then stop.
 
-For the next iteration from the current project position, the scope should therefore be **WP1.2**, not "WP1" and not "Stage 1", once the WP1.1 owner smoke passes.
+For the next iteration from the current project position, the scope should therefore be **WP2.1**, not "WP2" and not "Stages 2 and 3". WP1 is closed; begin with browser/device audio handling and 16 kHz mono PCM normalisation only.
 
 ### 11.2 Package-gate prompt
 
@@ -1462,6 +1471,9 @@ This makes the control point explicit. Codex can move quickly inside one unit, b
 +---------+-------------+------------------------------------------------------+
 | Version | Date        | Change                                               |
 +---------+-------------+------------------------------------------------------+
+| 1.2     | 05-Sep-2026 | Recorded WP1 closure at tested commit 6ef5342,       |
+|         |             | captured desktop/iPhone owner-gate results, and     |
+|         |             | moved the current execution point to WP2.1.         |
 | 1.1     | 03-Sep-2026 | Added Codex-sized WPn.m implementation units,       |
 |         |             | owner R/S/G validation levels, per-unit completion  |
 |         |             | reports, current WP1.1 smoke test, and unit/gate    |
