@@ -1,3 +1,4 @@
+# v1.2 | 05-Sep-2026 | Provide the explicit localhost-only WP1 launcher.
 # v1.1 | 04-Sep-2026 | Register pending and initialise WP1.2 turn semantics.
 # v1.0 | 02-Sep-2026 | Bootstrap the backend with health and canned turn routes.
 
@@ -14,3 +15,13 @@ app.state.turn_service = TurnService(TurnPipeline())  #v1.1
 app.include_router(health_router)
 app.include_router(pending_router)  #v1.1
 app.include_router(turn_router)
+
+
+def run() -> None:  #v1.2
+    import uvicorn  #v1.2
+
+    uvicorn.run(app, host="127.0.0.1", port=8000)  #v1.2
+
+
+if __name__ == "__main__":  #v1.2
+    run()  #v1.2

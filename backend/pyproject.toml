@@ -1,3 +1,4 @@
+# v1.1 | 05-Sep-2026 | Package spoken fixtures and configure Tier A lint/format checks.
 # v1.0 | 02-Sep-2026 | Package the canned FastAPI backend and HTTP test dependencies.
 
 [build-system]
@@ -18,7 +19,27 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["httpx>=0.27,<1"]
+dev = ["ruff==0.12.12"] #v1.1
 
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["kaki_backend*"]
+
+[tool.setuptools.package-data] #v1.1
+kaki_backend = ["fixtures/*.wav", "fixtures/README.md"] #v1.1
+
+[tool.ruff] #v1.1
+target-version = "py311" #v1.1
+line-length = 100 #v1.1
+
+[tool.ruff.lint] #v1.1
+preview = true #v1.1
+select = ["E1", "E2", "E3", "E4", "E7", "E9", "F", "W"] #v1.1
+# Formatting uses whitespace/indentation rules, not the rewriting formatter.
+# AGENTS.md requires compact inline version comments rather than E262 spacing.
+ignore = ["E262"] #v1.1
+
+[tool.ruff.lint.per-file-ignores] #v1.1
+# Pre-existing utilities outside WP1.4's approved changes lack final newlines.
+"**/scripts/setup_wp_worktree.py" = ["W292"] #v1.1
+"**/scripts/cleanup_wp_worktree.py" = ["W292"] #v1.1

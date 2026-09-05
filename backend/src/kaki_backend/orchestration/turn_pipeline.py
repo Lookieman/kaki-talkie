@@ -1,3 +1,4 @@
+# v1.2 | 05-Sep-2026 | Add fixture-labelled receipts and prerecorded failure audio.
 # v1.1 | 04-Sep-2026 | Compose canned ports and record complete WP1 timing shape.
 # v1.0 | 02-Sep-2026 | Return deterministic canned turns without inference or state.
 
@@ -11,6 +12,7 @@ from kaki_backend.orchestration.canned_ports import (  #v1.1
     CannedRetrieverPort,
     CannedSttPort,
     CannedTtsPort,
+    canned_audio,  #v1.2
 )
 
 
@@ -69,7 +71,9 @@ class TurnPipeline:  #v1.1
                 slip_text=(
                     "KAKI-TALKIE TEST\n"
                     "This is a sample English slip.\n"
-                    "No advice was generated."
+                    "No advice was generated. No retrieval occurred.\n"  #v1.2
+                    "Source: canned test fixture\n"  #v1.2
+                    "Source checked: 05-Sep-2026 (fixture date)"  #v1.2
                 ),
                 language=language,
                 state=TurnState.ANSWERED,
@@ -91,7 +95,7 @@ class TurnPipeline:  #v1.1
     def _failed_response(turn_id: str) -> TurnResponse:  #v1.1
         return TurnResponse(  #v1.1
             turn_id=turn_id,
-            reply_audio=None,
+            reply_audio=canned_audio("empty_audio.wav"),  #v1.2
             reply_text="No audio was received. Please try recording again.",
             display_text="Please try recording again.",
             slip_text="",

@@ -1,6 +1,8 @@
+# v1.2 | 05-Sep-2026 | Require versioned health and playable WP1 canned audio.
 # v1.1 | 04-Sep-2026 | Isolate WP1.1 assertions from the WP1.2 memory store.
 # v1.0 | 02-Sep-2026 | Verify canned HTTP behaviour and the shared turn schema.
 
+import base64  #v1.2
 import io
 import unittest
 import wave
@@ -44,7 +46,8 @@ class ApiContractTests(unittest.TestCase):
     def test_health(self) -> None:
         response = self.client.get("/api/health")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"status": "ok"})
+        self.assertEqual(response.json(), {"status": "ok", "version": app.version})  #v1.2
+        self.assertTrue(response.json()["version"])  #v1.2
 
     def test_canned_turn_contract(self) -> None:
         response = self.post_turn(self.fields, self.audio)
@@ -71,7 +74,11 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("test reply", result["reply_text"])
         self.assertTrue(result["display_text"])
         self.assertIn("sample English slip", result["slip_text"])
-        self.assertIsNone(result["reply_audio"])
+        self.assertTrue(result["reply_audio"].startswith("data:audio/wav;base64,"))  #v1.2
+        audio = base64.b64decode(result["reply_audio"].split(",", 1)[1], validate=True)  #v1.2
+        with wave.open(io.BytesIO(audio), "rb") as recording:  #v1.2
+            self.assertEqual(recording.getcomptype(), "NONE")  #v1.2
+            self.assertGreater(recording.getnframes(), recording.getframerate())  #v1.2
         self.assertIsNone(result["case_id"])
         self.assertEqual(result["sources"], [])
 
