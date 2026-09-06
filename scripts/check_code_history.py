@@ -1,4 +1,7 @@
+# v1.1 | 06-Sep-2026 | Require inline markers only for edits to existing files.
 # v1.0 | 05-Sep-2026 | Check language-valid histories, changed markers and runtime paths.
+
+"""Check repository histories and forbidden paths without changing files."""  #v1.1
 
 import argparse  #v1.0
 import difflib  #v1.0
@@ -151,7 +154,7 @@ def check_text(path: str, source: str, previous: str | None) -> list[str]:  #v1.
         expected = {"/* " + version + " */" for version in introduced}  #v1.0
     else:  #v1.0
         expected = {"#" + version for version in introduced}  #v1.0
-    for number in sorted(changed & code):  #v1.0
+    for number in sorted(changed & code) if previous is not None else ():  #v1.1
         if comments.get(number, "").strip() not in expected:  #v1.0
             tags = ", ".join(sorted(expected)) or "a newly recorded version marker"  #v1.0
             errors.append(f"{path}:{number}: changed code needs {tags}")  #v1.0
