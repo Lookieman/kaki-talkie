@@ -1,12 +1,19 @@
+# v1.3 | 06-Sep-2026 | Normalise audio before canned inference and time preparation.
 # v1.2 | 05-Sep-2026 | Add fixture-labelled receipts and prerecorded failure audio.
 # v1.1 | 04-Sep-2026 | Compose canned ports and record complete WP1 timing shape.
 # v1.0 | 02-Sep-2026 | Return deterministic canned turns without inference or state.
+
+"""Prepare uploaded audio and orchestrate the still-canned inference ports."""  #v1.3
 
 from time import perf_counter  #v1.1
 
 from kaki_backend.contracts.ports import LlmPort, RetrieverPort, SttPort, TtsPort  #v1.1
 from kaki_backend.contracts.responses import TurnResponse, TurnState
 from kaki_backend.contracts.turn_log import TurnExecution, TurnLog, TurnTimings  #v1.1
+from kaki_backend.orchestration.audio_normalisation import (  #v1.3
+    AudioNormalisationError,  #v1.3
+    normalise_audio,  #v1.3
+)  #v1.3
 from kaki_backend.orchestration.canned_ports import (  #v1.1
     CannedLlmPort,
     CannedRetrieverPort,
@@ -26,6 +33,7 @@ class TurnPipeline:  #v1.1
         tts: TtsPort | None = None,
         retriever: RetrieverPort | None = None,
     ) -> None:
+        """Select supplied ports or the existing deterministic canned adapters."""  #v1.3
         self._stt = stt or CannedSttPort()  #v1.1
         self._llm = llm or CannedLlmPort()  #v1.1
         self._tts = tts or CannedTtsPort()  #v1.1
@@ -42,14 +50,22 @@ class TurnPipeline:  #v1.1
         audio_preparation_ms: float,
         request_started_at: float,
     ) -> TurnExecution:
+        """Normalise once per execution; return a failed turn for unusable audio."""  #v1.3
         self.execution_count += 1  #v1.1
         timings = TurnTimings(audio_preparation_ms=audio_preparation_ms)  #v1.1
 
-        if not audio:  #v1.1
+        preparation_started_at = perf_counter()  #v1.3
+        try:  #v1.3
+            prepared_audio = normalise_audio(audio)  #v1.3
+        except AudioNormalisationError:  #v1.3
+            prepared_audio = None  #v1.3
+        timings.audio_preparation_ms += (perf_counter() - preparation_started_at) * 1000  #v1.3
+
+        if prepared_audio is None:  #v1.3
             response = self._failed_response(turn_id)  #v1.1
         else:
             stt_started_at = perf_counter()  #v1.1
-            transcript = self._stt.transcribe(audio)  #v1.1
+            transcript = self._stt.transcribe(prepared_audio)  #v1.3
             timings.stt_ms = (perf_counter() - stt_started_at) * 1000  #v1.1
 
             routing_started_at = perf_counter()  #v1.1

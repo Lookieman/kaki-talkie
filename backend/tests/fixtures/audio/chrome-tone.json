@@ -1,0 +1,7 @@
+{
+  "mime": "audio/webm;codecs=opus",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "sampleRate": 48000,
+  "toneHz": 440,
+  "requestedDurationSeconds": 1
+}

@@ -1,5 +1,7 @@
+# v1.1 | 06-Sep-2026 | Use valid audio for the packaged response regression.
 # v1.0 | 05-Sep-2026 | Verify WP1 deployment defaults and packaged spoken fixtures.
 
+"""Preserve WP1 acceptance assertions with valid audio inputs for WP2.1."""  #v1.1
 import base64  #v1.0
 import io  #v1.0
 import json  #v1.0
@@ -16,12 +18,15 @@ from kaki_backend.orchestration.canned_ports import CannedTtsPort, canned_audio 
 
 
 class Wp14ContractTests(unittest.TestCase):  #v1.0
+    """Provide deterministic Wp14ContractTests behaviour for contract tests."""  #v1.1
     def setUp(self) -> None:  #v1.0
+        """Reset application state and create an isolated HTTP test client."""  #v1.1
         app.state.turn_service.reset()  #v1.0
         self.client = TestClient(app)  #v1.0
         self.addCleanup(self.client.close)  #v1.0
 
     def post_turn(self, turn_id: str, audio: bytes) -> dict:  #v1.0
+        """Submit an audio fixture through the unchanged multipart contract."""  #v1.1
         response = self.client.post(  #v1.0
             "/api/device/turn",  #v1.0
             data={"device_id": "wp14", "session_id": "wp14", "turn_id": turn_id},  #v1.0
@@ -31,12 +36,14 @@ class Wp14ContractTests(unittest.TestCase):  #v1.0
         return response.json()  #v1.0
 
     def test_launcher_uses_loopback_even_with_uvicorn_environment(self) -> None:  #v1.0
+        """Verify launcher uses loopback even with uvicorn environment."""  #v1.1
         with patch.dict("os.environ", {"UVICORN_HOST": "0.0.0.0", "UVICORN_PORT": "9000"}):  #v1.0
             with patch("uvicorn.run") as server:  #v1.0
                 run()  #v1.0
         server.assert_called_once_with(app, host="127.0.0.1", port=8000)  #v1.0
 
     def test_web_start_and_dev_bind_to_loopback(self) -> None:  #v1.0
+        """Verify web start and dev bind to loopback."""  #v1.1
         root = Path(__file__).resolve().parents[3]  #v1.0
         package = json.loads((root / "apps/web/package.json").read_text(encoding="utf-8"))  #v1.0
         for name, command in (("start", "next start"), ("dev", "next dev")):  #v1.0
@@ -45,12 +52,15 @@ class Wp14ContractTests(unittest.TestCase):  #v1.0
             )  #v1.0
 
     def test_health_reads_application_version(self) -> None:  #v1.0
+        """Verify health reads application version."""  #v1.1
         with patch.object(app, "version", "test-version"):  #v1.0
             response = self.client.get("/api/health")  #v1.0
         self.assertEqual(response.json(), {"status": "ok", "version": "test-version"})  #v1.0
 
     def test_both_paths_return_their_packaged_pcm_speech(self) -> None:  #v1.0
-        cases = (("answered", b"synthetic", "canned_reply.wav"), ("failed", b"", "empty_audio.wav"))  #v1.0
+        """Verify both paths return their packaged pcm speech."""  #v1.1
+        fixture = files("kaki_backend").joinpath("fixtures/canned_reply.wav").read_bytes()  #v1.1
+        cases = (("answered", fixture, "canned_reply.wav"), ("failed", b"", "empty_audio.wav"))  #v1.1
         payloads = []  #v1.0
         for state, upload, filename in cases:  #v1.0
             with self.subTest(state=state):  #v1.0
@@ -74,13 +84,16 @@ class Wp14ContractTests(unittest.TestCase):  #v1.0
         self.assertNotEqual(payloads[0], payloads[1])  #v1.0
 
     def test_fixture_audio_does_not_claim_to_synthesize_arbitrary_text(self) -> None:  #v1.0
+        """Verify fixture audio does not claim to synthesize arbitrary text."""  #v1.1
         with self.assertRaises(ValueError):  #v1.0
             CannedTtsPort().synthesize("An unrelated answer")  #v1.0
         with self.assertRaises(ValueError):  #v1.0
             canned_audio("../main.py")  #v1.0
 
     def test_receipt_labels_fixture_source_and_date_without_retrieval(self) -> None:  #v1.0
-        response = self.post_turn("receipt", b"synthetic")  #v1.0
+        """Verify receipt labels fixture source and date without retrieval."""  #v1.1
+        fixture = files("kaki_backend").joinpath("fixtures/canned_reply.wav").read_bytes()  #v1.1
+        response = self.post_turn("receipt", fixture)  #v1.1
         self.assertIn("Source: canned test fixture", response["slip_text"])  #v1.0
         self.assertIn("Source checked: 05-Sep-2026 (fixture date)", response["slip_text"])  #v1.0
         self.assertIn("No retrieval occurred.", response["slip_text"])  #v1.0

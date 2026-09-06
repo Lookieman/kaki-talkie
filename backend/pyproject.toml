@@ -1,3 +1,4 @@
+# v1.2 | 06-Sep-2026 | Pin bundled audio decoding for WP2.1.
 # v1.1 | 05-Sep-2026 | Package spoken fixtures and configure Tier A lint/format checks.
 # v1.0 | 02-Sep-2026 | Package the canned FastAPI backend and HTTP test dependencies.
 
@@ -11,6 +12,7 @@ version = "0.1.0"
 description = "KaKi-Talkie backend foundation"
 requires-python = ">=3.11"
 dependencies = [
+    "av==18.1.0", #v1.2
     "fastapi>=0.115,<1",
     "pydantic>=2,<3",
     "python-multipart>=0.0.20,<1",

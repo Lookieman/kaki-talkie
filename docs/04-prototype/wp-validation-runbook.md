@@ -194,7 +194,7 @@ Goal: replace canned inference with real local English STT, LLM and TTS while pr
 ## 7.1 WP2.1 - audio input and normalisation
 
 Owner level: **S**  
-Status: **DRAFT - run `Prepare WP2.1` before implementation**
+Status: **READY — implemented; owner Mac smoke pending**
 
 Machine split:
 
@@ -211,20 +211,99 @@ Acceptance target: supported current browser/device recordings normalise to 16 k
 
 Primary browser target: Chrome. Safari compatibility is optional/non-gating for the MVP.
 
-`Prepare WP2.1` must replace this DRAFT with:
+Selected mechanism: PyAV 18.1.0 decodes/resamples in memory; Python writes signed
+16-bit PCM WAV. No separate FFmpeg executable, model, cache or normaliser service.
+Binary wheels verified on PyPI for Windows AMD64 and macOS 14+ Apple Silicon,
+Python 3.11+. Windows installation verified on Python 3.14.3. Mac execution is
+owner-only and has not been claimed verified.
+
+Accepted containers: WAV, WebM/Matroska, Ogg and MP4/MOV (codec support depends
+on the bundled decoder). Chrome WebM/Opus and PCM WAV are acceptance-tested.
+The normaliser accepts at most 8 MiB and 16 seconds of decoded samples; the
+client's recording cap remains 15 seconds, with one second of container rounding
+allowance. Oversized/malformed input uses the existing failed-turn response.
+The multipart parser may spool uploads temporarily before the bounded read;
+the request handler always closes that resource. No retained-audio mode is added.
+
+Windows: existing development account, `C:\projects\kaki-talkie-wp2.1`.
+Mac: `websvc`, existing application checkout. From that checkout root, activate
+its `.venv` using `source .venv/bin/activate`. Check `pwd`,
+`sw_vers -productVersion`, and `python --version`;
+require macOS 14+ and Python 3.11+. No Pi prerequisites. No credentials needed.
+
+Install from the checkout root (Windows uses `.venv\Scripts\python.exe`):
+
+```sh
+python -m pip install --only-binary=av -e 'backend[test,dev]'
+python -c "import av; print(av.__version__); print(av.library_versions)"
+```
+
+Expected: version 18.1.0 and linked FFmpeg library versions. If no compatible
+wheel is available, verify interpreter/OS/architecture; do not silently source-build.
+
+### WP2.1 automated validation
+
+From the Windows worktree root:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s backend/tests/unit -v
+.\.venv\Scripts\python.exe -m unittest discover -s backend/tests/contract -v
+.\.venv\Scripts\python.exe -m unittest discover -s scripts/tests -v
+.\.venv\Scripts\python.exe -m ruff check --config backend/pyproject.toml backend scripts
+.\.venv\Scripts\python.exe scripts/check_code_history.py
+npm --prefix apps/web test
+npm --prefix apps/web run lint
+npm --prefix apps/web run build
+.\.venv\Scripts\python.exe scripts/check_wp1_integration.py --start-services
+```
+
+Coverage: current Chrome tone, alternate-rate stereo PCM, malformed/empty input,
+duration and output bounds, normalised STT input, idempotency and WP1 schema.
+Old arbitrary-byte success fixtures are replaced by valid audio without removing
+their response assertions. Silence detection and STT lifecycle belong to later units.
+
+### WP2.1 owner smoke and evidence
+
+As `websvc` on Mac, from the application checkout with `.venv` active:
+
+```sh
+export KAKI_DATA_ROOT="/Users/websvc/kaki-talkie-data"
+mkdir -p "$KAKI_DATA_ROOT/wp2.1"
+python scripts/check_audio_normalisation.py --help
+python scripts/check_audio_normalisation.py --input backend/tests/fixtures/audio/chrome-tone.webm --output "$KAKI_DATA_ROOT/wp2.1/chrome-normalised.wav"
+afplay "$KAKI_DATA_ROOT/wp2.1/chrome-normalised.wav"
+```
+
+Expected: exit zero, 16000 Hz, one channel, 16-bit uncompressed PCM, non-zero
+frames/duration, and an audible tone. Duration tolerance is 0.1 seconds against
+the fixture provenance. CLI refuses existing output paths; choose a fresh name
+on rerun. Invalid input returns non-zero without creating output. `--help`
+documents side effects. This standalone smoke needs no running application.
+
+Fixtures are deliberate non-sensitive test assets; see
+`backend/tests/fixtures/audio/README.md` for Chrome provenance. Ordinary user audio
+is not retained. Generated smoke files stay outside Git. Retain dependency versions,
+CLI metadata and the owner's observation under `KAKI_DATA_ROOT/wp2.1`.
+
+No service shutdown is needed: the CLI exits after conversion. Remove only the
+specific generated smoke output when no longer needed; keep shared environments.
+Decode failures require checking the actual container/codec, not the upload name.
+Wrong rate/channels or a silent known-tone output fails the smoke. Safari failures
+are non-gating. If Mac is unavailable, report smoke not run and leave VERIFIED pending.
+
+Implementation validation on Windows (06-Sep-2026): seven audio tests, 24 backend
+contract/schema tests, 19 script tests and nine web tests passed. Ruff, web lint,
+production build and real localhost HTTP integration passed. CLI help, conversion,
+invalid-input and no-overwrite behaviour passed. No Mac/Pi execution is claimed.
+
+The existing history checker currently rejects header-only new files, contrary to
+AGENTS.md section 12. Its gate remains unresolved pending the owner's decision on
+a separate narrow tooling correction; no initial-line tags have been added to
+circumvent that rule. Mark VERIFIED only after the owner completes the Mac smoke.
 
 ```text
-Selected normalisation mechanism:
-Windows development dependencies:
-Mac runtime dependencies (if any):
-Install command:
-Verify install command:
-Input fixture(s):
-Exact automated test command(s):
-Owner smoke steps:
-Expected output metadata:
-Teardown:
-Troubleshooting:
+WP2.1 output: 16000 Hz / mono / signed 16-bit PCM WAV
+Later gates: transcription, language evidence, retain mode, full speech loop
 ```
 
 Do not introduce STT, LLM or TTS in WP2.1.

@@ -1,3 +1,4 @@
+# v1.1 | 06-Sep-2026 | Include deterministic WP2.1 audio normalisation tests.
 # v1.0 | 05-Sep-2026 | Run deterministic WP1 checks without model or hardware services.
 
 name: WP1 Tier A #v1.0
@@ -31,6 +32,8 @@ jobs: #v1.0
         run: python -m ruff check --config backend/pyproject.toml backend scripts #v1.0
       - name: Backend contracts and unchanged turn schema #v1.0
         run: python -m unittest discover -s backend/tests/contract -v #v1.0
+      - name: Audio normalisation tests #v1.1
+        run: python -m unittest discover -s backend/tests/unit -v #v1.1
       - name: Repository checker tests #v1.0
         run: python -m unittest discover -s scripts/tests -v #v1.0
       - name: Version histories and tracked runtime paths #v1.0
