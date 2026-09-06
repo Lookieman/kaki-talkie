@@ -108,7 +108,6 @@ class HistoryTests(unittest.TestCase):  #v1.0
         for marker in ("#changed", "# v1.1", "#v1.1 modified here", "#v2.0"):  #v1.1
             self.assertTrue(check_text("example.py", NEW_HEADER + PY_HEADER + "x = 2  " + marker, PY_HEADER + "x = 1\n"))  #v1.1
 
-
     def test_initial_headers_and_later_markers_across_languages(self) -> None:  #v1.1
         """New files need headers; subsequent edits need actual current markers."""  #v1.1
         for extension, prefix, suffix, initial, edited, marker in (  #v1.1
