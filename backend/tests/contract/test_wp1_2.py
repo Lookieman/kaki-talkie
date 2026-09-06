@@ -1,3 +1,4 @@
+# v1.3 | 07-Sep-2026 | Adapt the STT spy to typed recognition without changing assertions.
 # v1.2 | 06-Sep-2026 | Use valid PCM input while preserving the earlier port assertions.
 # v1.1 | 04-Sep-2026 | Prove the canned pipeline executes through injected ports.
 # v1.0 | 04-Sep-2026 | Verify WP1.2 idempotency, timing and pending semantics.
@@ -11,6 +12,7 @@ import wave
 from fastapi.testclient import TestClient
 
 from kaki_backend.main import app
+from kaki_backend.contracts.ports import Transcription
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline  #v1.1
 
 
@@ -132,10 +134,10 @@ class Wp12ContractTests(unittest.TestCase):
 
         class SttSpy:  #v1.1
             """Provide deterministic SttSpy behaviour for contract tests."""  #v1.2
-            def transcribe(self, audio: bytes) -> str:  #v1.1
+            def transcribe(self, audio: bytes) -> Transcription:  #v1.1
                 """Record invocation and return a deterministic test transcript."""  #v1.2
                 calls["stt"] += 1  #v1.1
-                return "canned transcript"  #v1.1
+                return Transcription(text="canned transcript")  #v1.1
 
         class LlmSpy:  #v1.1
             """Provide deterministic LlmSpy behaviour for contract tests."""  #v1.2

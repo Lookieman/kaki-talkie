@@ -1,3 +1,4 @@
+# v1.1 | 07-Sep-2026 | Keep audio assertions with the typed STT result.
 # v1.0 | 06-Sep-2026 | Verify browser decoding, PCM conversion, failure bounds and integration.
 """Exercise real decoding without model services, microphone capture or retained user audio."""
 
@@ -14,6 +15,7 @@ from unittest.mock import Mock, patch
 from fastapi.testclient import TestClient
 
 from kaki_backend.main import app
+from kaki_backend.contracts.ports import Transcription
 from kaki_backend.orchestration.audio_normalisation import (
     AudioNormalisationError,
     MAX_INPUT_BYTES,
@@ -80,7 +82,7 @@ class AudioNormalisationTests(unittest.TestCase):
     def test_stt_receives_pcm_and_retry_does_not_normalise_again(self) -> None:
         """Keep preparation inside idempotent execution and include its timing."""
         stt = Mock()
-        stt.transcribe.return_value = "test"
+        stt.transcribe.return_value = Transcription(text="test")
         service = TurnService(TurnPipeline(stt=stt))
 
         async def run_turns() -> None:

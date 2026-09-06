@@ -1,3 +1,4 @@
+# v1.3 | 07-Sep-2026 | Clarify the non-gating reason for allowing compact comments.
 # v1.2 | 06-Sep-2026 | Pin bundled audio decoding for WP2.1.
 # v1.1 | 05-Sep-2026 | Package spoken fixtures and configure Tier A lint/format checks.
 # v1.0 | 02-Sep-2026 | Package the canned FastAPI backend and HTTP test dependencies.
@@ -38,7 +39,7 @@ line-length = 100 #v1.1
 preview = true #v1.1
 select = ["E1", "E2", "E3", "E4", "E7", "E9", "F", "W"] #v1.1
 # Formatting uses whitespace/indentation rules, not the rewriting formatter.
-# AGENTS.md requires compact inline version comments rather than E262 spacing.
+# Allow existing compact version comments without requiring metadata-only edits.
 ignore = ["E262"] #v1.1
 
 [tool.ruff.lint.per-file-ignores] #v1.1

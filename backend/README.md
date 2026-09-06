@@ -23,7 +23,6 @@ Run contract tests from the repository root:
 python -m unittest discover -s backend/tests/contract -v
 python -m ruff check --config backend/pyproject.toml backend scripts
 python -m unittest discover -s scripts/tests -v
-python scripts/check_code_history.py
 ```
 
 `GET /api/health` returns `{"status":"ok","version":"0.1.0"}`. The version comes

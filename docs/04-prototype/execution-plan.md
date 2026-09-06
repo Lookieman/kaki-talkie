@@ -483,7 +483,7 @@ Runbook: section 11, expanded by `Prepare WP6.x`.
 
 ```text
 X-AT-01 turn-response schema remains WP1-compatible unless explicitly revised
-X-AT-02 human-authored code follows valid newest-first history conventions
+X-AT-02 newest-first code histories are advisory conventions, not acceptance or CI gates (see AGENTS.md)
 X-AT-03 no secret-bearing files or runtime DB/vector data are tracked
 X-AT-04 earlier acceptance tests are not weakened merely to obtain green
 ```

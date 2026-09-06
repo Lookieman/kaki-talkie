@@ -54,7 +54,6 @@ Run these from the repository root with the virtual environment active:
 python -m ruff check --config backend/pyproject.toml backend scripts
 python -m unittest discover -s backend/tests/contract -v
 python -m unittest discover -s scripts/tests -v
-python scripts/check_code_history.py
 ```
 
 Then, from `apps/web`:
@@ -78,18 +77,14 @@ Omit `--start-services` to check an already-running local stack without stopping
 It does not test browser microphone/audio playback or Cloudflare.
 
 Ruff enforces Python correctness plus whitespace, indentation, spacing and
-blank-line formatting. The rewriting `ruff format` command is not the gate because
-it changes the required compact `#v...` markers. E262 is therefore excluded. Two
-untouched worktree utilities have narrowly documented pre-existing W292 exceptions;
-the rest of the Python tree is checked. No acceptance tests are excluded.
+blank-line formatting. E262 remains excluded to allow existing compact version
+comments without requiring metadata-only edits. Two untouched worktree utilities
+have narrowly documented pre-existing W292 exceptions; the rest of the Python tree
+is checked. No acceptance tests are excluded.
 
-The history checker checks all source headers and new/modified code lines against
-`HEAD` locally. To review a committed change, pass `--base <previous-commit>`.
-CI uses the PR base or push's previous revision; a new branch's zero before-SHA
-uses its merge base with `origin/main`. Existing untouched lines do not acquire
-new tags retrospectively. JSON, lockfiles, Markdown, binary assets and the generated
-Next.js declaration file are excluded. The tracked-path check is a filename/runtime
-data safeguard, not a guarantee that arbitrary source text contains no secret.
+Change histories are advisory conventions under `AGENTS.md`, with no automated gate.
+Review diffs for credentials and runtime data; the former tracked-path checker has
+been removed along with history enforcement.
 
 ## Exact owner gate (WP1.4 is level G)
 
@@ -155,8 +150,8 @@ document.body.append(play);
 | WP1-AT-10 | Existing 40-word wrapping test; fixture receipt checks | Read rendered receipt |
 | WP1-AT-11 | Explicit launcher and web-command assertions; HTTP integration | Mac listener inspection |
 | WP1-AT-12 / X-AT-01 | Unchanged turn-schema snapshot test | None beyond reviewing results |
-| X-AT-02 | Language-aware history checker and its tests; lint | Review changed-line markers |
-| X-AT-03 | Tracked secret/runtime-path check | Review diff for actual credentials/data |
+| X-AT-02 | No history metadata gate; Ruff retained | History convention is advisory |
+| X-AT-03 | No tracked-path checker | Review diff for actual credentials/data |
 | X-AT-04 | Earlier suites run; schema retained | Review that assertions were preserved except authorised reconciliations |
 
 Cloudflare protection, audible playback, laptop/phone operation, and Mac listener

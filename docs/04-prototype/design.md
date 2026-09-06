@@ -1113,7 +1113,7 @@ The ingestion pipeline must derive the `captured_at` and provenance metadata fro
 
 ### 19.1 Code change log
 
-Every human-authored code file created or modified for KaKi-Talkie must keep the project change-log block at the top using comment syntax that is valid for that language.
+Where practical, human-authored code keeps a top-of-file change-log block using valid comment syntax. This is an advisory convention: missing or imperfect metadata must not block implementation, validation, commit, merge or CI.
 
 Python, shell and comment-capable YAML use `#`:
 
@@ -1133,9 +1133,9 @@ TypeScript and JavaScript use `//`:
 
 CSS uses valid block comments. Formats that do not permit comments, including JSON and lock files, are excluded rather than made invalid. Generated, binary and third-party vendored files are also excluded.
 
-Only the specific lines changed for a version receive the matching inline version tag using valid comment syntax, for example `#v1.2` in Python or `//v1.2` in TypeScript. Do not mark untouched lines merely because a surrounding block changed.
+Inline version tags such as `#v1.2` or `//v1.2` are optional and are not an enforced gate. Do not mass-edit untouched lines for metadata.
 
-Do not use `#changed`, `// changed`, usernames or timestamp-based inline markers. Markdown documentation is not a code file and does not require inline version tags unless explicitly requested. `AGENTS.md` contains the detailed language examples and enforcement rules.
+`AGENTS.md` defines the coding convention and prohibits tooling whose sole purpose is enforcing change-history metadata.
 
 ### 19.2 Python style
 

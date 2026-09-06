@@ -162,8 +162,8 @@ Key points:
 - clear functions and names are preferred over dense expressions;
 - Python modules/classes/public methods have useful docstrings;
 - human-operated Python scripts provide `--help`;
-- code change-history entries are newest-first;
-- only changed lines receive the current inline `#vX.Y` marker;
+- top-of-file change histories are a practical, newest-first convention, not a gate;
+- inline version markers are optional; no history-enforcement tooling is maintained;
 - DSPy is introduced only when the execution plan reaches the planned migration.
 
 ## CI and validation

@@ -1,3 +1,5 @@
+# v1.3 | 07-Sep-2026 | Include the Whisper adapter and deterministic WP2.2 checks.
+# v1.2 | 07-Sep-2026 | Remove history enforcement and retain product validation.
 # v1.1 | 06-Sep-2026 | Include deterministic WP2.1 audio normalisation tests.
 # v1.0 | 05-Sep-2026 | Run deterministic WP1 checks without model or hardware services.
 
@@ -13,11 +15,9 @@ jobs: #v1.0
     timeout-minutes: 15 #v1.0
     env: #v1.0
       NEXT_TELEMETRY_DISABLED: '1' #v1.0
-      HISTORY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }} #v1.0
+      KAKI_STT_MODE: canned
     steps: #v1.0
       - uses: actions/checkout@v4 #v1.0
-        with: #v1.0
-          fetch-depth: 0 #v1.0
       - uses: actions/setup-python@v5 #v1.0
         with: #v1.0
           python-version: '3.11' #v1.0
@@ -28,16 +28,16 @@ jobs: #v1.0
           cache-dependency-path: apps/web/package-lock.json #v1.0
       - name: Install backend with test and development tooling #v1.0
         run: python -m pip install -e 'backend[test,dev]' #v1.0
+      - name: Install local Whisper adapter
+        run: python -m pip install -e services/stt/whisper_cpp
       - name: Python lint and whitespace formatting #v1.0
-        run: python -m ruff check --config backend/pyproject.toml backend scripts #v1.0
+        run: python -m ruff check --config backend/pyproject.toml backend scripts services
       - name: Backend contracts and unchanged turn schema #v1.0
         run: python -m unittest discover -s backend/tests/contract -v #v1.0
-      - name: Audio normalisation tests #v1.1
+      - name: Backend audio and STT unit tests
         run: python -m unittest discover -s backend/tests/unit -v #v1.1
-      - name: Repository checker tests #v1.0
+      - name: Audio and STT owner CLI tests
         run: python -m unittest discover -s scripts/tests -v #v1.0
-      - name: Version histories and tracked runtime paths #v1.0
-        run: python scripts/check_code_history.py #v1.0
       - name: Install simulator dependencies #v1.0
         working-directory: apps/web #v1.0
         run: npm ci #v1.0

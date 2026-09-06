@@ -1,3 +1,4 @@
+# v1.3 | 07-Sep-2026 | Close multipart resources before STT and share releasable audio.
 # v1.2 | 06-Sep-2026 | Bound the audio read before normalisation.
 # v1.1 | 04-Sep-2026 | Apply in-memory idempotency and timing to canned turns.
 # v1.0 | 02-Sep-2026 | Route multipart uploads to canned turn orchestration.
@@ -13,6 +14,7 @@ from kaki_backend.contracts.requests import TurnRequest
 from kaki_backend.contracts.responses import TurnResponse
 from kaki_backend.orchestration.idempotency import TurnService  #v1.1
 from kaki_backend.orchestration.audio_normalisation import MAX_INPUT_BYTES  #v1.2
+from kaki_backend.orchestration.audio_lifecycle import TurnAudio
 
 router = APIRouter()
 
@@ -29,9 +31,13 @@ async def device_turn(  #v1.1
 ) -> TurnResponse:
     """Process a bounded upload and always release its multipart resource."""  #v1.2
     request_started_at = perf_counter()  #v1.1
+    audio = None
     try:
         audio_read_started_at = perf_counter()  #v1.1
-        audio = await request.audio.read(MAX_INPUT_BYTES + 1)  #v1.2
+        try:
+            audio = TurnAudio(await request.audio.read(MAX_INPUT_BYTES + 1))
+        finally:
+            await request.audio.close()
         audio_preparation_ms = (perf_counter() - audio_read_started_at) * 1000  #v1.1
         return await turn_service.process(  #v1.1
             device_id=request.device_id,  #v1.1
@@ -42,4 +48,5 @@ async def device_turn(  #v1.1
             request_started_at=request_started_at,  #v1.1
         )
     finally:
-        await request.audio.close()
+        if audio is not None:
+            audio.clear()

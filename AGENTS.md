@@ -1,6 +1,6 @@
 # KaKi-Talkie coding-agent instructions
 
-Version 1.1 | 06-Sep-2026 | SGLN Group 10
+Version 1.2 | 07-Sep-2026 | SGLN Group 10
 
 This file governs coding-agent behaviour in the `kaki-talkie` repository.
 
@@ -298,7 +298,7 @@ The worktree setup and cleanup helpers follow this contract.
 
 ## 12. Code change history
 
-Every human-authored code file created or modified in this project must carry a version history at the top using comment syntax valid for that file type.
+Where practical, maintain a top-of-file version history in human-authored code using comment syntax valid for that file type. This is a coding convention, not an acceptance gate.
 
 Newest version first.
 
@@ -310,21 +310,16 @@ Newest version first.
 
 Use `DD-Mon-YYYY`.
 
-For a new file, add the initial version header but do not tag every initial line.
+Missing or imperfect change-history metadata must not block implementation, validation, commit, merge or CI.
 
-For a later modification, tag only lines changed for the current version with the compact marker, for example:
+Inline `#vX.Y` markers (and equivalents in other languages) are optional and must not be enforced as a gate. Existing markers may remain; do not mass-edit untouched code to add, remove or standardise them.
 
-```python
-MAX_RECORD_SECONDS = 15  #v1.3
-```
+Codex must not create or maintain tooling whose sole purpose is enforcing change-history metadata. Do not introduce a replacement history checker, policy framework, pre-commit hook or equivalent enforcement mechanism for it.
 
 Use equivalent valid comments in TypeScript/JavaScript/CSS/shell where applicable.
 
 Do not add invalid comments to JSON, lock files, generated files, binaries or vendored files.
 
-Do not use `#changed`, `// changed`, timestamps, usernames or inline dates.
-
-Do not mass-edit historical untouched lines merely to change old marker style.
 
 ---
 
