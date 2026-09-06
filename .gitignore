@@ -160,7 +160,6 @@ outputs/
 # Chroma indexes and other runtime state outside Git under KAKI_DATA_ROOT.
 # These rules also protect the repository if runtime data is accidentally
 # generated inside the working tree.
-rag/corpus/snapshots/
 rag/corpus/processed/
 rag/corpus/generated/
 kaki-talkie-data/

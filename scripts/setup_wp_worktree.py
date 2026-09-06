@@ -1,4 +1,14 @@
+# v1.1 | 06-Sep-2026 | Document CLI use and strengthen validation and failure safety.
 # v1.0 | 05-Sep-2026 | Create an isolated WP worktree and local development environment safely.
+
+"""Create a sibling implementation-unit worktree from clean, synchronised main.
+
+Run on the Windows development desktop before implementation. Fetches origin,
+creates feat/wpN-M-slug and a sibling checkout, installs local Python/npm
+dependencies (which may use the network and run package installation scripts),
+and optionally runs baseline checks. Failed setup is retained for manual recovery.
+Never commits, merges or pushes. See docs/04-prototype/wp-validation-runbook.md.
+"""  #v1.1
 
 from __future__ import annotations
 
@@ -21,6 +31,7 @@ def run_command(
     capture_output: bool = False,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
+    """Run a command in cwd; raise RuntimeError on a checked non-zero exit."""  #v1.1
     result = subprocess.run(
         command,
         cwd=cwd,
@@ -44,6 +55,7 @@ def run_command(
 
 
 def get_git_executable() -> str:
+    """Return Git from PATH, or fail before attempting repository operations."""  #v1.1
     git_executable = shutil.which("git")
 
     if not git_executable:
@@ -53,6 +65,7 @@ def get_git_executable() -> str:
 
 
 def get_repo_root(git_executable: str, start_path: Path) -> Path:
+    """Resolve the checkout containing start_path; fail outside a Git repository."""  #v1.1
     result = run_command(
         [
             git_executable,
@@ -69,6 +82,7 @@ def get_repo_root(git_executable: str, start_path: Path) -> Path:
 
 
 def get_current_branch(git_executable: str, repo_root: Path) -> str:
+    """Return the checked-out branch name, or an empty string for detached HEAD."""  #v1.1
     result = run_command(
         [git_executable, "branch", "--show-current"],
         cwd=repo_root,
@@ -79,6 +93,7 @@ def get_current_branch(git_executable: str, repo_root: Path) -> str:
 
 
 def ensure_clean_main(git_executable: str, repo_root: Path) -> None:
+    """Refuse setup when main contains tracked changes or untracked files."""  #v1.1
     result = run_command(
         [git_executable, "status", "--porcelain"],
         cwd=repo_root,
@@ -96,6 +111,7 @@ def ensure_main_matches_remote(
     git_executable: str,
     repo_root: Path,
 ) -> None:
+    """Fetch origin/main and refuse to proceed unless local main matches it."""  #v1.1
     run_command(
         [git_executable, "fetch", REMOTE_NAME, MAIN_BRANCH],
         cwd=repo_root,
@@ -115,7 +131,7 @@ def ensure_main_matches_remote(
 
     counts = result.stdout.strip().split()
 
-    if len(counts) != 2:
+    if len(counts) != 2 or not all(count.isascii() and count.isdigit() for count in counts):  #v1.1
         raise RuntimeError("Could not determine local/remote main status.")
 
     local_only = int(counts[0])
@@ -131,6 +147,7 @@ def ensure_main_matches_remote(
 
 
 def normalise_slug(slug: str) -> str:
+    """Convert a description to a lowercase, hyphen-separated branch suffix."""  #v1.1
     normalised_slug = slug.strip().lower()
     normalised_slug = re.sub(r"[^a-z0-9]+", "-", normalised_slug)
 
@@ -138,6 +155,7 @@ def normalise_slug(slug: str) -> str:
 
 
 def get_venv_python(venv_path: Path) -> Path:
+    """Return the platform-specific interpreter path inside a local environment."""  #v1.1
     if sys.platform == "win32":
         return venv_path / "Scripts" / "python.exe"
 
@@ -145,6 +163,7 @@ def get_venv_python(venv_path: Path) -> Path:
 
 
 def create_python_environment(worktree_path: Path) -> None:
+    """Create a worktree-local venv and install backend[test], when present."""  #v1.1
     backend_pyproject = worktree_path / "backend" / "pyproject.toml"
 
     if not backend_pyproject.exists():
@@ -179,6 +198,7 @@ def create_python_environment(worktree_path: Path) -> None:
 
 
 def install_web_dependencies(worktree_path: Path) -> None:
+    """Install web dependencies using npm ci with a lockfile, else npm install."""  #v1.1
     web_path = worktree_path / "apps" / "web"
     package_json = web_path / "package.json"
 
@@ -209,6 +229,7 @@ def install_web_dependencies(worktree_path: Path) -> None:
 
 
 def run_baseline_tests(worktree_path: Path) -> None:
+    """Run available backend contract and web test/lint/build checks; fail on errors."""  #v1.1
     venv_python = get_venv_python(worktree_path / ".venv")
     backend_tests = worktree_path / "backend" / "tests" / "contract"
 
@@ -251,35 +272,43 @@ def run_baseline_tests(worktree_path: Path) -> None:
 
 
 def parse_arguments() -> argparse.Namespace:
+    """Parse CLI options; help exits zero and invalid usage exits non-zero."""  #v1.1
     parser = argparse.ArgumentParser(
         description=(
             "Create an isolated KaKi-Talkie worktree "
             "for one implementation unit."
-        )
+        ),  #v1.1
+        epilog=(  #v1.1
+            "Requires Git, clean main matching origin/main, Python with venv and npm when web exists. Creates <repo>-wpN.M beside the repository and feat/wpN-M-<slug>; installs dependencies and may run package scripts. Fetch and installation may access the network. Partial setup is retained on failure. "  #v1.1
+            "No automatic commit, merge or push. "  #v1.1
+            "Example: python scripts/setup_wp_worktree.py --unit WP2.1 --slug audio-normalisation --run-baseline. "  #v1.1
+            "Guide: docs/04-prototype/wp-validation-runbook.md"  #v1.1
+        ),  #v1.1
     )
 
     parser.add_argument(
         "--unit",
         required=True,
-        help="Implementation unit, for example WP1.4.",
+        help="Required unit in WPn.m form (case-insensitive), for example WP2.1.",  #v1.1
     )
 
     parser.add_argument(
         "--slug",
         default=DEFAULT_SLUG,
-        help="Short branch description, for example deployment-wiring.",
+        help="Branch suffix; normalised to lowercase hyphenated text (default: implementation).",  #v1.1
     )
 
     parser.add_argument(
         "--run-baseline",
         action="store_true",
-        help="Run backend and web baseline checks after setup.",
+        help="After installation, run available backend contract tests and web test/lint/build (default: off).",  #v1.1
     )
 
     return parser.parse_args()
 
 
 def main() -> int:
+    """Validate prerequisites and perform the requested operation; return zero on success."""  #v1.1
     arguments = parse_arguments()
 
     unit = arguments.unit.strip().upper()
@@ -313,7 +342,7 @@ def main() -> int:
     worktree_path = repo_root.parent / f"{repo_root.name}-{unit_path}"
     branch_name = f"feat/{unit_branch}-{slug}"
 
-    if worktree_path.exists():
+    if worktree_path.exists() or worktree_path.is_symlink():  #v1.1
         raise RuntimeError(
             f"Worktree path already exists: {worktree_path}"
         )
@@ -335,6 +364,15 @@ def main() -> int:
             f"Local branch already exists: {branch_name}"
         )
 
+    if branch_check.returncode != 1:  #v1.1
+        raise RuntimeError("Could not reliably check whether the local branch exists.")  #v1.1
+
+    if (repo_root / "apps/web/package.json").exists() and not shutil.which("npm"):  #v1.1
+        raise RuntimeError("Web setup requires npm on PATH; install it before setup.")  #v1.1
+    if (repo_root / "backend/pyproject.toml").exists():  #v1.1
+        base_python = getattr(sys, "_base_executable", sys.executable)  #v1.1
+        run_command([base_python, "-c", "import venv, ensurepip"], cwd=repo_root)  #v1.1
+
     print(f"Creating worktree: {worktree_path}")
     print(f"Creating branch  : {branch_name}")
 
@@ -351,11 +389,16 @@ def main() -> int:
         cwd=repo_root,
     )
 
-    create_python_environment(worktree_path)
-    install_web_dependencies(worktree_path)
+    try:  #v1.1
+        create_python_environment(worktree_path)  #v1.1
+        install_web_dependencies(worktree_path)  #v1.1
 
-    if arguments.run_baseline:
-        run_baseline_tests(worktree_path)
+        if arguments.run_baseline:  #v1.1
+            run_baseline_tests(worktree_path)  #v1.1
+    except (RuntimeError, OSError) as exc:  #v1.1
+        raise RuntimeError(  #v1.1
+            f"Setup incomplete at {worktree_path} on {branch_name}; retained for manual recovery. {exc}"  #v1.1
+        ) from exc  #v1.1
 
     print("")
     print("Worktree setup complete.")
@@ -379,6 +422,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except RuntimeError as exc:
+    except (RuntimeError, OSError) as exc:  #v1.1
         print(f"ERROR: {exc}", file=sys.stderr)
         raise SystemExit(1)

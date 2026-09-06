@@ -1,365 +1,400 @@
 # KaKi-Talkie coding-agent instructions
 
-Version 1.0 | 02-Sep-2026 | SGLN Group 10
+Version 1.1 | 06-Sep-2026 | SGLN Group 10
 
 This file governs coding-agent behaviour in the `kaki-talkie` repository.
 
-The authoritative MVP architecture and scope are in `docs/04-prototype/design.md`. The build sequence and package gates are in `docs/04-prototype/execution-plan.md`. This file defines how an agent is allowed to work inside those boundaries.
+The purpose of these rules is to keep Codex safe **without requiring the owner to write perfect prompts**. The agent should use the repository documents to infer the intended workflow, make ordinary implementation choices independently, and stop only for decisions that genuinely change the product or architecture.
 
 ---
 
-## 1. Authority and precedence
+## 1. Authority and document roles
 
-Use this precedence order:
+Use the documents for different purposes:
 
-1. `docs/04-prototype/design.md` - single source of truth for architecture, scope, interfaces and locked decisions.
-2. The work package explicitly named by the user in `docs/04-prototype/execution-plan.md`.
-3. This `AGENTS.md` - repository, coding, testing and safety rules.
-4. Component README files and ADRs.
-5. Existing implementation details.
+1. `docs/04-prototype/design.md` - architecture source of truth and hard system boundaries.
+2. `docs/04-prototype/execution-plan.md` - work-package scope, implementation-unit boundaries, acceptance criteria and delivery gates.
+3. `docs/04-prototype/wp-validation-runbook.md` - **single operational source of truth** for installation, setup, configuration, service start/stop, owner testing, evidence and teardown.
+4. `AGENTS.md` - coding-agent behaviour, code conventions, safety and decision rules.
+5. Component READMEs and ADRs - component concepts and durable local decisions.
+6. Existing implementation details.
 
-If two documents conflict, do not silently reconcile them in code. Follow the higher-authority source and report the conflict.
+Do not duplicate operational WP procedures in the execution plan, root README, component READMEs or completion reports. Link to the runbook instead.
 
-Do not modify `design.md`, `execution-plan.md` or `AGENTS.md` unless the user explicitly asks for that document to be changed.
+If documents conflict, use the decision model in section 2 rather than mechanically preserving both statements.
 
----
-
-## 2. Work-package boundary
-
-When asked to implement a work package:
-
-- implement only the named work package;
-- preserve all acceptance tests from earlier gates;
-- do not pre-build later-package features merely because they appear obvious;
-- do not create speculative adapters, services, directories or placeholder modules;
-- create a directory only when its first real implementation file is required;
-- preserve existing repository artefacts and content unless the active work package requires a change.
-
-If work outside the active package would be useful, report it as a later task rather than implementing it.
+Do not modify `design.md`, `execution-plan.md` or `AGENTS.md` unless the owner explicitly asks for documentation maintenance or a baseline change.
 
 ---
 
-## 3. Decisions: what the agent may decide
+## 2. Decision model: locked, changeable, implementation-selected
 
-### 3.1 Implementation decisions may proceed
+Not every sentence in the repository has the same rigidity.
 
-The agent may make low-level choices that remain inside a locked design boundary, for example:
+### 2.1 Locked architecture
 
-- internal class or function decomposition;
-- a parsing technique;
-- test-fixture structure;
-- a library used behind an already-defined port where the design has not fixed the implementation;
-- internal error-handling structure;
-- file placement inside an already-defined ownership area.
+These require an explicit owner decision before changing:
 
-Record a short ADR or decision note only when the choice is durable or materially affects future work.
+- the Raspberry Pi remains a thin client;
+- FastAPI remains the application orchestrator;
+- simulator and Pi use the same backend device contract;
+- model runtimes remain behind ports/interfaces;
+- raw turn audio is deleted after transcription by default;
+- secrets and credentials are not committed;
+- public/backend security boundaries;
+- Singpass remains information guidance only;
+- printed slips remain English-only for the MVP unless explicitly revised;
+- user-facing side effects remain bounded and idempotent;
+- the WP1 turn contract does not change silently.
 
-### 3.2 Design decisions must stop
+### 2.2 Baselined but changeable MVP choices
 
-Do not autonomously change or invent:
+These are current choices, not constitutional rules. The owner's latest explicit direction may revise them without a large design exercise:
 
-- request or response contracts;
-- authentication or authorisation behaviour;
-- security boundaries;
-- personal-data retention rules;
-- public network exposure;
-- side-effect semantics or confirmation behaviour;
-- repository ownership boundaries;
-- model/business logic on the Raspberry Pi;
-- MVP scope or P1 requirements;
-- new external integrations;
-- user interaction semantics.
+- exact model checkpoint inside an approved model family;
+- challenger adoption;
+- optional Tailscale Serve;
+- browser compatibility beyond the primary acceptance browser;
+- optional Hokkien path;
+- exact handoff channel such as Telegram;
+- optional presenter/nudge features;
+- optional optimisations and convenience tooling.
 
-If implementation requires one of these changes, stop that part of the work and report the required design decision.
+When the owner explicitly changes one of these, follow the new direction and identify the minimum documentation that must be reconciled. Do not argue for the stale baseline merely because it appears in an older section.
+
+### 2.3 Implementation choices
+
+Proceed without asking for approval when the choice remains inside the active implementation unit and architecture boundary. Examples:
+
+- helper functions and class decomposition;
+- internal data structures;
+- fixture organisation;
+- private error-handling structure;
+- naming of internal helpers;
+- file placement inside an already-approved ownership area;
+- a small library behind an existing port when no architecture choice is changed.
+
+Record material choices in the completion report. Create an ADR only when a decision is durable enough to matter later.
 
 ---
 
-## 4. Architecture boundaries
+## 3. Interpret owner intent robustly
+
+The owner should not need to write legal-contract prompts.
+
+When a prompt clearly names an implementation unit, treat that named unit as the primary scope.
+
+If another sentence contains an obvious stale or mismatched unit reference, do not derail the task. Use the clearly stated intended unit, mention the mismatch briefly, and continue unless the ambiguity could materially change scope.
+
+When the latest explicit owner instruction conflicts with a baselined-but-changeable choice, treat the latest instruction as the proposed new baseline. Surface the documentation consequence concisely instead of trying to preserve both interpretations.
+
+Stop for clarification only when two plausible interpretations would materially change:
+
+- product scope;
+- a public API/contract;
+- security or privacy behaviour;
+- data retention;
+- an external integration;
+- an irreversible side effect;
+- a locked architecture boundary;
+- the active implementation-unit boundary.
+
+Do **not** stop for ordinary low-level implementation choices.
+
+---
+
+## 4. Normal implementation-unit workflow
+
+The normal owner interaction has two commands.
+
+### Prepare
+
+When asked `Prepare WPn.m`:
+
+1. read `design.md`, this file, `execution-plan.md` and the active runbook section;
+2. inspect the relevant existing implementation;
+3. update **only the active WPn.m runbook section** with the exact owner prerequisites and validation procedure;
+4. report concisely:
+   - expected files/areas to change;
+   - product/architecture decisions requiring owner input, if any;
+   - Windows development dependencies;
+   - Mac Mini/Pi runtime prerequisites documented in the runbook;
+   - any `BLOCKED` item;
+5. do not implement application code yet.
+
+The file list is a planning aid, not an inflexible whitelist. During implementation, the agent may add a necessary file inside the active unit's expected ownership areas without stopping. Report the deviation at completion. Stop only if the additional file crosses an ownership/scope boundary.
+
+### Implement
+
+When asked `Implement WPn.m`:
+
+1. use the prepared runbook as the owner setup/test contract;
+2. implement only the active unit;
+3. make ordinary implementation choices independently;
+4. run applicable Tier A and earlier deterministic regression tests;
+5. update the active runbook section if implementation changes a documented command, prerequisite or expected result;
+6. stop at the unit boundary;
+7. provide the concise completion report in section 16.
+
+Do not require the owner to repeat the safeguards from this file in every prompt.
+
+---
+
+## 5. Development and runtime environments
+
+Codex is used only on the Windows gaming desktop.
+
+```text
++------------------------+--------------------------------------------------+
+| Environment            | Role                                             |
++------------------------+--------------------------------------------------+
+| Windows gaming desktop | Codex, Git worktrees, coding and Tier A tests    |
+| Mac Mini               | Runtime, local models and Tier B validation      |
+| Raspberry Pi           | Thin client and Tier C hardware validation       |
++------------------------+--------------------------------------------------+
+```
+
+Codex is not installed on the Mac Mini or Raspberry Pi.
+
+Do not claim to have installed, configured or tested anything on those machines.
+
+Mac/Pi package, runtime, model and infrastructure preparation belongs in `wp-validation-runbook.md`.
+
+---
+
+## 6. Scope discipline
+
+Implement only the named implementation unit.
+
+Do not:
+
+- pre-build a later unit merely because the next step is obvious;
+- perform unrelated refactors;
+- reformat unrelated files;
+- rename unrelated files;
+- introduce speculative adapters or placeholder modules;
+- add a framework because it may be useful later;
+- change a public contract to make implementation easier.
+
+Create directories only when their first real implementation needs them.
+
+If useful later work is discovered, record it as deferred work and continue with the active unit.
+
+---
+
+## 7. Architecture ownership
 
 The Mac Mini does the thinking. Clients stay deliberately simple.
 
-### Backend
+```text
+backend/       FastAPI contract, orchestration, persistence and actions
+services/      Replaceable STT, LLM and TTS implementations
+rag/           Ingestion, provenance, retrieval and live lookup
+agent/         DSPy behaviour/evaluation when the execution plan permits it
+apps/web/      Simulator and protected test/evidence surfaces
+device/        Thin Raspberry Pi client only
+infra/         Host/network/deployment documentation and configuration
+scripts/       Human-operated development and validation utilities
+```
 
-`backend/` owns:
+Application code depends on ports/interfaces rather than model-vendor APIs directly.
 
-- the public FastAPI contract;
-- orchestration;
-- state and persistence;
-- deterministic actions;
-- case and follow-up behaviour.
+Never put model inference, retrieval, prompts, case decisions or business rules in `device/`.
 
-Application code depends on ports/interfaces, not directly on model-vendor APIs.
-
-### Services
-
-`services/` owns replaceable STT, LLM and TTS adapters.
-
-Do not leak model-runtime dependencies into orchestration code.
-
-### RAG
-
-`rag/` owns ingestion, provenance, retrieval, Chroma integration and the later allowlisted live-lookup path.
-
-Generated corpus snapshots, processed corpus data, Chroma data and SQLite runtime files live under `KAKI_DATA_ROOT`, not in the Git working tree.
-
-### Agent
-
-`agent/` owns DSPy behavioural modules and regression/evaluation data. DSPy must not block the first working grounded vertical slice.
-
-### Device
-
-`device/` is a thin Raspberry Pi client.
-
-Never put these in `device/`:
-
-- LLM or STT model calls;
-- retrieval or Chroma logic;
-- prompts or DSPy modules;
-- intent classification;
-- business rules;
-- case-state decisions;
-- calendar or handoff orchestration.
-
-If device code needs to understand an intent beyond sending a user/device action to the API, stop and re-check the design.
+Generated corpus snapshots, processed corpus data, Chroma data and SQLite runtime files live under `KAKI_DATA_ROOT`, outside the Git working tree. Small, deliberate, non-sensitive deterministic test fixtures/evidence may be committed when a test requires them.
 
 ---
 
-## 5. Locked initial implementation baselines
+## 8. Dependency handling
 
-Unless `design.md` is revised:
+### Windows development dependencies
 
-- FastAPI binds to `127.0.0.1:8000`;
-- health/readiness is `GET /api/health`;
-- STT baseline is Whisper large-v3-turbo through `whisper.cpp`;
-- LLM baseline is a small quantised Qwen-class model through MLX-LM;
-- initial English TTS baseline is macOS `say`;
-- Chroma is behind `RetrieverPort`;
-- printed slips are English-only;
-- raw audio is deleted after transcription by default;
-- Tailscale Serve is optional and must not become a work-package gate.
+Codex may add project-local dependencies when the active unit needs them.
 
-Do not substitute another baseline simply because it is more familiar.
+- Python dependencies belong in the worktree `.venv` and project dependency files.
+- npm dependencies belong in the relevant `package.json` and lock file.
+- Do not install Python packages globally.
+- Do not use `--break-system-packages`.
+
+Report material dependency additions in the completion summary.
+
+### Mac Mini and Pi runtime dependencies
+
+Codex does not install them.
+
+Before code implementation depends on a new runtime package, binary, model, cache, environment variable or service, the active runbook section must document:
+
+- machine and user;
+- working directory;
+- exact install command;
+- exact verification command;
+- model identifier and cache location where applicable;
+- configuration/environment variables;
+- start/readiness/stop commands where applicable;
+- expected successful observation.
+
+If the exact instruction is genuinely unresolved, mark it `BLOCKED - VERIFY BEFORE IMPLEMENTATION` rather than inventing a command.
 
 ---
 
-## 6. Code change history
+## 9. Python style
+
+Prefer clear Python over clever Python.
+
+- Keep module-level configuration/constants together in a visible location.
+- Declare local variables close to their first use.
+- Use descriptive names.
+- Keep functions cohesive and reasonably short.
+- Prefer named functions over lambdas when they improve readability.
+- A small lambda is acceptable when a named function would add more noise than clarity.
+- Keep adapters small and testable.
+- Keep side effects visible.
+- Use typed models/contracts where the design defines structured data.
+- Use British English in comments and docstrings.
+
+Do not force all local variable declarations to the top of a function.
+
+---
+
+## 10. Python documentation contract
+
+Every human-authored Python module must have a module docstring explaining its purpose and important constraints.
+
+Every class must have a class docstring describing its responsibility.
+
+Every public function and public method must have a useful docstring describing purpose and, where relevant:
+
+- important arguments;
+- return value;
+- side effects;
+- failure/exception behaviour;
+- non-obvious constraints.
+
+A trivial private helper may omit a docstring when its name and implementation are self-explanatory. Non-obvious private helpers must be documented.
+
+Docstrings explain intent and behaviour. Do not restate the signature mechanically.
+
+---
+
+## 11. Human-operated script contract
+
+A script intended for the owner to run manually is incomplete until its use is discoverable without reading source code.
+
+For a Python CLI:
+
+- provide `-h` and `--help`;
+- use clear argument names and help text;
+- validate required arguments;
+- return non-zero on failure;
+- avoid destructive defaults;
+- document material side effects;
+- include a module docstring explaining what the script does and when to use it.
+
+If the script is part of an owner setup or test procedure, the active runbook section must contain at least one verified example command.
+
+The worktree setup and cleanup helpers follow this contract.
+
+---
+
+## 12. Code change history
 
 Every human-authored code file created or modified in this project must carry a version history at the top using comment syntax valid for that file type.
 
-### 6.1 Python, shell and comment-capable YAML
+Newest version first.
 
 ```python
-# v1.2 | 02-Sep-2026 | Description of change
-# v1.1 | 01-Sep-2026 | Previous change
-# v1.0 | 31-Aug-2026 | First version
+# v1.3 | 06-Sep-2026 | Description of current change
+# v1.2 | 05-Sep-2026 | Previous change
+# v1.1 | 03-Sep-2026 | Earlier change
 ```
 
-Only the specific code lines changed for the current version receive the matching inline tag:
+Use `DD-Mon-YYYY`.
+
+For a new file, add the initial version header but do not tag every initial line.
+
+For a later modification, tag only lines changed for the current version with the compact marker, for example:
 
 ```python
-MAX_RECORD_SECONDS = 15  #v1.2
+MAX_RECORD_SECONDS = 15  #v1.3
 ```
 
-### 6.2 TypeScript and JavaScript
+Use equivalent valid comments in TypeScript/JavaScript/CSS/shell where applicable.
 
-```typescript
-// v1.2 | 02-Sep-2026 | Description of change
-// v1.1 | 01-Sep-2026 | Previous change
-// v1.0 | 31-Aug-2026 | First version
-```
+Do not add invalid comments to JSON, lock files, generated files, binaries or vendored files.
 
-Changed lines use the same language-valid comment form:
+Do not use `#changed`, `// changed`, timestamps, usernames or inline dates.
 
-```typescript
-const maxRecordSeconds = 15; //v1.2
-```
-
-### 6.3 CSS
-
-```css
-/* v1.2 | 02-Sep-2026 | Description of change */
-/* v1.1 | 01-Sep-2026 | Previous change */
-/* v1.0 | 31-Aug-2026 | First version */
-```
-
-Changed declarations may use a valid CSS comment after the declaration where practical:
-
-```css
-max-width: 32ch; /* v1.2 */
-```
-
-### 6.4 Files that do not support comments
-
-Do not add comments that make the file invalid.
-
-Exclude formats such as:
-
-- JSON;
-- lock files;
-- generated files;
-- binary files;
-- third-party vendored files.
-
-Track changes for these through Git and the nearest owning source file or project changelog.
-
-### 6.5 Rules
-
-- newest version entry first;
-- use `DD-Mon-YYYY` dates;
-- use the exact version tag for changed lines;
-- mark only lines changed in that version;
-- do not add `#changed`, `// changed`, timestamps, usernames or prose such as `modified here` to inline markers;
-- do not add version markers to untouched lines merely because a surrounding block changed;
-- documentation Markdown files are not code files and do not require inline version tags unless explicitly requested.
+Do not mass-edit historical untouched lines merely to change old marker style.
 
 ---
 
-## 7. Python style
+## 13. Prompting and DSPy
 
-- Declare variables explicitly.
-- Avoid lambda functions unless they are genuinely the clearest option.
-- Prefer readable, testable functions over dense expressions.
-- Keep adapters small.
-- Keep side effects visible.
-- Use typed models/contracts where the design defines structured data.
-- Do not hide configuration in magic constants when it belongs in config.
+The KaKi-Talkie build order overrides generic prompting preferences.
 
----
+Start with the simplest reliable implementation. Do not introduce DSPy before its planned execution-plan unit.
 
-## 8. Secrets, privacy and runtime data
+When the active unit reaches the DSPy migration, prefer DSPy signatures/modules over hand-built prompt strings unless the architecture is explicitly revised.
 
-Never commit:
-
-- passwords;
-- OTPs;
-- Cloudflare service tokens;
-- Tailscale credentials;
-- Google/Telegram credentials;
-- device secrets;
-- API keys;
-- service-account files;
-- raw user audio by default;
-- runtime SQLite or Chroma databases.
-
-`.env.example` documents variable names only, with blank or example-safe values.
-
-Runtime application data belongs under the configured `KAKI_DATA_ROOT` baseline `/Users/websvc/kaki-talkie-data`.
-
-If a user volunteers a password, OTP or other authentication secret, do not intentionally persist that secret. Redact it from stored transcript/log content. Do not treat every six-digit number as an OTP; Singapore postal codes are also six digits. Refusal depends on the requested action/context, not number shape alone.
+Do not pull MERaLiON, SEA-LION, OmniVoice or other challenger work into earlier baseline units.
 
 ---
 
-## 9. Git safeguards
+## 14. Secrets, privacy and logging
 
-- Never push directly to `main`.
-- Use a short-lived branch with the project prefix conventions when branch creation is part of the user's workflow.
+Never commit credentials, tokens, private keys, service-account files, raw user audio by default, runtime databases or generated vector stores.
+
+`.env.example` documents names using blank or safe example values.
+
+Runtime logs go to the configured runtime/data/log location, not tracked source directories by default.
+
+Do not log credentials, access tokens or volunteered authentication secrets.
+
+If a user volunteers a password, OTP or authentication secret, do not intentionally persist it. Refusal depends on the requested action/context, not merely on a number pattern.
+
+---
+
+## 15. Git and test safeguards
+
+### Git
+
 - Do not commit or push unless explicitly instructed.
 - Do not force-push.
 - Do not rewrite published history.
-- Do not run destructive Git commands such as `git reset --hard`, `git clean -fd`, broad checkout/restore, or branch deletion unless the user explicitly requests them.
+- Do not run `git reset --hard`, `git clean`, broad restore/checkout or branch deletion unless explicitly instructed.
 - Do not discard uncommitted user work.
-- Before editing an existing file, inspect its current contents and preserve unrelated changes.
-- Do not replace a complete existing file with a new template when a targeted edit is sufficient.
+- Inspect an existing file before editing it.
+- Prefer targeted edits over replacing a complete file with a template.
 
----
-
-## 10. Test integrity
+### Tests
 
 Tests are gates, not obstacles.
 
-The agent must not:
+Do not delete, weaken, skip or rewrite an acceptance test merely to obtain a green run.
 
-- delete a failing acceptance test merely to obtain a green run;
-- weaken an assertion to fit the implementation without a design reason;
-- mark a failing test skipped/xfailed solely to pass the gate;
-- alter an earlier work-package test contract without explicit approval;
-- change the WP1 turn-schema snapshot without a design revision.
+When an earlier test genuinely conflicts with an approved current requirement, report the mismatch and reconcile implementation + test together. This is not considered test weakening when the owner has explicitly changed the requirement.
 
-When a test exposes a genuine design conflict, report the conflict instead of making the test lie.
+Tier B/C tests unavailable on Windows are not failures. The owner runs them using the runbook.
 
 ---
 
-## 11. Test tiers
+## 16. Completion report
 
-### Tier A - hosted CI
+Keep completion reports short.
 
-Expected to run without the Mac Mini model stack:
+Report:
 
-- lint/format checks;
-- unit tests;
-- contract tests;
-- deterministic fixtures;
-- simulator build/tests;
-- turn-schema snapshot;
-- code change-log lint.
+```text
+Implemented:
+Files changed:
+Development dependencies:
+Tests run/results:
+Tests not run and why:
+Runbook section/status:
+Decisions or limitations:
+Later scope untouched: yes/no
+```
 
-### Tier B - Mac Mini gate
+For S/G validation, point to the exact runbook section. Do not reproduce the procedure.
 
-Run where local inference/runtime services exist:
-
-- Whisper integration;
-- Qwen/MLX-LM integration;
-- TTS integration;
-- Chroma/RAG integration;
-- regression and golden-path suite;
-- latency measurements;
-- model bake-offs when the active package requires them.
-
-### Tier C - physical-device gate
-
-Run only when device hardware is involved:
-
-- GPIO/button;
-- USB speakerphone;
-- thermal printer;
-- LED ring;
-- boot/service recovery;
-- network and canned-mode rehearsal.
-
-Do not make Tier B or Tier C model/hardware tests mandatory on ordinary hosted CI without an appropriate runner.
-
----
-
-## 12. Acceptance-gate behaviour
-
-For an active work package:
-
-1. run its automated acceptance tests;
-2. run all earlier deterministic regression/contract gates that apply;
-3. report tests not executable in the current environment rather than pretending they passed;
-4. do not declare the package complete until its Definition of Done is satisfied or the user explicitly accepts a partial gate.
-
-After WP3 exists, maintain a small must-pass golden-path suite for trust-critical behaviours in addition to percentage-based regression metrics.
-
----
-
-## 13. External commands and installations
-
-Prefer the existing repository scripts and installed stack.
-
-Do not autonomously introduce:
-
-- Docker or Kubernetes;
-- Redis or PostgreSQL;
-- message queues;
-- observability platforms;
-- cloud LLM fallbacks;
-- new public ports;
-- unrestricted web browsing/agents;
-- new external integrations.
-
-A component may be added only when the active work package and `design.md` require it, or the user explicitly approves a design change.
-
----
-
-## 14. Completion report
-
-At the end of a coding task, report concisely:
-
-- files created;
-- files modified;
-- behaviour implemented;
-- tests run and results;
-- tests not run and why;
-- any design conflict, open risk or deferred later-package work;
-- no claim that a manual/device test passed unless it was actually run.
+Report a file-plan deviation only when it is meaningful. Do not stop mid-implementation merely because one necessary helper/test file inside the approved ownership area was not predicted during preparation.
