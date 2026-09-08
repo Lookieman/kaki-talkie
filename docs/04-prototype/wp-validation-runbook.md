@@ -309,7 +309,7 @@ Do not introduce STT, LLM or TTS in WP2.1.
 ## 7.2 WP2.2 - whisper.cpp STT
 
 Owner level: **S**  
-Status: **READY - implementation authorised; owner Mac smoke pending**.
+Status: **VERIFIED / CLOSED 8 Sep**.
 The owner's 07-Sep-2026 implementation instruction resolves the prior B1/B2
 planning blockers with the configuration and CLI contract below. Verify commands
 for new application code on Windows before reporting implementation complete.
