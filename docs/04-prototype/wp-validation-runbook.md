@@ -1,10 +1,10 @@
 # KaKi-Talkie WP validation runbook
 
-Version 1.0 | 06-Sep-2026 | SGLN Group 10
+Version 1.2 | 07-Sep-2026 | SGLN Group 10
 
 Repository location: `docs/04-prototype/wp-validation-runbook.md`
 
-This is the **single operational source of truth** for project-owner installation, setup, configuration, service start/stop, manual validation, evidence collection and teardown.
+`setup.md` is the source of truth for Mac backend installation and configuration. This runbook is the source of truth for work-package validation: what to test, why, in what order, and what evidence to keep. Each WP setup section cross-references `setup.md` and adds only components that the final solution needs and `setup.md` does not cover.
 
 `design.md` defines architecture. `execution-plan.md` defines scope and acceptance. This runbook explains exactly what the owner does at the keyboard.
 
@@ -194,7 +194,7 @@ Goal: replace canned inference with real local English STT, LLM and TTS while pr
 ## 7.1 WP2.1 - audio input and normalisation
 
 Owner level: **S**  
-Status: **READY — implemented; owner Mac smoke pending**
+Status: ****VERIFIED / CLOSED 06-Sep-2026****
 
 Machine split:
 
@@ -309,277 +309,194 @@ Do not introduce STT, LLM or TTS in WP2.1.
 ## 7.2 WP2.2 - whisper.cpp STT
 
 Owner level: **S**  
-Status: **READY — implementation authorised; owner Mac smoke pending**.
+Status: **READY - implementation authorised; owner Mac smoke pending**.
 The owner's 07-Sep-2026 implementation instruction resolves the prior B1/B2
-planning blockers with the configuration and CLI contract below. Commands for
-new application code are the implementation contract; verify them on Windows
-before reporting implementation complete. Mac execution is owner-only.
+planning blockers with the configuration and CLI contract below. Verify commands
+for new application code on Windows before reporting implementation complete.
+Mac execution is owner-only.
 
-Scope: WP2-AT-02/03/07/08 — useful English transcription, language evidence,
+Scope: WP2-AT-02/03/07/08 - useful English transcription, language evidence,
 default audio deletion and explicit test retention. Baseline: Whisper
-large-v3-turbo through `whisper.cpp`. Owner review and Mac smoke are required.
+large-v3-turbo through `whisper.cpp`.
 
-### WP2.2 machines, accounts and directories
+### 7.2.1 Setup and installation
 
-- Windows: existing development account, `C:\projects\kaki-talkie-wp2.2`,
-  worktree `.venv`; deterministic checks only. No Whisper model/build required.
-- Mac Mini M4 Pro: `websvc`, macOS 14+ and the existing application checkout
-  with Python 3.11+ `.venv`. Start in that checkout; capture its actual path
-  below rather than assuming an undocumented installation directory.
-- Mac prerequisite installation: the owner's existing administrator/Homebrew
-  owner account when required; run the model service as `websvc`, never root.
-- No Raspberry Pi prerequisites. No Cloudflare routing changes or model port
-  exposure. No Qwen, real TTS, MERaLiON, RAG or DSPy installation.
+Install and configure through `setup.md`. This table maps each component to its
+`setup.md` section. All of these are complete on the Mac Mini.
 
-In a Mac terminal as `websvc`, from the application checkout root:
-
-```sh
-whoami
-pwd
-uname -m
-sw_vers -productVersion
-test -f backend/pyproject.toml
-export KAKI_APP_ROOT="$PWD"
-source "$KAKI_APP_ROOT/.venv/bin/activate"
-python --version
-export KAKI_DATA_ROOT="/Users/websvc/kaki-talkie-data"
-export WP22_RUNTIME="/Users/websvc/kaki-runtimes/whisper.cpp-v1.7.6"
-export WP22_MODELS="$KAKI_DATA_ROOT/models/whisper.cpp"
-export WP22_MODEL="$WP22_MODELS/ggml-large-v3-turbo.bin"
-umask 077
-mkdir -p /Users/websvc/kaki-runtimes "$WP22_MODELS" "$KAKI_DATA_ROOT/wp2.2"
-export WP22_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp2.2/smoke.XXXXXX")"
-printf '%s\n' "$KAKI_APP_ROOT" "$WP22_EVIDENCE"
+```text
++---------------------------------------+---------------------+
+| Component                             | setup.md section    |
++---------------------------------------+---------------------+
+| Host preparation and accounts         | 2, 4 (Stage 0)      |
+| Homebrew and base tooling             | 5 (Stage 1)         |
+| Directory layout and repository clone | 6 (Stage 2)         |
+| Backend Python environment            | 7.1                 |
+| whisper.cpp clone and Metal build     | 8.1, 8.2            |
+| large-v3-turbo model download         | 8.3                 |
+| Known-good audio fixture              | 8.4                 |
+| whisper-server on 127.0.0.1:8081      | 8.5, 3 (port map)   |
++---------------------------------------+---------------------+
 ```
 
-Expected: `websvc`, `arm64`, supported OS/Python, successful file check and a
-new private evidence directory outside Git. Stop on any failed prerequisite.
-`WP22_*` are shell helpers for this procedure, not implemented backend settings.
-Repeat exports in each terminal, using the same printed evidence directory
-instead of creating another one. Do not overwrite an existing runtime checkout.
+Two components are crucial to the final solution and absent from `setup.md`.
+Install them here.
 
-### WP2.2 one-time tools and backend prerequisites
+#### Install the STT adapter
 
-Check the Mac tools first:
-
-```sh
-xcode-select --print-path
-xcrun clang --version
-git --version
-curl --version
-/opt/homebrew/bin/brew --version
-```
-
-If Command Line Tools are absent, the owner installs them and completes the
-macOS dialogue with `xcode-select --install`, then repeats the first two checks.
-This command is documented by [Apple](https://developer.apple.com/library/archive/technotes/tn2339/_index.html).
-
-If Homebrew is absent, its owner installs it from an administrator login using
-the [official installer](https://brew.sh/), then returns to `websvc`:
-
-```sh
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-As the existing Homebrew owner, install CMake; do not use `sudo brew`:
-
-```sh
-/opt/homebrew/bin/brew install cmake
-/opt/homebrew/bin/cmake --version
-```
-
-The package command is verified against the [CMake formula](https://formulae.brew.sh/formula/cmake).
-The source build requires CMake 3.14+ via its bundled
-[ggml configuration](https://github.com/ggml-org/whisper.cpp/blob/v1.7.6/ggml/CMakeLists.txt).
-If the installed CMake/toolchain cannot configure this revision, retain the
-error and treat that machine's build as blocked; do not guess compatibility flags.
-
-Back as `websvc`, from `KAKI_APP_ROOT` with its `.venv` active, the existing
-repository dependency command is:
-
-```sh
-python -m pip install --only-binary=av -e 'backend[test,dev]'
-python -c "import av, fastapi, httpx; print('PyAV', av.__version__); print('backend dependencies available')"
-```
-
-Expected: PyAV 18.1.0 and successful imports. Install the adapter separately
-as documented below. No global Python installation.
-
-### WP2.2 pinned runtime and model installation
-
-Use the verified `v1.7.6` source tag for this procedure; it is a reproducible
-selection, not a claim that it is the latest release. From `websvc`'s terminal:
-
-```sh
-git clone --branch v1.7.6 --depth 1 https://github.com/ggml-org/whisper.cpp.git "$WP22_RUNTIME"
-cd "$WP22_RUNTIME"
-git describe --tags --exact-match
-git rev-parse HEAD
-/opt/homebrew/bin/cmake -B build -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_SERVER=ON
-/opt/homebrew/bin/cmake --build build -j 4 --config Release
-test -x build/bin/whisper-server
-./build/bin/whisper-server --help
-```
-
-Expected: tag `v1.7.6`, recorded commit SHA, successful build and server help.
-Build steps derive from the [pinned README](https://github.com/ggml-org/whisper.cpp/blob/v1.7.6/README.md)
-and [CMake options](https://github.com/ggml-org/whisper.cpp/blob/v1.7.6/CMakeLists.txt).
-No Core ML conversion or separate FFmpeg binary is needed for this WAV path.
-
-Still in `WP22_RUNTIME`:
-
-```sh
-sh ./models/download-ggml-model.sh large-v3-turbo "$WP22_MODELS"
-test -s "$WP22_MODEL"
-shasum -a 256 "$WP22_MODEL"
-```
-
-Model: `large-v3-turbo`, upstream converted artifact
-`ggerganov/whisper.cpp/ggml-large-v3-turbo.bin`; local cache is exactly
-`/Users/websvc/kaki-talkie-data/models/whisper.cpp/ggml-large-v3-turbo.bin`.
-The [pinned downloader](https://github.com/ggml-org/whisper.cpp/blob/v1.7.6/models/download-ggml-model.sh)
-supports this identifier and destination argument, fetching from Hugging Face.
-It skips an existing file. A non-empty file/hash alone does not establish a good
-download: successful model loading below is mandatory. Record the hash for
-repeatability; no independently verified expected hash is asserted here.
-If download/loading fails, preserve the error and inspect the specific artifact
-before retrying; do not silently substitute another model or delete shared caches.
-
-### WP2.2 service start order and readiness
-
-For the upstream-only smoke, start only Whisper. Use a foreground terminal as
-`websvc`, working directory `WP22_RUNTIME`. First inspect the proposed port:
-
-```sh
-lsof -nP -iTCP:8080 -sTCP:LISTEN
-```
-
-Expected before start: no listener (normally exit 1). If occupied, identify it;
-do not kill an existing service or silently change the documented port.
-
-```sh
-cd "$WP22_RUNTIME"
-./build/bin/whisper-server --host 127.0.0.1 --port 8080 -m "$WP22_MODEL" -l auto
-```
-
-The [server usage](https://github.com/ggml-org/whisper.cpp/blob/v1.7.6/examples/server/README.md)
-verifies these flags. Do not enable `--convert`, debug dumps or transcript
-printing. Use only the synthetic fixture during this preparation smoke.
-
-In a second `websvc` terminal:
-
-```sh
-curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8080/health
-lsof -nP -iTCP:8080 -sTCP:LISTEN
-```
-
-Expected: HTTP 200 with `{"status":"ok"}` and only `127.0.0.1:8080` listening.
-Retry manually while the model loads; record startup errors instead of treating
-a listening socket alone as ready. The [server source](https://github.com/ggml-org/whisper.cpp/blob/v1.7.6/examples/server/server.cpp)
-defines readiness, multipart handling and verbose language evidence. Without
-conversion, it reads uploaded audio from memory rather than writing a WAV file.
-
-Application start order: Whisper -> CLI readiness check -> configured FastAPI
-backend -> optional existing simulator. Public `/api/health` aggregation remains
-WP2.4 scope. The standalone CLI does not require FastAPI to be running.
-
-### WP2.2 fixed English upstream smoke
-
-Use the existing synthetic `backend/src/kaki_backend/fixtures/canned_reply.wav`;
-its provenance and exact text are in the adjacent README. Do not use the WP2.1
-tone fixture to assess transcription. From the application checkout, with the
-exports above and its `.venv` active:
-
-```sh
-cd "$KAKI_APP_ROOT"
-curl --fail --silent --show-error --max-time 120 \
-  http://127.0.0.1:8080/inference \
-  -F "file=@$KAKI_APP_ROOT/backend/src/kaki_backend/fixtures/canned_reply.wav" \
-  -F response_format=verbose_json \
-  -o "$WP22_EVIDENCE/transcription.json"
-python -m json.tool "$WP22_EVIDENCE/transcription.json"
-```
-
-The [upstream request example](https://github.com/ggml-org/whisper.cpp/blob/v1.7.6/examples/server/README.md)
-specifies multipart `file` and `response_format`. The pinned source supplies
-`text`, `language`, `detected_language` and `detected_language_probability` in
-verbose output. Expect a useful rendering of the fixture's two sentences;
-capitalisation, punctuation and spelling of the product name may differ.
-Expect English language evidence, a finite probability between zero and one,
-and no error object. Do not manufacture evidence by merely echoing the configured
-language. The 120-second curl limit bounds this manual diagnostic; it is not a
-product latency target or the future adapter timeout.
-
-This checks the upstream runtime only. It does not prove WP2-AT-02/03 through
-the application adapter, nor the application's audio deletion/retention gates.
-The deliberate source fixture remains in Git; default deletion applies to
-per-request copies/resources, not deletion of the curated fixture itself.
-
-### WP2.2 application configuration and smoke
-
-As `websvc`, from `KAKI_APP_ROOT` with `.venv` active, install the adapter into
-the same application environment (the C++ model remains a separate process):
+The adapter is the WP2.2 deliverable: it connects FastAPI to the Whisper
+service. On the Mac, as `websvc`, from the application checkout root with its
+`.venv` active:
 
 ```sh
 python -m pip install -e services/stt/whisper_cpp
 python -c "from kaki_whisper_cpp.adapter import WhisperStt; print('Whisper adapter import OK')"
-export KAKI_STT_MODE=whisper
-export KAKI_WHISPER_URL=http://127.0.0.1:8080
-export KAKI_STT_TIMEOUT_SECONDS=30
-export KAKI_DATA_ROOT=/Users/websvc/kaki-talkie-data
-python scripts/check_stt.py --help
-python scripts/check_stt.py --readiness
 ```
 
-The adapter package declares HTTPX >=0.27,<1, already used by backend tests.
+On Windows, install it into the worktree `.venv` for the regression tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e services/stt/whisper_cpp
+```
+
+The adapter declares HTTPX >=0.27,<1, already used by backend tests. Do not
+install into a global Python.
+
+#### Prepare the validation environment
+
+Repeat these exports in every terminal of a validation session. Reuse the same
+printed evidence directory within one session instead of creating another.
+
+```sh
+cd ~/projects/kaki-talkie
+export KAKI_APP_ROOT="$PWD"
+source "$KAKI_APP_ROOT/.venv/bin/activate"
+export KAKI_DATA_ROOT="/Users/websvc/kaki-talkie-data"
+umask 077
+mkdir -p "$KAKI_DATA_ROOT/wp2.2"
+export WP22_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp2.2/smoke.XXXXXX")"
+export KAKI_STT_MODE=whisper
+export KAKI_WHISPER_URL=http://127.0.0.1:8081
+export KAKI_STT_TIMEOUT_SECONDS=30
+printf '%s\n' "$KAKI_APP_ROOT" "$WP22_EVIDENCE"
+```
+
 `KAKI_STT_MODE` accepts `canned` (default) or `whisper`; invalid values fail
 startup. The URL must be HTTP with a literal loopback address, port and no
-credentials/path/query. Readiness uses a two-second network timeout; transcription
-uses the configured finite 0.1–120-second network timeout (default 30 seconds).
-These are network-operation bounds, not an end-to-end latency acceptance target.
-Redirects/proxies are disabled and response size is capped at 256 KiB.
-No runtime model loading occurs inside FastAPI. `.env.example` is documentation;
-export settings explicitly, because the application does not auto-load `.env`.
+credentials, path or query. Readiness uses a two-second network timeout;
+transcription uses the configured 0.1-120-second network timeout (default 30
+seconds). These bound network operations; they are not latency acceptance
+targets. Redirects and proxies are disabled; response size is capped at
+256 KiB. The application does not auto-load `.env`, so export settings
+explicitly.
 
-After Whisper is ready, start the backend in a separate foreground terminal with
-these exports and `.venv` active:
+#### Record the runtime identity
+
+`setup.md` clones `whisper.cpp` from `master` without recording the version.
+Evidence needs provenance, so record it once:
+
+```sh
+cd ~/src/whisper.cpp
+git describe --tags --always
+git rev-parse HEAD
+shasum -a 256 ~/models/whisper/ggml-large-v3-turbo.bin
+```
+
+Copy the three outputs into the current evidence directory. This step runs once per runtime, not once per session; later sessions may copy the existing record forward. If you later rebuild
+`whisper.cpp`, record the new identity before the next validation session.
+
+### 7.2.2 Testing and validation
+
+Each test states its objective. If a test stops serving its objective, remove
+it rather than maintaining it out of habit.
+
+Run the tests in order. Tests 1-4 run on the Mac as `websvc` with the exports
+from 7.2.1 active.
+
+#### Test 1: STT service readiness
+
+Objective: prove the STT runtime that the solution depends on starts cleanly,
+binds only to localhost, and reports ready before FastAPI needs it.
+
+Check that port 8081 is free, then start the server in a foreground terminal
+(start command: `setup.md` 8.5, with `-l auto` for language evidence):
+
+```sh
+lsof -nP -iTCP:8081 -sTCP:LISTEN
+cd ~/src/whisper.cpp
+./build/bin/whisper-server --host 127.0.0.1 --port 8081 \
+  -m ~/models/whisper/ggml-large-v3-turbo.bin -l auto
+```
+
+If the port is occupied, identify the process; do not kill an existing service
+or change the documented port. In a second terminal:
+
+```sh
+curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8081/health
+lsof -nP -iTCP:8081 -sTCP:LISTEN
+```
+
+Expected: HTTP 200 with `{"status":"ok"}` and only `127.0.0.1:8081` listening.
+Retry manually while the model loads. Record startup errors; a listening socket
+alone is not readiness.
+
+Start order for the full stack: Whisper, then the CLI readiness check, then
+FastAPI, then the optional simulator. The CLI in Test 2 does not require
+FastAPI.
+
+#### Test 2: adapter transcription, deletion and retention
+
+Objective: prove WP2-AT-02/03/07/08 through the production adapter - useful
+English transcription with language evidence, default audio deletion, and
+explicit consent-gated retention.
+
+```sh
+cd "$KAKI_APP_ROOT"
+python scripts/check_stt.py --readiness
+python scripts/check_stt.py --input backend/src/kaki_backend/fixtures/canned_reply.wav
+python scripts/check_stt.py --input backend/src/kaki_backend/fixtures/canned_reply.wav --retain-test-audio --consent-to-retain
+```
+
+The fixture is synthetic; its provenance and exact text are in the adjacent
+README. The CLI runs an original turn, a same-ID retry and an unselected
+control turn, and reports JSON with the transcript, language evidence, timings,
+audio release, retry and selection checks, and any retained path.
+
+Expected: useful English text, language evidence with a finite probability
+between zero and one, released input buffers, one execution for the
+original/retry pair, and two total STT calls including the control. Inspect the
+text against the fixture; no invented accuracy threshold applies. Default mode
+writes no audio. Retain mode writes exactly one copy of the original input
+under `KAKI_DATA_ROOT/wp2.2/retained`; the retry and the control must create no
+copies. Both retention flags and an explicit `--input` are required; no public
+API parameter or environment variable enables retention.
+
+After examining the printed retained path, delete only that file, replacing the
+placeholder with the exact generated basename:
+
+```sh
+rm -i "$KAKI_DATA_ROOT/wp2.2/retained/<printed-basename>"
+```
+
+Rerun the default CLI and confirm no new retained file appears. Do not delete
+the data root.
+
+#### Test 3: device HTTP contract with real transcription
+
+Objective: prove the route the kiosk calls returns the locked nine-field
+contract with real transcription behind it, and that a retried `turn_id`
+returns the first response.
+
+Start FastAPI in a separate foreground terminal with the 7.2.1 exports and
+`.venv` active:
 
 ```sh
 cd "$KAKI_APP_ROOT"
 python -m kaki_backend.main
 ```
 
-Expect `127.0.0.1:8000`; check `lsof -nP -iTCP:8000 -sTCP:LISTEN` and
-`curl --fail http://127.0.0.1:8000/api/health`. The existing health JSON remains
-unchanged; STT readiness is checked by the CLI. The CLI runs the same configured
-adapter/pipeline directly and does not require a running backend or simulator.
-
-Run the owner fixture smoke from the application checkout:
-
-```sh
-python scripts/check_stt.py --input backend/src/kaki_backend/fixtures/canned_reply.wav
-python scripts/check_stt.py --input backend/src/kaki_backend/fixtures/canned_reply.wav --retain-test-audio --consent-to-retain
-```
-
-The CLI reports JSON with the selected test transcript, language evidence,
-timings, audio release, retry/selection checks and any retained path. It runs an
-original turn, a same-ID retry and an unselected control turn. Expect useful
-English text, language evidence, released input buffers, one execution for the
-original/retry pair, and two total STT calls including the control. Inspect the
-text against the fixed fixture; no invented transcription accuracy threshold.
-Default mode writes no audio. Retain mode writes exactly one original input copy
-under `KAKI_DATA_ROOT/wp2.2/retained`, with a generated filename; the retry and
-unselected control must create no copies. The source fixture itself is preserved.
-
-Both retention flags and an explicit `--input` are required. There is no public
-API parameter or environment variable enabling retention. `KAKI_DATA_ROOT` is
-required only for explicit retention and must be an absolute path outside a Git
-checkout. Ordinary backend logs contain language evidence and safe failure codes,
-not raw audio or transcript text; transcript output is limited to the deliberate
-owner CLI test. Normalised WAV and original request buffers are released before
-later canned stages; the upload spool is closed before processing begins.
-
-To exercise the real HTTP route with this synthetic fixture:
+Confirm `127.0.0.1:8000` with `lsof -nP -iTCP:8000 -sTCP:LISTEN` and
+`curl --fail http://127.0.0.1:8000/api/health`. Then submit a turn:
 
 ```sh
 curl --fail --silent --show-error --max-time 120 http://127.0.0.1:8000/api/device/turn \
@@ -587,34 +504,33 @@ curl --fail --silent --show-error --max-time 120 http://127.0.0.1:8000/api/devic
   -F "audio=@$KAKI_APP_ROOT/backend/src/kaki_backend/fixtures/canned_reply.wav"
 ```
 
-Expect `answered` with the unchanged nine-field response and clearly canned
-reply/audio; only transcription is real in WP2.2. Retry the same request to
-check the first response is retained. Use a fresh turn ID for each new test.
+Expected: `answered` with the unchanged nine-field response; only transcription
+is real in WP2.2, so the reply and audio are clearly canned. Repeat the same
+request and confirm the first response returns. Use a fresh `turn_id` for each
+new test.
 
-Stop Whisper with Ctrl+C. `python scripts/check_stt.py --readiness` and the
-fixture CLI must exit non-zero with safe diagnostics. Submit the HTTP request
-with a fresh turn ID: expect HTTP 200, `failed`, calm non-empty text and no
-invented speech audio. Restart Whisper, repeat readiness and the fixture command,
-and use a fresh HTTP turn ID to prove recovery. Reusing a completed failed turn
-ID deliberately returns its first failure. Deterministic tests cover malformed
-responses, empty input, timeouts, cancellation, resource release before later
-stages and retention isolation without requiring actual model failures.
+#### Test 4: failure and recovery
 
-After examining the printed retained path, delete only that file interactively;
-replace the placeholder with the exact generated basename from the CLI:
+Objective: prove the solution fails safely when STT is down and recovers
+without an application restart. Sabariah gets a calm answer, not a hang.
 
-```sh
-rm -i "$KAKI_DATA_ROOT/wp2.2/retained/<printed-basename>"
-```
+1. Stop Whisper with Ctrl+C in its terminal.
+2. Run `python scripts/check_stt.py --readiness` and the fixture command from
+   Test 2. Both must exit non-zero with safe diagnostics.
+3. Submit the Test 3 request with a fresh `turn_id`. Expect HTTP 200, status
+   `failed`, calm non-empty text and no invented speech audio.
+4. Restart Whisper, wait for readiness, and repeat the readiness check, the
+   fixture command and a fresh-ID HTTP request to prove recovery.
 
-The placeholder is output-dependent, not a literal filename. Do not delete the
-whole data root. Rerun the default CLI and confirm no new retained file appears.
-Record observations under `WP22_EVIDENCE`. Mac smoke remains pending until the
-owner runs these procedures; automated evidence does not substitute for it.
+Reusing a completed failed `turn_id` deliberately returns its first failure.
 
-### WP2.2 deterministic regression checks
+#### Test 5: deterministic regression
 
-Existing executable checks, Windows development account, worktree root:
+Objective: prove the WP1 contract and all prior behaviour still hold with the
+adapter installed, so later packages can build on WP2.2 without re-checking it.
+
+On Windows, from the worktree root, with the adapter installed (7.2.1) and
+`KAKI_STT_MODE=canned`:
 
 ```powershell
 .\.venv\Scripts\python.exe -m ruff check --config backend/pyproject.toml backend scripts services
@@ -627,159 +543,192 @@ npm --prefix apps/web run build
 .\.venv\Scripts\python.exe scripts/check_wp1_integration.py --start-services
 ```
 
-Install the adapter into the Windows `.venv` with
-`.\.venv\Scripts\python.exe -m pip install -e services/stt/whisper_cpp`.
-Set `KAKI_STT_MODE=canned` for deterministic regression. Expected: all pass
-without a model service. Adapter tests are discovered in backend/tests/unit.
-Required added coverage: response parsing,
-language evidence, readiness, bounded failures, success/error cleanup, explicit
-retention isolation and idempotent retries. Preserve earlier behavioural assertions.
+Expected: all pass without a model service. Adapter tests live in
+`backend/tests/unit` and must cover response parsing, language evidence,
+readiness, bounded failures, success and error cleanup, retention isolation and
+idempotent retries. Preserve earlier behavioural assertions.
 
-### WP2.2 stop, evidence and limitations
+#### Teardown and evidence
 
-For upstream failure/restart smoke, press Ctrl+C in the foreground Whisper
-terminal. Confirm shutdown from the second terminal:
+Stop the stack in reverse order with Ctrl+C in each owned terminal: simulator,
+FastAPI, then Whisper. Never use broad process kills. Keep the runtime build
+and model cache for reruns.
 
-```sh
-lsof -nP -iTCP:8080 -sTCP:LISTEN
-curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8080/health
-```
+Retain under `WP22_EVIDENCE`: application path and commit, OS and architecture,
+Python version, Whisper identity from 7.2.1, model SHA-256, command results,
+readiness and listener observations, transcript and language output, regression
+results, and the deletion, retention, failure and recovery observations. Record
+consent and disposal of deliberately retained test audio separately. Never
+collect ordinary user audio as gate evidence. Memory release is not a promise
+of forensic RAM erasure.
 
-Expected: no listener and curl connection failure. Restart with the same server
-command, repeat readiness and fixed-fixture smoke. Never use broad process kills.
-For the eventual application stack stop in reverse order: optional simulator,
-FastAPI, then Whisper, using Ctrl+C in each owned foreground terminal. Use the targeted retained-file
-teardown above; do not improvise recursive deletion.
+Troubleshooting: if Test 2 fails, isolate the layer by calling the Whisper
+service directly with the `setup.md` 8.5 procedure
+(`curl http://127.0.0.1:8081/inference -F file=@... -F response_format=json`).
+If that also fails, the fault is in the runtime or model; if it passes, the
+fault is in the adapter or configuration.
 
-Keep the runtime build, model cache and synthetic transcript evidence for reruns;
-no uninstall is required. After review, the owner may remove just this smoke's
-generated transcript (with `WP22_EVIDENCE` still set to its printed directory):
-
-```sh
-rm -i "$WP22_EVIDENCE/transcription.json"
-```
-
-Retain under the run's evidence directory: application path/commit, OS/architecture,
-Python/CMake/compiler versions, Whisper tag/SHA, model SHA-256, exact command
-results, readiness/listener observations, synthetic transcript/language output,
-regression results and eventual deletion/retention/failure/recovery observations.
-Record consent and disposal of deliberately retained test audio separately; never
-collect ordinary user audio as gate evidence.
-
-Sources were inspected on 07-Sep-2026; no Mac build, model load or smoke has been
-executed by Codex. Model source download follows upstream's model repository
-`main`; record the downloaded hash. Real speech usefulness, Mac compatibility
-and actual cleanup remain owner validation. Memory release is not a promise of
-forensic RAM erasure. WP2.1 Mac smoke remains pending as recorded in section 7.1.
-Full health aggregation, debug UI, Qwen, real TTS and latency measurement remain
-WP2.3/WP2.4 work. B1/B2 are resolved by the approved implementation contract
-above. Mark VERIFIED only after the owner completes the application smoke.
+Mark VERIFIED only after the owner completes Tests 1-4 on the Mac.
 
 ## 7.3 WP2.3 - MLX/Qwen generation
 
 Owner level: **S**  
-Status: **DRAFT - exact Qwen checkpoint must be selected during Prepare**
+Status: **DRAFT - structure fixed; Prepare WP2.3 fills in adapter commands**
 
-Machine: Mac Mini  
-User: `websvc`
+Machine: Mac Mini. User: `websvc`. Locked runtime family: MLX-LM with a small
+quantised Qwen-class instruct model. Do not introduce RAG, DSPy or SEA-LION.
 
-Locked runtime family: MLX-LM with a small quantised Qwen-class instruct model.
+### 7.3.1 Setup and installation
 
-`Prepare WP2.3` must document:
+```text
++---------------------------------------+---------------------+
+| Component                             | setup.md section    |
++---------------------------------------+---------------------+
+| LLM virtual environment (kaki-llm)    | 7.2                 |
+| MLX-LM interactive verification       | 9.2                 |
+| Model cache location (HF_HOME)        | 9.3                 |
+| LLM service on 127.0.0.1:8082         | 9.4, 3 (port map)   |
++---------------------------------------+---------------------+
+```
 
-- service-specific virtual environment;
-- MLX-LM installation/verification;
-- exact approved Qwen model identifier;
-- model cache location;
-- adapter/start/readiness/stop commands;
-- fixed transcript input;
-- five-run <=60-word response check;
-- failure/recovery check;
-- evidence.
+Components crucial to the solution and absent from `setup.md`:
 
-Do not introduce RAG, DSPy or SEA-LION.
+- Exact model identifier. Selected 07-Sep-2026: `mlx-community/Qwen3-8B-4bit`.
+  Record any change here with a date.
+- Thinking-mode suppression. Qwen3 emits `<think>` blocks by default; the
+  adapter must disable them (`enable_thinking=False` in the chat template) so
+  the kiosk does not stream silence while the model deliberates.
+- The LLM adapter package under `services/llm/`. `Prepare WP2.3` documents its
+  installation, start, readiness and stop commands.
+
+### 7.3.2 Testing and validation
+
+`Prepare WP2.3` supplies exact commands. The tests and objectives are fixed:
+
+- Test 1, LLM service readiness. Objective: prove the model loads once, stays
+  resident across turns, and serves only on `127.0.0.1:8082`.
+- Test 2, bounded generation. Objective: prove a fixed transcript input yields
+  a concise reply - five runs, each 60 words or fewer - because long replies
+  break spoken delivery for elderly users.
+- Test 3, failure and recovery. Objective: prove FastAPI returns a calm
+  `failed` response while the LLM service is down and recovers without an
+  application restart.
+- Test 4, WP1 regression. Objective: prove the contract still holds with the
+  LLM adapter installed (Test 5 command set from 7.2.2).
 
 ## 7.4 WP2.4 - macOS say + full WP2 gate
 
 Owner level: **G**  
 Status: **DRAFT - finalise after WP2.1-WP2.3**
 
-Machine: Mac Mini + protected Chrome browser on laptop/phone  
-User: `websvc`
+Machine: Mac Mini plus a protected Chrome browser on a laptop or phone.
+User: `websvc`. Baseline English TTS: macOS `say`.
 
-Baseline English TTS: macOS `say`.
+### 7.4.1 Setup and installation
 
-`Prepare WP2.4` must document:
+```text
++---------------------------------------+---------------------+
+| Component                             | setup.md section    |
++---------------------------------------+---------------------+
+| macOS say TTS adapter and conversion  | 10.1                |
+| FastAPI runtime and configuration     | 11                  |
+| Next.js simulator                     | 14                  |
+| Cloudflare access to the simulator    | 15                  |
+| Latency measures to record            | 18.1                |
++---------------------------------------+---------------------+
+```
 
-- exact service start order;
-- `dev_up`/`dev_down` usage if implemented;
-- `/api/health` readiness checks;
-- protected debug-panel URL;
-- fixed end-to-end questions;
-- empty/silence/failure checks supported by the implementation;
-- exact latency-script `--help` command;
-- exact ten-run latency command;
-- p50/p95 evidence location;
-- WP1 regression command;
-- shutdown verification.
+Component crucial to the solution and absent from `setup.md`: the latency
+measurement script (repository deliverable). `Prepare WP2.4` documents its
+`--help` and the exact ten-run command.
 
-Package-gate outcome:
+### 7.4.2 Testing and validation
 
-- real English speech-in -> speech-out works;
-- transcript and timing fields are visible;
-- replies are clearly labelled ungrounded in WP2;
-- raw-audio deletion remains proven;
-- p50/p95 are recorded, with no invented threshold;
-- WP1 contract regression remains green.
+- Test 1, service stack readiness. Objective: prove the documented start order
+  brings every service healthy and `/api/health` reflects it.
+- Test 2, end-to-end voice loop. Objective: prove real English speech in
+  produces speech out through the simulator, with transcript and timing fields
+  visible - the core demo path. Use the fixed questions and expected flow in
+  `setup.md` 23.
+- Test 3, degraded input. Objective: prove empty audio and silence produce
+  calm, well-formed responses rather than hangs or crashes.
+- Test 4, latency baseline. Objective: record p50/p95 over ten runs against the
+  `setup.md` 18.1 measures. The five-second target is a hypothesis; record, do
+  not invent a pass threshold.
+- Test 5, WP1 regression and shutdown. Objective: prove the contract holds and
+  the stack stops cleanly in reverse order.
+
+Package-gate outcome: real English speech-in to speech-out works; replies are
+clearly labelled ungrounded in WP2; raw-audio deletion remains proven; p50/p95
+are recorded; WP1 regression is green.
 
 ---
 
 # 8. WP3 - grounded knowledge + refusal
 
-Status: **DRAFT**
+Status: **DRAFT - structure fixed; Prepare WP3.x fills in commands**
 
-Before each WP3 IU implementation, `Prepare WP3.x` must populate its exact operational section.
+### 8.1 Setup and installation
 
-Expected operational topics:
+```text
++---------------------------------------+---------------------+
+| Component                             | setup.md section    |
++---------------------------------------+---------------------+
+| Chroma storage location               | 13                  |
+| Corpus split, allowlist, provenance   | 13.1, 13.2          |
+| Initial 5-10 page ingestion scope     | 13.3                |
+| Runtime configuration file            | 11.4                |
++---------------------------------------+---------------------+
+```
 
-- `KAKI_DATA_ROOT` directory preparation;
-- allowlisted source ingestion;
-- runtime snapshot/processed paths;
-- embedding runtime/model;
-- Chroma storage;
-- ingestion script `--help` and example;
-- deterministic retrieval tests;
-- golden-path/regression commands;
-- provenance/source-date checks;
-- refusal/insufficient-evidence checks;
-- secret-redaction tests;
-- teardown/reindex recovery.
+Components crucial to the solution and absent from `setup.md`:
 
-Generated corpus snapshots belong under `KAKI_DATA_ROOT`. Commit only intentional, small, non-sensitive deterministic fixtures/evidence.
+- The embedding runtime and model. `setup.md` covers Chroma storage but not
+  how chunks are embedded. `Prepare WP3.x` selects and records it, then adds
+  it to `setup.md`.
+- The ingestion script (repository deliverable) and its example invocation.
 
-Golden-path acceptance is defined in the execution plan; operational commands live here.
+Generated corpus snapshots belong under `KAKI_DATA_ROOT`. Commit only
+intentional, small, non-sensitive deterministic fixtures.
+
+### 8.2 Testing and validation
+
+- Test 1, retrieval acceptance. Objective: prove the `setup.md` 13.4 gate -
+  dated snapshots, provenance on every retrieved chunk, Chroma surviving a
+  backend restart.
+- Test 2, grounded answer. Objective: prove a supported question (for example
+  CDC vouchers) returns an answer whose source URLs and dates come from
+  application metadata, not the LLM.
+- Test 3, refusal. Objective: prove the deliberately unsupported question
+  produces a refusal rather than an invented answer - the safety property the
+  pitch depends on.
+- Test 4, regression. Objective: prove WP1 and WP2 behaviour still hold with
+  retrieval installed.
 
 ---
 
 # 9. WP4 - memory + actions + case closure
 
-Status: **DRAFT**
+Status: **DRAFT - structure fixed; Prepare WP4.x fills in commands**
 
-Expected operational topics:
+### 9.1 Setup and installation
 
-- SQLite path, migration and backup/restore;
-- restart/durable-idempotency checks;
-- repeat/print previous behaviour;
-- pending/case lifecycle;
-- Google Calendar test account/calendar and confirmation procedure;
-- handoff adapter decision;
-- presenter controls where retained.
+```text
++---------------------------------------+---------------------+
+| Component                             | setup.md section    |
++---------------------------------------+---------------------+
+| SQLite location, permissions, schema  | 12                  |
+| Backup and restore procedure          | 12.4, 20            |
+| Secrets outside Git                   | 11.4                |
++---------------------------------------+---------------------+
+```
 
-### Handoff-channel decision
+Components crucial to the solution and absent from `setup.md`:
 
-The exact kaki handoff channel is not locked before WP4.3.
-
-During `Prepare WP4.3`, choose one of:
+- Google Calendar integration. `setup.md` 24 defers it deliberately. Add it
+  to `setup.md` only when `Prepare WP4.x` locks the action scope, including
+  the test account and calendar.
+- The handoff channel. Decide during `Prepare WP4.3`:
 
 ```text
 A. logging/test adapter only for MVP;
@@ -787,62 +736,94 @@ B. Telegram adapter;
 C. another explicitly approved bounded channel.
 ```
 
-If Telegram is not selected, do not install/configure Telegram and do not treat its absence as a failed gate.
+If Telegram is not selected, do not install or configure it, and do not treat
+its absence as a failed gate. The core WP4 requirement is durable case
+creation plus idempotent handoff behaviour behind `HandoffPort`. Morning
+scheduler automation remains deferred unless the owner reintroduces it.
 
-The core WP4 requirement is durable case creation + idempotent handoff behaviour behind `HandoffPort`; the selected real external channel is a separate MVP choice.
+### 9.2 Testing and validation
 
-Morning scheduler automation remains deferred unless the owner explicitly reintroduces it.
+- Test 1, durability. Objective: prove turns, sessions and cases survive a
+  backend restart, and a retried `turn_id` remains idempotent across the
+  restart - the property that makes the kiosk trustworthy after a power blip.
+- Test 2, repeat and print-previous. Objective: prove the user-facing memory
+  behaviours work against persisted state.
+- Test 3, case lifecycle and handoff. Objective: prove a pending case is
+  created once, handed off once, and closed, with no duplicate side effects.
+- Test 4, backup and restore. Objective: prove the `setup.md` 12.4 backup
+  restores to a working database (`setup.md` 20.3).
 
 ---
 
 # 10. WP5 - Singapore language + improvement
 
-Status: **DRAFT**
+Status: **DRAFT - structure fixed; Prepare WP5.x fills in commands**
 
-Expected operational topics:
+### 10.1 Setup and installation
 
-- Malay regression path;
-- consent-cleared SG speech set;
-- MERaLiON challenger environment and bake-off;
-- SEA-LION challenger environment and bake-off;
-- OmniVoice challenger environment and human review;
-- DSPy migration/evaluation;
-- model/cache locations and RAM/disk considerations;
-- baseline/challenger sequential run procedure;
-- p50/p95 and quality evidence;
-- promote/keep/reject decision record;
-- allowlisted live-lookup gate.
+```text
++---------------------------------------+---------------------+
+| Component                             | setup.md section    |
++---------------------------------------+---------------------+
+| Challenger virtual environments       | 7.3                 |
+| Multilingual TTS (deferred)           | 10.2                |
+| Deferred-component policy             | 24                  |
+| Model cache and disk considerations   | 9.3, 21             |
++---------------------------------------+---------------------+
+```
 
-Challenger failures do not block the working baseline. Do not install every challenger into one shared runtime by default.
+Component crucial to the solution and absent from `setup.md`: the
+consent-cleared Singapore speech set for regression and bake-offs. `Prepare
+WP5.x` documents its collection, consent record and storage under
+`KAKI_DATA_ROOT`.
 
-Exact challenger installation commands must be verified during the relevant `Prepare WP5.x` step. Do not guess them in advance.
+Install a challenger only when a measured baseline limitation justifies it,
+and only into its own environment. Do not guess challenger installation
+commands in advance; verify them during the relevant `Prepare WP5.x`.
+
+### 10.2 Testing and validation
+
+- Test 1, Malay regression. Objective: prove the baseline handles the Malay
+  path the design promises before any challenger work starts.
+- Test 2, bake-off. Objective: run baseline and challenger sequentially on the
+  same speech set and record quality plus p50/p95, so the promote, keep or
+  reject decision rests on evidence.
+- Test 3, decision record. Objective: prove each bake-off ends in a recorded
+  decision. Challenger failures do not block the working baseline.
 
 ---
 
 # 11. WP6 - physical client + hardening
 
-Status: **DRAFT**
+Status: **DRAFT - structure fixed; Prepare WP6.x fills in commands**
 
-Expected Tier C operational topics:
+### 11.1 Setup and installation
 
-- Raspberry Pi OS/version;
-- first-boot preparation;
-- Python/system dependencies;
-- ALSA capture/playback device names;
-- dome button/GPIO;
-- LED states;
-- ESC/POS printer + separate power;
-- systemd install/start/restart;
-- service authentication;
-- network retry with same `turn_id`;
-- optional Tailscale hardening;
-- canned-mode sequence;
-- alternate connectivity path;
-- process-kill/power-cycle recovery;
-- SD-card image/restore;
-- final demo-run procedure.
+`setup.md` covers the Mac backend only. The Raspberry Pi has no installation
+source of truth yet. `Prepare WP6.x` must either extend `setup.md` with a Pi
+section or create a peer document, covering: Pi OS and version, first-boot
+preparation, Python and system dependencies, ALSA device names, dome button
+GPIO 17, LED ring GPIO 18, ESC/POS printer with separate power, systemd
+services, service authentication, and the optional Tailscale hardening.
 
-The Pi must remain a thin client. Model/RAG/prompt/case-decision logic on the Pi is a gate failure.
+The Mac-side pieces the Pi depends on are already in `setup.md`: device routes
+through Cloudflare Access (15.4) and the never-publish-model-services rule
+(15.5).
+
+### 11.2 Testing and validation
+
+- Test 1, thin-client conformance. Objective: prove the Pi holds no model, RAG,
+  prompt or case-decision logic. Any such logic on the Pi is a gate failure.
+- Test 2, canned-mode sequence. Objective: prove the button, LED states, audio
+  capture and playback, and printer work against canned backend responses
+  before real inference is in the loop.
+- Test 3, network retry. Objective: prove a dropped connection retried with the
+  same `turn_id` produces exactly one answer and one print.
+- Test 4, power-cycle recovery. Objective: prove the kiosk returns to service
+  after a process kill and a power cycle without operator intervention -
+  demo-day insurance.
+- Test 5, demo run. Objective: execute the final demo procedure end to end on
+  the physical kiosk.
 
 ---
 
@@ -861,4 +842,7 @@ Prepare WPn.m
 -> mark VERIFIED when completed
 ```
 
-If you are unsure what to install, start, test or stop, this runbook is the place to fix. Do not create another operational guide.
+Installation and configuration changes go to `setup.md`. Validation changes go
+to this runbook. Do not create a third operational guide. If a `Prepare WPn.m`
+step introduces a component the final solution needs, add its installation to
+`setup.md` and cross-reference it here.
