@@ -1,6 +1,6 @@
 # KaKi-Talkie coding-agent instructions
 
-Version 1.2 | 07-Sep-2026 | SGLN Group 10
+Version 1.3 | 08-Sep-2026 | SGLN Group 10
 
 This file governs coding-agent behaviour in the `kaki-talkie` repository.
 
@@ -121,6 +121,18 @@ When asked `Prepare WPn.m`:
    - Mac Mini/Pi runtime prerequisites documented in the runbook;
    - any `BLOCKED` item;
 5. do not implement application code yet.
+
+### Runbook structure
+
+`wp-validation-runbook.md` follows one section structure for every work-package unit. When updating the runbook:
+
+- edit only the active unit's section;
+- keep the established element order: owner level, status line, machine and user, setup cross-reference to `setup.md`, objective-led tests, evidence paths;
+- state each test as objective, command, expected observation;
+- do not restructure, reformat or renumber other sections;
+- do not duplicate `setup.md` installation steps; cross-reference them.
+
+The structure of the WP2.2 section is the reference example.
 
 The file list is a planning aid, not an inflexible whitelist. During implementation, the agent may add a necessary file inside the active unit's expected ownership areas without stopping. Report the deviation at completion. Stop only if the additional file crosses an ownership/scope boundary.
 
