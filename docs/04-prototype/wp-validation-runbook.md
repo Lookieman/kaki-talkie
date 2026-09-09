@@ -1,6 +1,6 @@
 # KaKi-Talkie WP validation runbook
 
-Version 1.5 | 09-Sep-2026 | SGLN Group 10
+Version 1.6 | 09-Sep-2026 | SGLN Group 10
 
 Repository location: `docs/04-prototype/wp-validation-runbook.md`
 
@@ -1072,7 +1072,12 @@ performed in Chrome through the protected simulator.
 
 # 8. WP3 - grounded knowledge + refusal
 
-Status: **DRAFT - structure fixed; Prepare WP3.x fills in commands**
+Status: **WP3.1 READY (prepared 09-Sep-2026); WP3.2-WP3.4 DRAFT - structure
+fixed; Prepare WP3.x fills in commands**
+
+The fixed 8.1/8.2/8.3 skeleton is retained. Each `Prepare WP3.x` adds its
+IU-labelled blocks inside 8.1 and 8.2 without renumbering, so earlier
+cross-references (for example `setup.md` 13.4 to section 8.2) stay valid.
 
 ### 8.1 Setup and installation
 
@@ -1090,14 +1095,198 @@ Status: **DRAFT - structure fixed; Prepare WP3.x fills in commands**
 Components crucial to the solution and absent from `setup.md`:
 
 - The embedding runtime and model. `setup.md` covers Chroma storage but not
-  how chunks are embedded. `Prepare WP3.x` selects and records it, then adds
-  it to `setup.md`.
-- The ingestion script (repository deliverable) and its example invocation.
+  how chunks are embedded. This selection belongs to `Prepare WP3.2`
+  (embeddings/Chroma/retrieval), not WP3.1, and is recorded in `setup.md`
+  when made.
+- The ingestion script (repository deliverable) and its example invocation:
+  covered by the WP3.1 block below.
 
 Generated corpus snapshots belong under `KAKI_DATA_ROOT`. Commit only
 intentional, small, non-sensitive deterministic fixtures.
 
+#### WP3.1 setup - allowlist, fetch/snapshot, clean/chunk, provenance
+
+Owner level: **S**  
+Status: **READY - implemented 10-Sep-2026; owner Mac validation pending.**
+The implementation session's sandbox denied outbound network and the real
+data root, so Tier B Tests 1-2 were exercised end-to-end against a mocked
+network only; the owner run below is the real evidence. The committed
+allowlist URLs could not be network-verified: review them first.
+
+Scope: WP3-AT-01/02 - ingestion writes dated runtime snapshots under
+`KAKI_DATA_ROOT`, and an unchanged re-ingestion keeps content hashes stable
+without duplicating chunks. WP3.1 delivers the corpus pipeline only: the
+allowlist definition, fetch/snapshot, clean/chunk and per-chunk provenance
+metadata (the eight `setup.md` 13.2 fields). No embeddings, Chroma,
+retrieval or backend behaviour change; the turn contract and FastAPI stack
+are untouched.
+
+Machine and account: Mac Mini as `websvc`, application checkout
+`~/projects/kaki-talkie`. Deterministic tests also run on the development
+checkout without network or model services.
+
+New repository areas: the first real `rag/` implementation -
+`rag/pyproject.toml` (package `kaki-rag`), `rag/src/kaki_rag/ingest/`
+(fetch, clean, chunk, metadata), `rag/corpus/allowlist.yaml`, `rag/tests/`
+with small deterministic HTML fixtures, `rag/README.md`, and the
+owner CLI `scripts/ingest_corpus.py` (Python, per the human-operated
+script contract; supersedes the advisory `ingest_corpus.sh` name in the
+design tree).
+
+Allowlist content: `rag/corpus/allowlist.yaml` holds the initial five to
+seven official pages for the `setup.md` 13.3 topics (Singpass reset, CDC
+Vouchers, one CHAS page, one LifeSG/ServiceSG page), each with
+`source_id`, URL, `page_title`, `scheme` and `freshness_class`. Only
+official government domains (for example `singpass.gov.sg`,
+`vouchers.cdc.gov.sg`, `chas.sg`, `life.gov.sg`) are eligible. The owner
+reviews the exact URLs in the committed allowlist before the first Mac
+ingestion run; the runbook does not pre-record unverified URLs.
+
+Install the corpus package into the existing application environment
+(prerequisites: `setup.md` 6, 7.1, 13.1). From the checkout root with its
+`.venv` active:
+
+```sh
+python -m pip install -e rag
+python -c "import kaki_rag; print('kaki-rag import OK')"
+```
+
+The package deliberately depends on `httpx` alone (already installed for
+the backend adapters): the allowlist parser accepts a strict YAML subset
+and the HTML cleaner uses the standard-library parser, so ingestion adds
+no new third-party dependency on the Mac. Pending documentation
+maintenance: copy this installation into `setup.md` 13 per the section 12
+rule (the implementation session could not edit `setup.md`).
+
+Prepare the validation environment in every session terminal:
+
+```sh
+cd ~/projects/kaki-talkie
+export KAKI_APP_ROOT="$PWD"
+source "$KAKI_APP_ROOT/.venv/bin/activate"
+export KAKI_DATA_ROOT="/Users/websvc/kaki-talkie-data"
+umask 077
+mkdir -p "$KAKI_DATA_ROOT/wp3.1"
+export WP31_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp3.1/evidence.XXXXXX")"
+printf '%s\n' "$KAKI_APP_ROOT" "$WP31_EVIDENCE"
+```
+
+No new backend environment variables are introduced; ingestion reads
+`KAKI_DATA_ROOT` only. No service start order changes: the ingestion CLI
+is a run-to-completion tool and needs no Whisper, MLX-LM or FastAPI
+process. Outbound HTTPS to the allowlisted domains is required on the Mac
+for the live ingestion tests only; all committed tests run offline.
+
 ### 8.2 Testing and validation
+
+#### WP3.1 tests - ingestion, idempotency and regression
+
+Run in order on the Mac as `websvc` with the WP3.1 exports active. The
+WP-level Tests 1-4 further below belong to WP3.2-WP3.4; WP3.1 owns only
+the snapshot/clean/provenance parts proven here.
+
+Automated runner: the objective observations of Tests 1 and 2 are also
+registered as one command, which runs the real ingestion twice and checks
+dated snapshots, full provenance and hash/chunk stability:
+
+```sh
+cd "$KAKI_APP_ROOT"
+python scripts/wp_check.py --unit WP3.1 --tier B
+```
+
+Expected: a JSON report and `PASS: all WP3.1 tier B checks succeeded.`
+Copy the report into `WP31_EVIDENCE`. The manual commands below remain
+for inspection and troubleshooting.
+
+##### WP3.1 Test 1: dated snapshot ingestion (WP3-AT-01)
+
+Objective: prove one owner command captures every allowlisted source into
+a dated, never-hand-edited snapshot and produces cleaned, chunked output
+in which every chunk carries full provenance metadata.
+
+```sh
+cd "$KAKI_APP_ROOT"
+python scripts/ingest_corpus.py --help
+python scripts/ingest_corpus.py --allowlist rag/corpus/allowlist.yaml
+```
+
+Expected: exit zero; a summary (JSON to stdout) listing each `source_id`
+with its status, content hash, snapshot path and chunk count. Under
+`KAKI_DATA_ROOT/corpus/snapshots/<today YYYY-MM-DD>/` there is one raw
+capture (`<source_id>.html`) and one capture-metadata file
+(`<source_id>.meta.json`) per allowlisted source. Under
+`KAKI_DATA_ROOT/corpus/processed/`, `chunks.jsonl` holds the chunk
+records and `pages/<source_id>.md` holds the cleaned page for human
+inspection; chunk records hold clean markdown/text (not print-to-PDF
+text) and all eight provenance fields
+(`source_url`, `page_title`, `scheme`, `captured_at`, `source_updated_at`,
+`content_hash`, `freshness_class`, `valid_until`; the last two may be
+explicit nulls where the source offers no value). `captured_at` derives
+from the snapshot, not the clock at chunking time. Spot-check one chunk
+against the live page. A failed fetch of one source must exit non-zero,
+name that source and leave other sources' snapshots intact. Copy the
+summary into `WP31_EVIDENCE`.
+
+##### WP3.1 Test 2: unchanged re-ingestion is stable (WP3-AT-02)
+
+Objective: prove re-running ingestion over unchanged sources keeps
+content hashes stable and creates no duplicate chunks, so later Chroma
+upserts (WP3.2) can rely on stable chunk identity.
+
+Rerun the Test 1 ingestion command, then compare its summary with the
+Test 1 summary.
+
+Expected: exit zero; every source reported unchanged with an identical
+content hash; identical chunk counts and chunk identifiers; no second
+snapshot copy of unchanged content and no appended/duplicated chunk
+records in the processed store. Copy the second summary into
+`WP31_EVIDENCE` alongside the first.
+
+##### WP3.1 Test 3: deterministic offline regression
+
+Objective: prove the new corpus code is covered by network-free tests and
+that prior WP1/WP2 Tier A behaviour still holds with `kaki-rag`
+installed (WP3-AT-13 stays green as WP3 grows).
+
+From the development checkout root with its virtual environment active
+and no model services running:
+
+```sh
+python -m ruff check --config backend/pyproject.toml backend scripts services rag
+python -m unittest discover -s rag/tests -v
+python -m unittest discover -s backend/tests/contract -v
+python -m unittest discover -s backend/tests/unit -v
+python -m unittest discover -s scripts/tests -v
+```
+
+Expected: all pass without network access. `rag/tests` must cover, from
+committed fixtures: allowlist validation (non-allowlisted URL rejected),
+cleaning of a fixture HTML page, heading-aware chunking within the
+roughly 300-500-token guidance, presence of all eight provenance fields,
+and hash/chunk-identity stability across a repeated run. The web suite
+and `scripts/check_wp1_integration.py` are unaffected by WP3.1 (no
+backend or web change); rerunning them is optional.
+
+##### WP3.1 teardown and evidence
+
+Nothing to stop: the CLI exits after each run. Snapshots and processed
+chunks remain in place as the working corpus for WP3.2; do not delete
+them as cleanup. Retain under `WP31_EVIDENCE`: application commit,
+Python version, install verification output, both ingestion summaries and
+the regression results. No audio, credentials or personal data are
+involved.
+
+Troubleshooting: if ingestion fails for one source, retry that URL
+manually with `curl -fsSL <url> -o /dev/null -w '%{http_code}\n'` to
+separate a network/source fault from a pipeline fault. If cleaning
+produces empty or junk text for a page, keep the snapshot as evidence
+and fix the cleaner against it rather than hand-editing output.
+
+Known limitations: no embeddings, vector store, retrieval, grounded
+answering or refusal behaviour yet - those are WP3.2-WP3.4. Mark this
+block VERIFIED only after the owner completes Tests 1-2 on the Mac.
+
+#### WP-level objectives (owned by WP3.2-WP3.4)
 
 - Test 1, retrieval acceptance. Objective: prove the retrieval gate this
   runbook owns - source snapshots are dated; retrieval uses clean

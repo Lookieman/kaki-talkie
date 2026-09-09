@@ -1,0 +1,49 @@
+# v1.0 | 10-Sep-2026 | Initial five official sources for the WP3 vertical slice.
+#
+# This file defines every page KaKi-Talkie may fetch and cite (setup.md 13.1,
+# 13.3). Strict YAML subset only: scalars, lists and flat mappings with
+# two-space indents; the parser in kaki_rag.ingest.fetch rejects anything else.
+#
+# OWNER REVIEW REQUIRED: the exact URLs below were selected offline and could
+# not be verified from the implementation environment (network egress denied).
+# Confirm each URL loads the intended official page before the first Mac
+# ingestion run (runbook 8.1 WP3.1); a wrong URL fails ingestion loudly.
+
+version: 1
+
+allowed_domains:
+  - www.singpass.gov.sg
+  - vouchers.cdc.gov.sg
+  - www.chas.sg
+  - www.life.gov.sg
+
+sources:
+  - source_id: singpass-support
+    url: https://www.singpass.gov.sg/home/ui/support
+    page_title: Singpass support and password reset guidance
+    scheme: singpass
+    freshness_class: stable
+
+  - source_id: cdc-vouchers-about
+    url: https://vouchers.cdc.gov.sg/about-us/
+    page_title: About CDC Vouchers
+    scheme: cdc-vouchers
+    freshness_class: stable
+
+  - source_id: cdc-vouchers-residents
+    url: https://vouchers.cdc.gov.sg/residents/
+    page_title: CDC Vouchers for residents
+    scheme: cdc-vouchers
+    freshness_class: periodic
+
+  - source_id: chas-about
+    url: https://www.chas.sg/about-chas
+    page_title: About the Community Health Assist Scheme
+    scheme: chas
+    freshness_class: stable
+
+  - source_id: lifesg-services
+    url: https://www.life.gov.sg/
+    page_title: LifeSG government services overview
+    scheme: lifesg
+    freshness_class: periodic
