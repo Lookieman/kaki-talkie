@@ -1,0 +1,15 @@
+# v1.0 | 09-Sep-2026 | Package the macOS say English TTS adapter separately from orchestration.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kaki-say-tts"
+version = "0.1.0"
+description = "macOS say English speech synthesis adapter for KaKi-Talkie"
+requires-python = ">=3.11"
+dependencies = ["kaki-backend==0.1.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["kaki_say_tts*"]

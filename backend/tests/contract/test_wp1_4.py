@@ -1,3 +1,4 @@
+# v1.2 | 09-Sep-2026 | Accept the WP2-AT-10 readiness fields in the health shape.
 # v1.1 | 06-Sep-2026 | Use valid audio for the packaged response regression.
 # v1.0 | 05-Sep-2026 | Verify WP1 deployment defaults and packaged spoken fixtures.
 
@@ -55,7 +56,16 @@ class Wp14ContractTests(unittest.TestCase):  #v1.0
         """Verify health reads application version."""  #v1.1
         with patch.object(app, "version", "test-version"):  #v1.0
             response = self.client.get("/api/health")  #v1.0
-        self.assertEqual(response.json(), {"status": "ok", "version": "test-version"})  #v1.0
+        self.assertEqual(  #v1.2
+            response.json(),
+            {
+                "status": "ok",
+                "version": "test-version",
+                "stt_ready": True,
+                "llm_ready": True,
+                "tts_ready": True,
+            },
+        )
 
     def test_both_paths_return_their_packaged_pcm_speech(self) -> None:  #v1.0
         """Verify both paths return their packaged pcm speech."""  #v1.1

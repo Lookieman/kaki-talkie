@@ -1,3 +1,4 @@
+# v1.6 | 09-Sep-2026 | Speak generated replies, display them, and log the transcript for debug.
 # v1.5 | 09-Sep-2026 | Handle real LLM failures and degrade to text when speech is unavailable.
 # v1.4 | 07-Sep-2026 | Handle real STT failures and release audio before downstream stages.
 # v1.3 | 06-Sep-2026 | Normalise audio before canned inference and time preparation.
@@ -10,7 +11,7 @@
 from time import perf_counter  #v1.1
 
 from kaki_backend.contracts.ports import LlmPort, RetrieverPort, SttPort, TtsPort  #v1.1
-from kaki_backend.contracts.ports import LlmError, SttError, Transcription  #v1.5
+from kaki_backend.contracts.ports import LlmError, SttError, Transcription, TtsError  #v1.6
 from kaki_backend.orchestration.audio_lifecycle import TestAudioRetention, TurnAudio
 from kaki_backend.contracts.responses import TurnResponse, TurnState
 from kaki_backend.contracts.turn_log import TurnExecution, TurnLog, TurnTimings  #v1.1
@@ -96,19 +97,25 @@ class TurnPipeline:  #v1.1
             finally:  #v1.5
                 timings.llm_ms = (perf_counter() - llm_started_at) * 1000  #v1.1
 
+        tts_error = None  #v1.6
         if transcription is not None and llm_error is None:  #v1.5
             tts_started_at = perf_counter()  #v1.1
             try:  #v1.5
                 reply_audio = self._tts.synthesize(reply_text)  #v1.1
+            except TtsError as error:  #v1.6
+                # Losing speech must not lose the answer; degrade to text only.
+                tts_error = error.code
+                reply_audio = None
             except ValueError:  #v1.5
-                # Real generation precedes real speech until WP2.4; answer as text only.
+                # The canned engine has no recording for generated text; answer as text only.
+                tts_error = "unavailable"  #v1.6
                 reply_audio = None
             timings.tts_ms = (perf_counter() - tts_started_at) * 1000  #v1.1
             response = TurnResponse(  #v1.1
                 turn_id=turn_id,
                 reply_audio=reply_audio,
                 reply_text=reply_text,
-                display_text="KaKi-Talkie test reply.",
+                display_text=reply_text,  #v1.6
                 slip_text=(
                     "KAKI-TALKIE TEST\n"
                     "This is a sample English slip.\n"
@@ -129,9 +136,11 @@ class TurnPipeline:  #v1.1
             session_id=session_id,
             state=response.state,
             timings=timings,
+            transcript=transcription.text if transcription else None,  #v1.6
             stt_language=transcription.evidence if transcription else None,
             stt_error=stt_error,
             llm_error=llm_error,  #v1.5
+            tts_error=tts_error,  #v1.6
         )
         return TurnExecution(response=response, log=log)  #v1.1
 

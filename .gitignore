@@ -214,3 +214,5 @@ $RECYCLE.BIN/
 .local-data/
 scratch/
 sandbox/
+.claude/settings.local.json
+

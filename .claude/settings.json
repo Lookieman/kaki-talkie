@@ -1,0 +1,52 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(rm -rf:*)",
+      "Bash(git push:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "Bash(git checkout -- :*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Edit(./.claude/**)",
+      "Edit(./AGENTS.md)",
+      "Edit(./CLAUDE.md)",
+      "Edit(./design.md)",
+      "Edit(./docs/04-prototype/execution-plan.md)",
+      "Edit(./setup.md)"
+    ],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(pip install:*)",
+      "Bash(python -m pip install:*)",
+      "Bash(npm install:*)",
+      "Bash(brew install:*)"
+    ],
+    "allow": [
+      "Read",
+      "Edit(./backend/**)",
+      "Edit(./services/**)",
+      "Edit(./scripts/**)",
+      "Edit(./apps/**)",
+      "Edit(./wp-validation-runbook.md)",
+      "Bash(python scripts/wp_check.py:*)",
+      "Bash(python -m unittest:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -m ruff:*)",
+      "Bash(python -m pip install -e ./services/:*)",
+      "Bash(npm --prefix apps/web:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(curl http://127.0.0.1:*)",
+      "Bash(lsof -i:*)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "allowUnsandboxedCommands": false
+  }
+}

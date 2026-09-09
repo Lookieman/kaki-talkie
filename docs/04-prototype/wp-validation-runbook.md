@@ -1,6 +1,6 @@
 # KaKi-Talkie WP validation runbook
 
-Version 1.3 | 09-Sep-2026 | SGLN Group 10
+Version 1.5 | 09-Sep-2026 | SGLN Group 10
 
 Repository location: `docs/04-prototype/wp-validation-runbook.md`
 
@@ -788,48 +788,285 @@ Mark VERIFIED only after the owner completes Tests 1-3 on the Mac.
 ## 7.4 WP2.4 - macOS say + full WP2 gate
 
 Owner level: **G**  
-Status: **DRAFT - finalise after WP2.1-WP2.3**
+Status: **VERIFIED / CLOSED 09-Sep-2026**
 
 Machine: Mac Mini plus a protected Chrome browser on a laptop or phone.
-User: `websvc`. Baseline English TTS: macOS `say`.
+User: `websvc`. Baseline English TTS: macOS `say`. Do not introduce RAG,
+retrieval or DSPy; WP2 replies remain deliberately ungrounded.
+
+Scope: WP2-AT-05/06/09/10/11/12 - playable synthesised speech, a full real
+speech-in/speech-out turn, positive invoked stage timings with retrieval
+unused, health readiness reporting, a recorded p50/p95 latency baseline and
+a green WP1 regression.
 
 ### 7.4.1 Setup and installation
+
+Install and configure through `setup.md`. This table maps each component to
+its `setup.md` section. All of these are complete on the Mac Mini.
 
 ```text
 +---------------------------------------+---------------------+
 | Component                             | setup.md section    |
 +---------------------------------------+---------------------+
-| macOS say TTS adapter and conversion  | 10.1                |
+| macOS say TTS baseline                | 10.1                |
 | FastAPI runtime and configuration     | 11                  |
 | Next.js simulator                     | 14                  |
 | Cloudflare access to the simulator    | 15                  |
 | Latency measures to record            | 18.1                |
+| End-to-end fixed questions and flow   | 23                  |
 +---------------------------------------+---------------------+
 ```
 
-Component crucial to the solution and absent from `setup.md`: the latency
-measurement script (repository deliverable). `Prepare WP2.4` documents its
-`--help` and the exact ten-run command.
+Components crucial to the solution and absent from `setup.md` are installed
+here: the TTS adapter, the latency script and the development stack helper
+(all repository deliverables).
+
+#### Install the TTS adapter
+
+The adapter is the WP2.4 deliverable: it connects FastAPI to macOS speech.
+On the Mac, as `websvc`, from the application checkout root with its `.venv`
+active:
+
+```sh
+python -m pip install -e services/tts/english
+python -c "from kaki_say_tts.adapter import SayTts; print('Say adapter import OK')"
+```
+
+On Windows, install it into the worktree `.venv` for the regression tests
+(the unit tests inject a fake runner and do not invoke `say`):
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e services/tts/english
+```
+
+The adapter invokes the local `say` binary directly and receives 22.05 kHz
+mono signed 16-bit PCM WAV from it; no FFmpeg conversion step, extra
+service, model download, cache or credential is required. The `setup.md`
+10.1 ffmpeg conversion remains a manual verification aid only.
+
+#### Prepare the validation environment
+
+Repeat these exports in every terminal of a validation session. Reuse the
+same printed evidence directory within one session instead of creating
+another.
+
+```sh
+cd ~/projects/kaki-talkie
+export KAKI_APP_ROOT="$PWD"
+source "$KAKI_APP_ROOT/.venv/bin/activate"
+export KAKI_DATA_ROOT="/Users/websvc/kaki-talkie-data"
+umask 077
+mkdir -p "$KAKI_DATA_ROOT/wp2.4"
+export WP24_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp2.4/smoke.XXXXXX")"
+export KAKI_STT_MODE=whisper
+export KAKI_WHISPER_URL=http://127.0.0.1:8081
+export KAKI_STT_TIMEOUT_SECONDS=30
+export KAKI_LLM_MODE=qwen
+export KAKI_LLM_URL=http://127.0.0.1:8082
+export KAKI_LLM_TIMEOUT_SECONDS=120
+export KAKI_TTS_MODE=say
+export KAKI_TTS_TIMEOUT_SECONDS=30
+export HF_HOME=/Users/websvc/models/huggingface
+printf '%s\n' "$KAKI_APP_ROOT" "$WP24_EVIDENCE"
+```
+
+`KAKI_TTS_MODE` accepts `canned` (default) or `say`; invalid values fail
+startup. Synthesis uses the configured 0.1-120-second subprocess timeout
+(default 30 seconds); it bounds the `say` call and is not a latency
+acceptance target. A TTS failure degrades an answered turn to text only; it
+does not fail the turn. The application does not auto-load `.env`, so
+export settings explicitly.
+
+#### Start the full stack
+
+Either start each service manually in its own foreground terminal, in this
+order - Whisper (7.2.2 Test 1), MLX-LM with thinking disabled (7.3.1),
+FastAPI (`python -m kaki_backend.main` with the exports above), then the
+optional simulator (`setup.md` 14) - or use the development stack helper
+from the checkout root:
+
+```sh
+python scripts/dev_stack.py --help
+python scripts/dev_stack.py up
+python scripts/dev_stack.py status
+```
+
+The helper starts whisper-server, the MLX-LM server (thinking disabled) and
+FastAPI detached, writes logs under `$KAKI_DATA_ROOT/logs` and pidfiles
+under `$KAKI_DATA_ROOT/run`, and waits for readiness. It manages only
+processes it started: `up` refuses occupied ports and existing pidfiles,
+and `down` stops only its own recorded processes, in reverse order. It
+never uses broad process kills. The simulator is not managed by the helper;
+start it per `setup.md` 14 when the browser test needs it.
+
+#### Record the runtime identity
+
+Copy the WP2.2 (Whisper) and WP2.3 (MLX-LM) runtime identity records
+forward into the current evidence directory and add:
+
+```sh
+sw_vers -productVersion
+git -C "$KAKI_APP_ROOT" rev-parse HEAD
+python --version
+```
+
+The macOS version identifies the bundled `say` engine.
 
 ### 7.4.2 Testing and validation
 
-- Test 1, service stack readiness. Objective: prove the documented start order
-  brings every service healthy and `/api/health` reflects it.
-- Test 2, end-to-end voice loop. Objective: prove real English speech in
-  produces speech out through the simulator, with transcript and timing fields
-  visible - the core demo path. Use the fixed questions and expected flow in
-  `setup.md` 23.
-- Test 3, degraded input. Objective: prove empty audio and silence produce
-  calm, well-formed responses rather than hangs or crashes.
-- Test 4, latency baseline. Objective: record p50/p95 over ten runs against the
-  `setup.md` 18.1 measures. The five-second target is a hypothesis; record, do
-  not invent a pass threshold.
-- Test 5, WP1 regression and shutdown. Objective: prove the contract holds and
-  the stack stops cleanly in reverse order.
+Each test states its objective. Run the tests in order on the Mac as
+`websvc` with the 7.4.1 exports active.
 
-Package-gate outcome: real English speech-in to speech-out works; replies are
-clearly labelled ungrounded in WP2; raw-audio deletion remains proven; p50/p95
-are recorded; WP1 regression is green.
+#### Test 1: full stack readiness
+
+Objective: prove the documented start order brings every service healthy
+and `/api/health` reflects STT, LLM and TTS readiness (WP2-AT-10).
+
+With the stack started as in 7.4.1:
+
+```sh
+python scripts/dev_stack.py status
+curl --fail --silent --show-error --max-time 15 http://127.0.0.1:8000/api/health
+lsof -nP -iTCP:8000 -iTCP:8081 -iTCP:8082 -sTCP:LISTEN
+```
+
+Expected: status `ok` with the application version and `stt_ready`,
+`llm_ready` and `tts_ready` all true; only `127.0.0.1` listeners on ports
+8000, 8081 and 8082. Then prove the readiness fields are live: stop the
+MLX-LM service (Ctrl+C in its terminal, or
+`python scripts/dev_stack.py down --only llm`), re-run the health request
+and expect `llm_ready` false while `status` stays `ok`; restart it
+(`... up --only llm`), wait for 7.3.2 Test 1 readiness and confirm
+`llm_ready` returns true without restarting FastAPI. Health probes use
+bounded two-second readiness timeouts per service.
+
+#### Test 2: automated full-loop check
+
+Objective: prove WP2-AT-05/06/09 through the production adapters - playable
+non-zero-duration synthesised speech, a full answered turn with reply,
+display and speech audio, and positive invoked stage timings with retrieval
+unused.
+
+```sh
+cd "$KAKI_APP_ROOT"
+python scripts/wp_check.py --unit WP2.4 --tier B | tee "$WP24_EVIDENCE/wp_check_wp24_tierB.json"
+```
+
+The CLI synthesises a fixed sentence through the say adapter, then runs one
+fixture turn through the real HTTP route and reads the debug report. It
+prints JSON with the decoded speech format and duration, the turn response
+summary, the stage timings and named checks. Expected: every check true and
+exit status zero - WAV speech with non-zero duration, state `answered`,
+non-empty reply and display text, non-null `reply_audio`, positive
+`audio_preparation`/`stt`/`routing`/`llm`/`tts`/`overall` timings, and null
+retrieval/live-lookup timings.
+
+#### Test 3: browser voice loop
+
+Objective: prove real English speech in produces speech out through the
+simulator - the core demo path - with the transcript and timings
+inspectable (`setup.md` 23 fixed questions and flow).
+
+In Chrome, open the protected simulator, hold the talk control, ask a fixed
+question such as "How do I reset my Singpass password?", and release. Then
+on the Mac:
+
+```sh
+curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8000/api/device/debug/last-turn
+```
+
+Expected: the simulator plays an audible spoken English reply, the display
+shows the generated reply text, and the receipt mock renders an English
+slip clearly labelled as generated without sources. The debug JSON shows
+the recognised transcript, language evidence, state `answered` and positive
+stt/llm/tts/overall timings with retrieval null. The debug route is the
+design section 13 protected debug/test view: it carries only the most
+recent turn's diagnostics, is served by loopback-only FastAPI, and is
+reached remotely only through the protected `/api/device/*` path.
+
+#### Test 4: degraded input
+
+Objective: prove empty audio and silence produce calm, well-formed
+responses rather than hangs or crashes.
+
+```sh
+curl --fail --silent --show-error --max-time 120 http://127.0.0.1:8000/api/device/turn \
+  -F device_id=wp24-smoke -F session_id=wp24-smoke -F turn_id=wp24-degraded-1 \
+  -F "audio=@/dev/null"
+```
+
+Expected: HTTP 200, state `failed`, calm non-empty reply text. Then hold
+the simulator talk control without speaking for a few seconds and release:
+expect a calm well-formed response, not a hang or crash (Whisper may
+transcribe faint room noise, so an `answered` reply to noise is
+acceptable; a truly empty transcript fails calmly). Use a fresh `turn_id`
+for each attempt. Do not use `fixtures/empty_audio.wav` here: it is the
+spoken "no audio" recording and transcribes as real speech.
+
+#### Test 5: latency baseline
+
+Objective: record the WP2-AT-11 p50/p95 baseline over ten runs against the
+`setup.md` 18.1 measures. The five-second target is a hypothesis; record
+the numbers, do not invent a pass threshold.
+
+```sh
+cd "$KAKI_APP_ROOT"
+python scripts/check_latency.py --help
+python scripts/check_latency.py --runs 10 \
+  --input backend/src/kaki_backend/fixtures/canned_reply.wav \
+  | tee "$WP24_EVIDENCE/latency_p50_p95.json"
+```
+
+Expected: exit zero, JSON with ten answered runs (each a fresh `turn_id`),
+per-run end-to-end milliseconds and the overall p50 and p95. The script
+sends real turns through the running stack; it fails only when a turn does
+not complete as `answered`, never on a latency value.
+
+#### Test 6: deterministic regression and shutdown
+
+Objective: prove WP2-AT-12 - the WP1 contract and all prior WP2 behaviour
+still hold - and stop the stack cleanly.
+
+With the MLX-LM service still up, rerun the WP2.3 regression:
+
+```sh
+python scripts/wp_check.py --unit WP2.3 --tier B | tee "$WP24_EVIDENCE/wp_check_wp23_tierB.json"
+```
+
+Then run the 7.2.2 Test 5 deterministic command set (on the Mac substitute
+the active `.venv` `python` for `.venv\Scripts\python.exe`) with
+`KAKI_STT_MODE`/`KAKI_LLM_MODE`/`KAKI_TTS_MODE` unset or `canned`; all
+adapters installed. Expected: all pass without any model service running.
+
+Shut down in reverse order: simulator, then `python scripts/dev_stack.py
+down` (or Ctrl+C in each owned terminal: FastAPI, MLX-LM, Whisper). Never
+use broad process kills. Keep the runtime builds and model caches for
+reruns.
+
+#### Teardown and evidence
+
+Retain under `WP24_EVIDENCE`: application path and commit, macOS and Python
+versions, the forwarded Whisper and MLX-LM identity records, the Test 2 and
+Test 5 JSON reports, the health readiness observations including the
+degraded/recovered `llm_ready` values, the Test 3 debug JSON and owner
+observation, the Test 4 failed responses, the WP2.3 regression JSON and the
+Tier A regression results. No user audio is collected; raw turn audio
+deletion remains the WP2.2-proven default.
+
+Package-gate outcome: real English speech-in to speech-out works; replies
+are clearly labelled ungrounded in WP2; raw-audio deletion remains proven;
+p50/p95 are recorded; WP1 regression is green.
+
+Evidence of the 09-Sep-2026 automated execution:
+`/Users/websvc/kaki-talkie-data/wp2.4/smoke.a2jbvE/` containing
+`wp_check_wp24_tierB.json` (all fifteen checks true),
+`latency_p50_p95.json` (ten answered runs, p50 3167.1 ms, p95 3289.8 ms),
+`health_all_ready.json`, `health_llm_down.json`,
+`health_llm_recovered.json`, `http_turn_empty.json`,
+`wp_check_wp23_tierB.json` and `runtime_identity.txt`.
+
+Mark VERIFIED only after the owner completes Tests 1-6, with Test 3
+performed in Chrome through the protected simulator.
 
 ---
 
@@ -862,9 +1099,11 @@ intentional, small, non-sensitive deterministic fixtures.
 
 ### 8.2 Testing and validation
 
-- Test 1, retrieval acceptance. Objective: prove the `setup.md` 13.4 gate -
-  dated snapshots, provenance on every retrieved chunk, Chroma surviving a
-  backend restart.
+- Test 1, retrieval acceptance. Objective: prove the retrieval gate this
+  runbook owns - source snapshots are dated; retrieval uses clean
+  text/markdown, not print-to-PDF text alone; Chroma survives a backend
+  restart; every retrieved chunk carries provenance metadata; answer source
+  URLs and dates come from application metadata, not the LLM.
 - Test 2, grounded answer. Objective: prove a supported question (for example
   CDC vouchers) returns an answer whose source URLs and dates come from
   application metadata, not the LLM.
@@ -873,6 +1112,26 @@ intentional, small, non-sensitive deterministic fixtures.
   pitch depends on.
 - Test 4, regression. Objective: prove WP1 and WP2 behaviour still hold with
   retrieval installed.
+
+### 8.3 Grounded end-to-end gate
+
+Objective: prove the full grounded flow (`setup.md` section 23 target state)
+through the protected simulator, once per WP3 gate:
+
+```text
+[ ] Open protected https://talkie.lookieman.dev/sim and authenticate.
+[ ] Hold talk, speak the fixed question, release (or hit the 15-second cap).
+[ ] FastAPI accepts the turn with a unique turn_id.
+[ ] Whisper returns a useful transcript.
+[ ] Retrieval returns allowlisted official evidence.
+[ ] Source metadata is application-derived, not LLM-invented.
+[ ] Qwen produces a concise grounded answer.
+[ ] English TTS produces playable audio.
+[ ] display_text and the English slip_text receipt render.
+[ ] The raw recording is deleted after transcription.
+[ ] Timings are recorded.
+[ ] Repeating the same turn_id does not repeat a side effect.
+```
 
 ---
 
@@ -1015,3 +1274,75 @@ Installation and configuration changes go to `setup.md`. Validation changes go
 to this runbook. Do not create a third operational guide. If a `Prepare WPn.m`
 step introduces a component the final solution needs, add its installation to
 `setup.md` and cross-reference it here.
+
+---
+
+## 13. Quick start reference
+
+This section is the one place to look when you just need the stack running.
+It repeats no procedure; each step names the section that owns it. Update it
+whenever a WP changes a start command.
+
+### 13.1 Start the current prototype (Mac + browser simulator)
+
+All commands run on the Mac as `websvc`.
+
+1. Open a terminal and set the session environment (runbook 7.4.1
+   "Prepare the validation environment"): checkout root, `.venv` activation,
+   `KAKI_DATA_ROOT`, the three adapter modes/URLs/timeouts and `HF_HOME`.
+   For a non-evidence session you may skip the evidence-directory lines.
+2. Start the model services and FastAPI with the stack helper:
+
+   ```sh
+   python scripts/dev_stack.py up
+   python scripts/dev_stack.py status
+   ```
+
+   The helper starts whisper-server (8081), MLX-LM with thinking disabled
+   (8082) and FastAPI (8000), all loopback-only, and waits for readiness.
+   Manual alternative, one foreground terminal each, in this order:
+   whisper-server (7.2.2 Test 1), MLX-LM (7.3.1), FastAPI
+   (`python -m kaki_backend.main`).
+3. Confirm readiness:
+
+   ```sh
+   curl --fail --silent http://127.0.0.1:8000/api/health | jq
+   ```
+
+   Expected: `status` ok with `stt_ready`, `llm_ready` and `tts_ready` true.
+4. Start the simulator (not managed by the helper). From `apps/web`:
+
+   ```sh
+   npm start
+   ```
+
+   Build first with `npm run build` if the checkout changed. Local browser:
+   `http://127.0.0.1:3000/sim`. Phone or laptop: the protected
+   `https://talkie.lookieman.dev/sim` through Cloudflare Access.
+5. Shut down in reverse order: Ctrl+C the simulator, then
+   `python scripts/dev_stack.py down` (or Ctrl+C each owned terminal:
+   FastAPI, MLX-LM, whisper-server). Never use broad process kills.
+
+Nothing else runs today. SQLite (WP4) and Chroma (WP3) have no process to
+start; Chroma will run embedded in FastAPI.
+
+### 13.2 Start the integrated prototype (Mac + Raspberry Pi)
+
+Status: **DRAFT - fill during Prepare WP6.x. Do not guess commands.**
+
+The Mac side of the final prototype is 13.1 steps 1-3 unchanged, plus the
+services WP3-WP5 add to the environment exports. The simulator becomes
+optional; the Pi is just another client of the same contract.
+
+`Prepare WP6.x` must complete this checklist into exact commands:
+
+- launchd replaces `dev_stack.py` for boot-time Mac services
+  (`setup.md` 17); record the reboot-test result here;
+- cloudflared and Tailscale confirmed up (`setup.md` 15, 16);
+- Pi power-on and systemd service start/verify commands;
+- Pi service authentication check against `/api/device/*`;
+- canned-mode activation and rehearsal sequence (demo insurance);
+- shutdown order for demo teardown.
+
+Until WP6, there is no supported Pi start procedure; treat any remembered
+commands as stale.

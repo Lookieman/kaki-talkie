@@ -1,3 +1,4 @@
+# v1.4 | 09-Sep-2026 | Report canned TTS readiness for the shared port protocol.
 # v1.3 | 09-Sep-2026 | Report canned LLM readiness for the shared port protocol.
 # v1.2 | 07-Sep-2026 | Return typed canned STT results without invented language evidence.
 # v1.1 | 05-Sep-2026 | Return packaged spoken fixtures without runtime synthesis.
@@ -50,6 +51,10 @@ class CannedLlmPort:
 
 class CannedTtsPort:
     """Return only the recording matching the exact canned reply."""
+
+    def ready(self) -> bool:
+        """Report that canned speech needs no external engine."""
+        return True
 
     def synthesize(self, reply_text: str) -> str | None:
         """Return canned speech or reject text for which no recording exists."""

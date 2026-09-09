@@ -1,3 +1,4 @@
+# v1.4 | 09-Sep-2026 | Auto-install all service adapter packages; rename drifted step names.
 # v1.3 | 07-Sep-2026 | Include the Whisper adapter and deterministic WP2.2 checks.
 # v1.2 | 07-Sep-2026 | Remove history enforcement and retain product validation.
 # v1.1 | 06-Sep-2026 | Include deterministic WP2.1 audio normalisation tests.
@@ -28,15 +29,18 @@ jobs: #v1.0
           cache-dependency-path: apps/web/package-lock.json #v1.0
       - name: Install backend with test and development tooling #v1.0
         run: python -m pip install -e 'backend[test,dev]' #v1.0
-      - name: Install local Whisper adapter
-        run: python -m pip install -e services/stt/whisper_cpp
+      - name: Install all local service adapter packages #v1.4
+        run: | #v1.4
+          for pkg in services/*/*/pyproject.toml; do #v1.4
+            python -m pip install -e "$(dirname "$pkg")" #v1.4
+          done #v1.4
       - name: Python lint and whitespace formatting #v1.0
         run: python -m ruff check --config backend/pyproject.toml backend scripts services
       - name: Backend contracts and unchanged turn schema #v1.0
         run: python -m unittest discover -s backend/tests/contract -v #v1.0
-      - name: Backend audio and STT unit tests
+      - name: Backend unit tests #v1.4
         run: python -m unittest discover -s backend/tests/unit -v #v1.1
-      - name: Audio and STT owner CLI tests
+      - name: Owner script tests #v1.4
         run: python -m unittest discover -s scripts/tests -v #v1.0
       - name: Install simulator dependencies #v1.0
         working-directory: apps/web #v1.0

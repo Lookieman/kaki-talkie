@@ -2,11 +2,13 @@
 
 **Detailed installation and operational procedure**
 
-Version 1.0 | 01-Sep-2026 | SGLN Group 10
+Version 1.1 | 09-Sep-2026 | SGLN Group 10
 
 Suggested repository location: `infra/macos/setup.md`
 
-This document defines how to prepare the Mac Mini that hosts the KaKi-Talkie MVP backend. It implements the locked backend design in `docs/04-prototype/design.md` and keeps the Raspberry Pi and browser simulator as thin clients of the same backend contract.
+This document defines how to prepare the Mac Mini that hosts the KaKi-Talkie MVP backend: host configuration, accounts, directories, runtimes, models and network paths. It implements the locked backend design in `docs/04-prototype/design.md` and keeps the Raspberry Pi and browser simulator as thin clients of the same backend contract.
+
+This document covers installation and configuration only. `wp-validation-runbook.md` is the source of truth for service start order during validation, testing procedures and evidence. `execution-plan.md` defines what gets built and when. From section 11 onward, each stage names the work package that installs or validates it.
 
 The procedure is deliberately staged. Finish and validate each stage before moving to the next one. Do not install challenger models, additional databases, container platforms, or observability stacks until the baseline vertical slice works.
 
@@ -367,28 +369,28 @@ Do not begin with one giant environment containing every baseline and challenger
 
 ### 7.1 Backend environment
 
+The backend environment is the repository `.venv` at the checkout root. WP1 and WP2 validated this environment; the earlier `~/.venvs/kaki-backend` path is retired. If that directory still exists, delete it to avoid running against stale packages.
+
 [WEBSVC]
 
 ```bash
-python3.12 -m venv ~/.venvs/kaki-backend
-source ~/.venvs/kaki-backend/bin/activate
+cd ~/projects/kaki-talkie
+python3.12 -m venv .venv
+source .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
+python -m pip install --only-binary=av -e 'backend[test,dev]'
 ```
 
-Install only the baseline backend packages needed for the first vertical slice:
+The editable install provides FastAPI, Pydantic, HTTPX, PyAV and the test tooling from `backend/pyproject.toml`. Do not hand-pick packages, and do not install DSPy, MERaLiON, SEA-LION or OmniVoice until their work package starts.
 
-```bash
-python -m pip install "fastapi[standard]" pydantic-settings python-multipart httpx chromadb
-```
-
-Do not install DSPy, MERaLiON, SEA-LION or OmniVoice yet unless the corresponding implementation stage has started.
+Adapter packages (`services/stt/whisper_cpp`, `services/llm/qwen_local`, `services/tts/english`) are work-package deliverables. Install them into this same `.venv` by following the runbook section for the relevant WP.
 
 Validate:
 
 ```bash
 python --version
 python -c "import fastapi; print(fastapi.__version__)"
-python -c "import chromadb; print(chromadb.__version__)"
+python -c "import av; print(av.__version__)"
 ```
 
 Deactivate when finished:
@@ -434,7 +436,7 @@ Create these only when the bake-off reaches them:
 ~/.venvs/kaki-omnivoice
 ```
 
-Do not mix challenger dependencies into `kaki-backend` merely for convenience.
+Do not mix challenger dependencies into the application `.venv` or the `kaki-llm` environment merely for convenience.
 
 ---
 
@@ -671,55 +673,43 @@ Native-speaker review remains required before claiming Hokkien demo quality.
 
 ## 11. Stage 7 - FastAPI backend runtime
 
+**Installed by: WP1 (runtime), WP2.2-WP2.4 (adapter configuration).**
+
+The FastAPI runtime shipped in WP1. This stage now covers only how to run it on this host and where its configuration lives. The contract is defined in `design.md` section 5. Testing and service start order for validation live in the runbook.
+
 ### 11.1 Application environment
 
 [WEBSVC]
 
 ```bash
-source ~/.venvs/kaki-backend/bin/activate
-cd ~/projects/kaki-talkie/backend
+cd ~/projects/kaki-talkie
+source .venv/bin/activate
 ```
 
-For development, run the project using the command defined by the repository once `backend/src/kaki_backend/main.py` exists.
+Run every backend command from the checkout root, not from `backend/`. The check scripts resolve paths relative to the root.
 
-The production-style local service must bind to:
-
-```text
-127.0.0.1:8000
-```
-
-Never use `0.0.0.0` merely to make local testing easier.
-
-### 11.2 First endpoint
-
-The first backend endpoint should be:
-
-```text
-GET /api/health
-```
-
-It should become healthy before STT, LLM, RAG or TTS are added.
-
-Local validation:
+Start the backend:
 
 ```bash
+python -m kaki_backend.main
+```
+
+The launcher binds to `127.0.0.1:8000` and ignores `UVICORN_HOST`/`UVICORN_PORT` overrides. Never use `0.0.0.0` merely to make local testing easier. Stop the service with Ctrl+C.
+
+### 11.2 Verify the service
+
+Confirm the listener and the health endpoint:
+
+```bash
+lsof -nP -iTCP:8000 -sTCP:LISTEN
 curl -s http://127.0.0.1:8000/api/health | jq
 ```
 
-### 11.3 Baseline turn endpoint
+The listener must show `127.0.0.1` only. From WP2.4 onward, health reports `status`, the application version, and `stt_ready`, `llm_ready` and `tts_ready` readiness fields. A readiness field is false when its service is down; `status` stays `ok`.
 
-Before real inference, make `POST /api/device/turn` return the locked response contract using canned values.
+### 11.3 Inference adapters
 
-The purpose of this stage is to prove:
-
-- multipart upload;
-- `device_id`;
-- `session_id`;
-- mandatory `turn_id`;
-- well-formed JSON on success and failure;
-- idempotent handling of retried `turn_id` values.
-
-Do not combine this with RAG or action implementation yet.
+Real STT, LLM and TTS behaviour is opt-in through environment variables (`KAKI_STT_MODE`, `KAKI_LLM_MODE`, `KAKI_TTS_MODE`); the default for each is `canned`. The runbook sections 7.2.1, 7.3.1 and 7.4.1 define the adapter installation, the exact exports and the service start order. Do not duplicate them here.
 
 ### 11.4 Runtime configuration file
 
@@ -755,20 +745,15 @@ Secrets such as Cloudflare service credentials, future Telegram credentials, or 
 
 ### 11.5 FastAPI acceptance gate
 
-```text
-[ ] /api/health works on localhost.
-[ ] /api/device/turn accepts the locked multipart contract.
-[ ] duplicate turn_id does not repeat a side effect.
-[ ] every failure path returns JSON.
-[ ] backend listens only on 127.0.0.1:8000.
-[ ] configuration/secrets are outside Git.
-```
+The WP1 gate closed on 05-Sep-2026. Its contract behaviour is now a regression baseline. Validate through the runbook: section 6 for the WP1 regression reference and section 7.4 for the current full-stack gate.
 
 ---
 
 ## 12. Stage 8 - SQLite persistence
 
-SQLite is the system of record for MVP application state.
+**Installed by: WP4.**
+
+SQLite is the system of record for MVP application state. Perform this stage when WP4 starts.
 
 Database location:
 
@@ -776,19 +761,9 @@ Database location:
 /Users/websvc/kaki-talkie-data/sqlite/kaki-talkie.db
 ```
 
-### 12.1 Logical tables
+### 12.1 Schema ownership
 
-The implementation should create the schema through the repository's migration mechanism rather than manual SQL typed on the server.
-
-Expected logical ownership:
-
-```text
-devices
-sessions
-turns
-turn_sources
-cases
-```
+The repository's migration mechanism creates the schema; do not type SQL on the server. The logical tables are defined in `design.md` section 14. WP4 validation lives in runbook section 9.
 
 ### 12.2 Inspect the database
 
@@ -822,6 +797,8 @@ Automate this later through `scripts/backup_sqlite.sh` or `launchd` only after t
 ---
 
 ## 13. Stage 9 - Chroma and corpus storage
+
+**Installed by: WP3. The embedding runtime and model are selected during `Prepare WP3.x` and added here.**
 
 Chroma may run embedded in the backend process for the MVP. A separate Chroma server is not required merely to satisfy the architecture.
 
@@ -877,17 +854,13 @@ Recommended first topics:
 
 ### 13.4 Retrieval acceptance gate
 
-```text
-[ ] source snapshots are dated.
-[ ] clean text/markdown is used for retrieval, not print-to-PDF text alone.
-[ ] Chroma survives backend restart.
-[ ] every retrieved chunk has provenance metadata.
-[ ] answer source URLs/dates come from application metadata, not the LLM.
-```
+Retrieval acceptance is validated in runbook section 8.2, which owns the criteria: dated snapshots, clean retrieval text, Chroma restart survival, per-chunk provenance, and application-derived source URLs and dates.
 
 ---
 
 ## 14. Stage 10 - Next.js simulator
+
+**Installed by: WP1.3-WP1.4 (closed).**
 
 The simulator is a client of the same backend contract as the Raspberry Pi.
 
@@ -908,7 +881,7 @@ Expected Node major version:
 
 ### 14.2 Install dependencies
 
-Once `apps/web/package.json` exists:
+From the application checkout:
 
 ```bash
 cd ~/projects/kaki-talkie/apps/web
@@ -917,41 +890,26 @@ npm ci
 
 Use `npm install` only when intentionally changing dependency resolution and updating the lock file.
 
-### 14.3 Local development run
+### 14.3 Build and run
 
-Run the simulator on localhost only:
+From `apps/web`, build once, then start the production server:
 
-```text
-127.0.0.1:3000
+```bash
+npm run build
+npm start
 ```
 
-The simulator should call the FastAPI contract rather than implementing orchestration itself.
+Both `npm start` and `npm run dev` bind to `127.0.0.1:3000` explicitly. Open `http://127.0.0.1:3000/sim` for local testing. Phone testing uses the protected HTTPS hostname, never a LAN bind. Stop the process with Ctrl+C.
 
-### 14.4 Browser microphone
+### 14.4 Simulator behaviour and validation
 
-The simulator must eventually test:
-
-- explicit talk control;
-- 15-second recording cap;
-- upload to `/api/device/turn`;
-- listening/thinking/speaking/printing states;
-- `reply_audio` playback;
-- `display_text` rendering;
-- English 58 mm slip rendering.
-
-### 14.5 Simulator acceptance gate
-
-```text
-[ ] simulator loads locally.
-[ ] microphone permission is requested only when the user activates talk.
-[ ] recorded audio reaches the FastAPI endpoint.
-[ ] the same response contract intended for the Pi is rendered.
-[ ] no model/RAG/business logic has migrated into the web app.
-```
+Recording, states, playback, display and slip rendering shipped in WP1.3 and were gate-verified in WP1.4. Validate through runbook sections 6 (WP1 regression) and 7.4.2 Test 3 (browser voice loop).
 
 ---
 
 ## 15. Stage 11 - Cloudflare Tunnel
+
+**Installed by: WP1.4 (closed); device routes harden further in WP6.**
 
 Cloudflare Tunnel is the only public ingress path.
 
@@ -1066,6 +1024,8 @@ From a device not on the home LAN:
 
 ## 16. Stage 12 - Tailscale administration
 
+**Installed by: pre-existing host service; optional Serve fallback is a WP6 decision.**
+
 Tailscale is the management/private network, not the public application ingress.
 
 ### 16.1 Verify installation
@@ -1098,6 +1058,8 @@ Keep normal Tailscale ACLs restrictive.
 ---
 
 ## 17. Stage 13 - `launchd` automatic startup
+
+**Installed by: WP6.**
 
 Do this only after each component works manually.
 
@@ -1199,30 +1161,11 @@ normal reboot + volume unlock -> KaKi-Talkie returns automatically
 
 ## 18. Stage 14 - logging and metrics
 
-Instrument from the first real turn.
+**Installed by: WP1 (timing structure), WP2.4 (latency evidence), WP4 (durable records).**
 
-Each turn should record at least:
+The per-turn record fields are defined in `design.md` sections 14 and 16; the timing structure shipped in WP1.2 and real stage timings arrived with each WP2 adapter.
 
-```text
-turn_id
-timestamp
-device_id
-session_id
-STT latency
-routing latency
-retrieval/live lookup latency
-LLM latency
-TTS latency
-overall latency
-intent
-response language
-state
-source/provenance identifiers
-```
-
-Do not install Prometheus, Grafana, Elasticsearch, or another observability platform for the MVP.
-
-Structured application logs plus SQLite are sufficient until a real operational need appears.
+Do not install Prometheus, Grafana, Elasticsearch, or another observability platform for the MVP. Structured application logs under `/Users/websvc/kaki-talkie-data/logs` plus SQLite are sufficient until a real operational need appears.
 
 ### 18.1 Latency measures
 
@@ -1238,7 +1181,9 @@ The design target is approximately five seconds to first useful response, with a
 
 ## 19. Stage 15 - raw audio handling
 
-Raw audio is deleted after transcription by default.
+**Installed by: WP2.2 (closed).**
+
+Raw audio is deleted after transcription by default, in both success and failure paths. The WP2.2 adapter implements this; runbook section 7.2.2 Test 2 proves it, including the explicit consent-cleared retention mode for the STT bake-off.
 
 Temporary location:
 
@@ -1246,21 +1191,13 @@ Temporary location:
 /Users/websvc/kaki-talkie-data/temp-audio
 ```
 
-Requirements:
-
-1. create a unique temporary file per turn;
-2. normalise it to the STT input format;
-3. transcribe;
-4. store only the transcript/metadata needed by the MVP;
-5. delete the raw and normalised audio files in both success and failure paths.
-
-Test-session recordings may be retained only when the team has explicitly decided to retain consent-cleared audio for the STT bake-off.
-
 Do not mix retained test samples with ordinary runtime audio.
 
 ---
 
 ## 20. Stage 16 - backups
+
+**Installed by: WP4 (SQLite backup automation); restore test before pitch freeze.**
 
 Back up what is expensive to recreate, not what is merely large.
 
@@ -1293,6 +1230,8 @@ Before pitch freeze, test restoring SQLite and the corpus into a clean temporary
 
 ## 21. Stage 17 - disk management
 
+**Applies to: every WP; recheck before each model download.**
+
 The Mac Mini has finite internal storage and local AI models can consume it quickly.
 
 Inspect regularly:
@@ -1316,6 +1255,8 @@ Rules:
 
 ## 22. Stage 18 - security verification
 
+**Verified at: WP1.4 gate; reverify at WP6 before Pi connection.**
+
 Before allowing the Raspberry Pi or external simulator to use the backend, verify all of the following.
 
 ```text
@@ -1338,9 +1279,11 @@ Before allowing the Raspberry Pi or external simulator to use the backend, verif
 
 ---
 
-## 23. Stage 19 - end-to-end baseline acceptance test
+## 23. Stage 19 - end-to-end baseline target
 
-The Mac setup is complete when this works without the Raspberry Pi.
+**Validated at: WP2.4 (ungrounded voice loop, runbook 7.4.2) and WP3 (grounded flow with retrieval, runbook 8.2).**
+
+The Mac setup is complete when this flow works without the Raspberry Pi. This section defines the fixed question and the target flow; the runbook owns the test procedures and evidence.
 
 ### Test question
 
@@ -1376,26 +1319,9 @@ sequenceDiagram
     S-->>U: Play audio + display + receipt mock
 ```
 
-### Acceptance checklist
+### Acceptance
 
-```text
-[ ] Open protected https://talkie.lookieman.dev/sim.
-[ ] Authenticate through Cloudflare Access.
-[ ] Hold the simulated talk control.
-[ ] Speak the question.
-[ ] Recording stops by release or the 15-second cap.
-[ ] FastAPI accepts the turn with a unique turn_id.
-[ ] Whisper returns a useful transcript.
-[ ] Retrieval returns allowlisted official evidence.
-[ ] Source metadata is application-derived.
-[ ] Qwen produces a concise grounded answer.
-[ ] English TTS produces playable audio.
-[ ] display_text is rendered.
-[ ] English slip_text is rendered as a receipt.
-[ ] the raw recording is deleted after transcription.
-[ ] timings are recorded.
-[ ] repeating the same turn_id does not repeat a side effect.
-```
+The retrieval steps in the flow arrive with WP3. Until then, WP2 replies are deliberately ungrounded and clearly labelled as such. The step-by-step acceptance checklist lives in runbook section 8.2 (grounded end-to-end gate); the ungrounded voice-loop checks live in runbook section 7.4.2.
 
 After this succeeds, the physical Raspberry Pi becomes another client of the same API rather than a prerequisite for proving the backend.
 
@@ -1428,26 +1354,11 @@ Add a component only when a locked requirement or measured limitation requires i
 
 ---
 
-## 25. Recommended implementation sequence after host setup
+## 25. Implementation sequence
 
-```text
-+---------+------------------------------------------------------------------+
-| Step    | Deliverable                                                      |
-+---------+------------------------------------------------------------------+
-| 1       | FastAPI /api/health and canned /api/device/turn.                 |
-| 2       | Simulator records and sends audio, renders canned response.      |
-| 3       | whisper.cpp replaces canned transcript.                          |
-| 4       | Qwen + English TTS close the ungrounded local voice loop.        |
-| 5       | SQLite persists turns/sessions and turn_id idempotency.          |
-| 6       | 5-10 official pages + Chroma/hybrid retrieval ground answers.    |
-| 7       | Refusal, repeat and print-previous flows.                         |
-| 8       | Cloudflare human/device policies hardened.                       |
-| 9       | launchd starts healthy services automatically.                   |
-| 10      | Malay path and small regression set.                             |
-| 11      | MERaLiON and SEA-LION bake-offs only if baseline limitations     |
-|         | justify them.                                                    |
-+---------+------------------------------------------------------------------+
-```
+**Defined by: `execution-plan.md`.**
+
+The work-package sequence, implementation units and acceptance criteria live in `docs/04-prototype/execution-plan.md`. Do not maintain a second sequence here. When a work package introduces a new host component, add its installation to the matching stage of this document and cross-reference it from the runbook.
 
 ---
 
@@ -1536,5 +1447,12 @@ These references were checked on 01-Sep-2026 to confirm current installation beh
 |         |             | websvc/admin separation, native Apple Silicon inference,  |
 |         |             | localhost-only services, Cloudflare public ingress and     |
 |         |             | Tailscale administration.                                  |
+| 1.1     | 09-Sep-2026 | Removed pre-WP1 build briefs; document is now             |
+|         |             | installation/configuration only. Backend environment      |
+|         |             | aligned to the repository .venv verified in WP1-WP2;      |
+|         |             | ~/.venvs/kaki-backend retired. Stage 7 rewritten around   |
+|         |             | the shipped runtime and WP2.4 health readiness. Stages    |
+|         |             | from section 11 tagged with their owning work package.    |
+|         |             | Acceptance checklists moved to the validation runbook.    |
 +---------+-------------+-----------------------------------------------------------+
 ```

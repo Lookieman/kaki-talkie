@@ -1,3 +1,4 @@
+# v1.3 | 09-Sep-2026 | Carry TTS readiness and safe synthesis failures behind the port.
 # v1.2 | 09-Sep-2026 | Carry LLM readiness and safe generation failures behind the port.
 # v1.1 | 07-Sep-2026 | Carry typed STT evidence and safe failures behind the port.
 # v1.0 | 04-Sep-2026 | Define replaceable WP1 inference and retrieval ports.
@@ -68,10 +69,24 @@ class LlmPort(Protocol):
         """Check current runtime readiness without generating or loading a model."""
 
 
+class TtsError(RuntimeError):
+    """Indicate a controlled synthesis failure without retaining engine output."""
+
+    def __init__(self, code: str) -> None:
+        """Restrict diagnostics to safe codes rather than reply text or engine errors."""
+        self.code = code if code in {
+            "unavailable", "timeout", "invalid_text", "invalid_output"
+        } else "unavailable"
+        super().__init__(self.code)
+
+
 class TtsPort(Protocol):
     """Provide speech output independently of the selected speech engine."""
     def synthesize(self, reply_text: str) -> str | None:
-        """Return an audio reference when speech output is available."""
+        """Return an audio reference when speech output is available or raise TtsError."""
+
+    def ready(self) -> bool:
+        """Check current engine readiness without synthesising speech."""
 
 
 class RetrieverPort(Protocol):

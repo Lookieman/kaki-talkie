@@ -1,3 +1,4 @@
+# v1.1 | 09-Sep-2026 | Add the WP2.4 speech, readiness and full-loop checks.
 # v1.0 | 09-Sep-2026 | Provide the WP2.3 owner checks behind a per-unit check runner.
 """Run the automated owner checks for one work-package unit and tier.
 
@@ -6,22 +7,38 @@ implementation unit and test tier (`A` = deterministic developer checks,
 `B` = Mac runtime checks against live local services). Only units registered
 here are supported; earlier units keep their existing dedicated scripts.
 
-Currently registered: WP2.3 tier B - MLX/Qwen bounded generation. Reads
-`KAKI_LLM_MODE`, `KAKI_LLM_URL` and `KAKI_LLM_TIMEOUT_SECONDS` like the
-backend and expects the MLX-LM service on 127.0.0.1:8082 (runbook 7.3).
+Currently registered:
+- WP2.3 tier B - MLX/Qwen bounded generation. Reads `KAKI_LLM_MODE`,
+  `KAKI_LLM_URL` and `KAKI_LLM_TIMEOUT_SECONDS` like the backend and expects
+  the MLX-LM service on 127.0.0.1:8082 (runbook 7.3).
+- WP2.4 tier B - macOS say speech, health readiness and the real full turn.
+  Reads `KAKI_TTS_MODE`/`KAKI_TTS_TIMEOUT_SECONDS` for the direct synthesis
+  check and expects the complete stack (Whisper, MLX-LM, FastAPI in real
+  modes) already running per runbook 7.4.1.
 
 Side effects: WP2.3 tier B sends five fixed-transcript generation requests to
-the local LLM service. Nothing is written to disk. Exit status is zero only
-when every check passes; 2 indicates a usage or configuration error.
+the local LLM service. WP2.4 tier B synthesises one fixed sentence locally
+and submits one packaged fixture turn (fresh `turn_id`) to the running
+backend, which transcribes, generates and synthesises it. Nothing is written
+to disk. Exit status is zero only when every check passes; 2 indicates a
+usage or configuration error.
 """
 
 import argparse
+import io
 import json
 import sys
+import wave
+from base64 import b64decode
+from importlib.resources import files
 from time import perf_counter
+from uuid import uuid4
 
-from kaki_backend.config import APPROVED_QWEN_MODEL, LlmSettings
-from kaki_backend.contracts.ports import LlmError
+import httpx
+
+from kaki_backend.config import APPROVED_QWEN_MODEL, LlmSettings, TtsSettings
+from kaki_backend.contracts.ports import LlmError, TtsError
+from kaki_backend.orchestration.canned_ports import CannedLlmPort, CannedSttPort
 
 GENERATION_RUNS = 5
 MAX_REPLY_WORDS = 60
@@ -84,8 +101,112 @@ def check_wp23_tier_b() -> tuple[dict[str, object], dict[str, bool]]:
     return report, checks
 
 
+BACKEND_URL = "http://127.0.0.1:8000"
+FIXED_SPEECH_SENTENCE = "KaKi-Talkie text to speech is working."
+POSITIVE_STAGES = ("audio_preparation_ms", "stt_ms", "routing_ms", "llm_ms", "tts_ms",
+                   "overall_ms")
+UNUSED_STAGES = ("retrieval_ms", "live_lookup_ms")
+
+
+def _decode_wav_frames(data_url: object) -> int:
+    """Return the PCM frame count of a WAV data URL, or -1 when it is not one."""
+    if not isinstance(data_url, str) or not data_url.startswith("data:audio/wav;base64,"):
+        return -1
+    try:
+        payload = b64decode(data_url.split(",", 1)[1], validate=True)
+        with wave.open(io.BytesIO(payload), "rb") as recording:
+            if recording.getcomptype() != "NONE":
+                return -1
+            return recording.getnframes()
+    except (ValueError, wave.Error, EOFError):
+        return -1
+
+
+def check_wp24_tier_b() -> tuple[dict[str, object], dict[str, bool]]:
+    """Prove say speech, health readiness and one real full turn over HTTP.
+
+    Requires `KAKI_TTS_MODE=say` in this shell and the full real-mode stack
+    already running (runbook 7.4.1). Covers WP2-AT-05/06/09/10.
+    """
+    settings = TtsSettings.from_environment()
+    report: dict[str, object] = {"tts_mode": settings.mode, "backend_url": BACKEND_URL}
+    checks = {
+        "tts_mode_is_say": settings.mode == "say",
+        "default_tts_mode_stays_canned": TtsSettings.from_environment({}).mode == "canned",
+    }
+    if not checks["tts_mode_is_say"]:
+        print("FAIL: export KAKI_TTS_MODE=say before running WP2.4 tier B.", file=sys.stderr)
+        return report, checks
+
+    port = settings.create_port()
+    checks["say_engine_ready"] = port.ready()
+    try:
+        speech = port.synthesize(FIXED_SPEECH_SENTENCE)
+        say_frames = _decode_wav_frames(speech)
+    except TtsError as failure:
+        report["say_error"] = failure.code
+        say_frames = -1
+    report["say_speech_frames"] = say_frames
+    checks["say_speech_is_playable_wav"] = say_frames > 0
+
+    fixture = files("kaki_backend").joinpath("fixtures/canned_reply.wav").read_bytes()
+    turn_id = f"wp24-check-{uuid4().hex[:12]}"
+    canned_reply = CannedLlmPort().generate("")
+    canned_transcript = CannedSttPort().transcribe(b"x").text
+    try:
+        with httpx.Client(timeout=180, trust_env=False, follow_redirects=False) as client:
+            health = client.get(BACKEND_URL + "/api/health").json()
+            turn_started = perf_counter()
+            turn = client.post(
+                BACKEND_URL + "/api/device/turn",
+                data={"device_id": "wp24-check", "session_id": "wp24-check",
+                      "turn_id": turn_id},
+                files={"audio": ("canned_reply.wav", fixture, "audio/wav")},
+            ).json()
+            report["turn_elapsed_ms"] = round((perf_counter() - turn_started) * 1000, 1)
+            debug = client.get(BACKEND_URL + "/api/device/debug/last-turn").json()
+    except (httpx.HTTPError, ValueError):
+        print("FAIL: the backend stack is not reachable; start it first (runbook 7.4.1).",
+              file=sys.stderr)
+        checks["stack_reachable"] = False
+        return report, checks
+    checks["stack_reachable"] = True
+
+    report["health"] = health
+    checks["health_reports_all_ready"] = all(
+        health.get(name) is True for name in ("stt_ready", "llm_ready", "tts_ready")
+    ) and health.get("status") == "ok"
+
+    reply_frames = _decode_wav_frames(turn.get("reply_audio"))
+    report["turn"] = {
+        "turn_id": turn.get("turn_id"), "state": turn.get("state"),
+        "reply_text": turn.get("reply_text"), "display_text": turn.get("display_text"),
+        "reply_audio_frames": reply_frames,
+    }
+    checks["turn_answered"] = turn.get("state") == "answered"
+    checks["reply_text_non_empty"] = bool(str(turn.get("reply_text") or "").strip())
+    checks["display_text_non_empty"] = bool(str(turn.get("display_text") or "").strip())
+    checks["reply_is_generated_not_canned"] = turn.get("reply_text") != canned_reply
+    checks["reply_audio_is_playable_wav"] = reply_frames > 0
+
+    timings = debug.get("timings_ms") or {}
+    report["debug"] = debug
+    transcript = debug.get("transcript")
+    checks["transcript_is_real"] = bool(transcript) and transcript != canned_transcript
+    checks["language_evidence_present"] = debug.get("language_evidence") is not None
+    checks["invoked_stage_timings_positive"] = all(
+        isinstance(timings.get(stage), (int, float)) and timings.get(stage) > 0
+        for stage in POSITIVE_STAGES
+    )
+    checks["retrieval_stays_unused"] = all(
+        timings.get(stage) is None for stage in UNUSED_STAGES
+    )
+    return report, checks
+
+
 REGISTRY = {
     ("WP2.3", "B"): check_wp23_tier_b,
+    ("WP2.4", "B"): check_wp24_tier_b,
 }
 
 

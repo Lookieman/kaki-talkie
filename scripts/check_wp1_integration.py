@@ -1,3 +1,4 @@
+# v1.1 | 09-Sep-2026 | Accept the WP2-AT-10 readiness fields in the health shape.
 # v1.0 | 05-Sep-2026 | Exercise WP1 over real loopback HTTP with optional owned servers.
 
 import argparse  #v1.0
@@ -46,9 +47,13 @@ def check_stack() -> None:  #v1.0
         for origin in (BACKEND, WEB):  #v1.0
             health = client.get(origin + "/api/health")  #v1.0
             require(health.status_code == 200, "Health HTTP status failed")  #v1.0
-            require(  #v1.0
-                health.json() == {"status": "ok", "version": app.version}, "Health shape failed"  #v1.0
-            )  #v1.0
+            body = health.json()  #v1.1
+            require(  #v1.1
+                body.get("status") == "ok" and body.get("version") == app.version
+                and all(isinstance(body.get(name), bool) for name in
+                        ("stt_ready", "llm_ready", "tts_ready")),
+                "Health shape failed",
+            )
             pending = client.get(origin + "/api/device/pending")  #v1.0
             require(pending.status_code == 200 and pending.json() == [], "Pending failed")  #v1.0
         fields = {  #v1.0

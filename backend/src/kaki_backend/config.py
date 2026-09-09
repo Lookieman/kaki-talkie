@@ -1,14 +1,15 @@
+# v1.2 | 09-Sep-2026 | Select canned or macOS say speech alongside the STT and LLM choices.
 # v1.1 | 09-Sep-2026 | Select canned or local Qwen generation alongside the STT choice.
 # v1.0 | 07-Sep-2026 | Select canned or local Whisper STT without loading models.
-"""Read explicit STT/LLM configuration; retain mode is deliberately not an environment setting."""
+"""Read explicit STT/LLM/TTS configuration; retain mode is deliberately not an environment setting."""
 
 import math
 import os
 from dataclasses import dataclass
 from typing import Mapping
 
-from kaki_backend.contracts.ports import LlmPort, SttPort
-from kaki_backend.orchestration.canned_ports import CannedLlmPort, CannedSttPort
+from kaki_backend.contracts.ports import LlmPort, SttPort, TtsPort
+from kaki_backend.orchestration.canned_ports import CannedLlmPort, CannedSttPort, CannedTtsPort
 
 APPROVED_QWEN_MODEL = "mlx-community/Qwen3-8B-4bit"
 
@@ -77,3 +78,29 @@ class LlmSettings:
         from kaki_qwen_local.adapter import QwenLlm
 
         return QwenLlm(self.url, model=APPROVED_QWEN_MODEL, timeout_seconds=self.timeout_seconds)
+
+
+@dataclass(frozen=True)
+class TtsSettings:
+    """Select the TTS port and bounded synthesis waits; canned mode remains the default."""
+
+    mode: str = "canned"
+    timeout_seconds: float = 30.0
+
+    @classmethod
+    def from_environment(cls, environment: Mapping[str, str] | None = None) -> "TtsSettings":
+        """Read process exports and reject unsupported modes or unbounded timeouts."""
+        env = os.environ if environment is None else environment
+        mode = env.get("KAKI_TTS_MODE", "canned")
+        if mode not in {"canned", "say"}:
+            raise ValueError("KAKI_TTS_MODE must be canned or say.")
+        timeout = _bounded_timeout(env, "KAKI_TTS_TIMEOUT_SECONDS", "30", 120)
+        return cls(mode, timeout)
+
+    def create_port(self) -> TtsPort:
+        """Construct the selected adapter; perform no synthesis or readiness I/O."""
+        if self.mode == "canned":
+            return CannedTtsPort()
+        from kaki_say_tts.adapter import SayTts
+
+        return SayTts(timeout_seconds=self.timeout_seconds)

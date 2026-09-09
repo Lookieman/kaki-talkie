@@ -1,31 +1,29 @@
 # WP1.4 localhost deployment and owner gate
 
-The design baseline is the Mac Mini, with FastAPI on `127.0.0.1:8000` and the web
-application on `127.0.0.1:3000`. This unit adds no model services, database, launchd
-installation, or hardware integration. Keep runtime data outside Git under
-`KAKI_DATA_ROOT` (baseline `/Users/websvc/kaki-talkie-data`) when later packages need it.
+This file records the WP1.4 owner gate (level G) and remains the reference
+for rerunning it when a change touches the WP1 contract, browser or
+deployment boundary. Installation is governed by [`setup.md`](setup.md);
+service start order, validation and evidence for later work packages are
+governed by the
+[WP validation runbook](../../docs/04-prototype/wp-validation-runbook.md).
 
-## Install and start
+The design baseline is the Mac Mini, with FastAPI on `127.0.0.1:8000` and the
+web application on `127.0.0.1:3000`. This unit adds no model services,
+database, launchd installation, or hardware integration. Keep runtime data
+outside Git under `KAKI_DATA_ROOT` (baseline `/Users/websvc/kaki-talkie-data`).
 
-Use Python 3.11 or newer and Node 22. From the repository root:
+## Start the WP1 stack for the gate
 
-```sh
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e 'backend[test,dev]'
-cd apps/web
-npm ci
-npm run build
-```
+Install per `setup.md` sections 7.1 (backend `.venv`) and 14 (simulator).
+Start two foreground processes in separate terminals.
 
-Start two foreground processes in separate terminals. From the repository root
-with the virtual environment active, start the backend:
+From the repository root with `.venv` active:
 
 ```sh
 python -m kaki_backend.main
 ```
 
-From `apps/web`, start the production web application:
+From `apps/web` after `npm run build`:
 
 ```sh
 npm start
@@ -41,50 +39,18 @@ curl --fail http://127.0.0.1:3000/api/health
 ```
 
 Both listeners must show `127.0.0.1`, never `*`, `0.0.0.0`, or a LAN address.
-Both health requests must return `{"status":"ok","version":"0.1.0"}`.
-Open `http://127.0.0.1:3000/sim` for local testing. Phone testing uses the protected
-HTTPS hostname, not a LAN bind. Follow [Cloudflare setup and verification](../cloudflare/README.md).
-Stop only these foreground services with Ctrl+C when finished.
+Both health requests must return `status: ok` with the application version.
+Open `http://127.0.0.1:3000/sim` for local testing. Phone testing uses the
+protected HTTPS hostname, not a LAN bind. Follow
+[Cloudflare setup and verification](../cloudflare/README.md). Stop only these
+foreground services with Ctrl+C when finished.
 
-## Tier A commands
+## Tier A regression
 
-Run these from the repository root with the virtual environment active:
-
-```sh
-python -m ruff check --config backend/pyproject.toml backend scripts
-python -m unittest discover -s backend/tests/contract -v
-python -m unittest discover -s scripts/tests -v
-```
-
-Then, from `apps/web`:
-
-```sh
-npm ci
-npm test
-npm run lint
-npm run build
-```
-
-Finally, from the repository root with both ports free:
-
-```sh
-python scripts/check_wp1_integration.py --start-services
-```
-
-The last command starts the built web/backend processes, waits for readiness,
-checks real HTTP, and stops only its own processes. It refuses occupied ports.
-Omit `--start-services` to check an already-running local stack without stopping it.
-It does not test browser microphone/audio playback or Cloudflare.
-
-Ruff enforces Python correctness plus whitespace, indentation, spacing and
-blank-line formatting. E262 remains excluded to allow existing compact version
-comments without requiring metadata-only edits. Two untouched worktree utilities
-have narrowly documented pre-existing W292 exceptions; the rest of the Python tree
-is checked. No acceptance tests are excluded.
-
-Change histories are advisory conventions under `AGENTS.md`, with no automated gate.
-Review diffs for credentials and runtime data; the former tracked-path checker has
-been removed along with history enforcement.
+The WP1 Tier A commands (Ruff, contract and script tests, web lint/test/
+build, and `scripts/check_wp1_integration.py`) are maintained in runbook
+sections 6 and 7.2.2 Test 5 and in the CI configuration. Do not maintain a
+third copy here.
 
 ## Exact owner gate (WP1.4 is level G)
 

@@ -1,3 +1,4 @@
+// v1.1 | 09-Sep-2026 | Call browser timer functions without a detached this receiver.
 // v1.0 | 04-Sep-2026 | Enforce the browser recording duration boundary.
 
 export const MAX_RECORDING_MS = 15_000;
@@ -11,8 +12,11 @@ export class RecordingLimitController {
   private recording = false;
 
   constructor(
-    private readonly schedule: ScheduleTimeout = setTimeout,
-    private readonly cancel: CancelTimeout = clearTimeout,
+    // Wrap the globals: storing them bare and invoking via `this.schedule(...)`
+    // hands Chrome's native setTimeout this controller as `this`, which throws
+    // "Illegal invocation". An unqualified call keeps the receiver legal.
+    private readonly schedule: ScheduleTimeout = (callback, delayMs) => setTimeout(callback, delayMs), //v1.1
+    private readonly cancel: CancelTimeout = (handle) => clearTimeout(handle), //v1.1
   ) {}
 
   start(onLimit: () => void): void {

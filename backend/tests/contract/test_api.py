@@ -1,3 +1,4 @@
+# v1.3 | 09-Sep-2026 | Require health readiness reporting and the last-turn debug view.
 # v1.2 | 05-Sep-2026 | Require versioned health and playable WP1 canned audio.
 # v1.1 | 04-Sep-2026 | Isolate WP1.1 assertions from the WP1.2 memory store.
 # v1.0 | 02-Sep-2026 | Verify canned HTTP behaviour and the shared turn schema.
@@ -46,8 +47,37 @@ class ApiContractTests(unittest.TestCase):
     def test_health(self) -> None:
         response = self.client.get("/api/health")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"status": "ok", "version": app.version})  #v1.2
-        self.assertTrue(response.json()["version"])  #v1.2
+        result = response.json()  #v1.3
+        # WP2-AT-10: health carries readiness; WP1-AT-06 keeps status and version.
+        self.assertEqual(  #v1.3
+            result,
+            {
+                "status": "ok",
+                "version": app.version,
+                "stt_ready": True,
+                "llm_ready": True,
+                "tts_ready": True,
+            },
+        )
+        self.assertTrue(result["version"])  #v1.2
+
+    def test_debug_last_turn_reports_diagnostics_after_a_turn(self) -> None:  #v1.3
+        before = self.client.get("/api/device/debug/last-turn")
+        self.assertEqual(before.status_code, 404)
+        self.assertEqual(self.post_turn(self.fields, self.audio).status_code, 200)
+        response = self.client.get("/api/device/debug/last-turn")
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["turn_id"], "test-turn")
+        self.assertEqual(result["state"], "answered")
+        self.assertTrue(result["transcript"])
+        self.assertIsNone(result["tts_error"])
+        timings = result["timings_ms"]
+        for stage in ("audio_preparation_ms", "stt_ms", "routing_ms", "llm_ms",
+                      "tts_ms", "overall_ms"):
+            self.assertGreater(timings[stage], 0)
+        for stage in ("retrieval_ms", "live_lookup_ms"):
+            self.assertIsNone(timings[stage])
 
     def test_canned_turn_contract(self) -> None:
         response = self.post_turn(self.fields, self.audio)

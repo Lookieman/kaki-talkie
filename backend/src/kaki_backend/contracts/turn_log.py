@@ -1,3 +1,4 @@
+# v1.3 | 09-Sep-2026 | Retain the transcript and TTS failure code for the protected debug view.
 # v1.2 | 09-Sep-2026 | Record safe LLM failure codes alongside the STT diagnostics.
 # v1.1 | 07-Sep-2026 | Record STT evidence and safe codes without audio or transcript logs.
 # v1.0 | 04-Sep-2026 | Define deterministic WP1 turn timing and log records.
@@ -24,15 +25,22 @@ class TurnTimings(BaseModel):
 
 
 class TurnLog(BaseModel):
-    """Store safe in-memory diagnostics without retaining arbitrary recognised secrets."""
+    """Store safe in-memory diagnostics; the transcript feeds the protected debug view.
+
+    Audio is never retained here. The transcript is application data by design
+    (the debug/test view shows it and WP4 persists it); no other recognised
+    content or vendor payload is kept.
+    """
     turn_id: str
     device_id: str
     session_id: str
     state: TurnState
     timings: TurnTimings
+    transcript: str | None = None  #v1.3
     stt_language: LanguageEvidence | None = None
     stt_error: str | None = None
     llm_error: str | None = None  #v1.2
+    tts_error: str | None = None  #v1.3
 
 
 class TurnExecution(BaseModel):
