@@ -1,3 +1,4 @@
+# v1.2 | 09-Sep-2026 | Record safe LLM failure codes alongside the STT diagnostics.
 # v1.1 | 07-Sep-2026 | Record STT evidence and safe codes without audio or transcript logs.
 # v1.0 | 04-Sep-2026 | Define deterministic WP1 turn timing and log records.
 
@@ -31,6 +32,7 @@ class TurnLog(BaseModel):
     timings: TurnTimings
     stt_language: LanguageEvidence | None = None
     stt_error: str | None = None
+    llm_error: str | None = None  #v1.2
 
 
 class TurnExecution(BaseModel):

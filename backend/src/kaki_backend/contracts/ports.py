@@ -1,3 +1,4 @@
+# v1.2 | 09-Sep-2026 | Carry LLM readiness and safe generation failures behind the port.
 # v1.1 | 07-Sep-2026 | Carry typed STT evidence and safe failures behind the port.
 # v1.0 | 04-Sep-2026 | Define replaceable WP1 inference and retrieval ports.
 
@@ -47,10 +48,24 @@ class SttPort(Protocol):
         """Check current runtime readiness without transcribing or loading a model."""
 
 
+class LlmError(RuntimeError):
+    """Indicate a controlled generation failure without retaining a vendor response."""
+
+    def __init__(self, code: str) -> None:
+        """Restrict diagnostics to safe codes rather than transcripts or response text."""
+        self.code = code if code in {
+            "unavailable", "timeout", "invalid_response", "empty_reply"
+        } else "unavailable"
+        super().__init__(self.code)
+
+
 class LlmPort(Protocol):
     """Generate conversational text independently of the selected model runtime."""
     def generate(self, transcript: str) -> str:
-        """Return conversational response text for the current turn."""
+        """Return conversational response text for the current turn or raise LlmError."""
+
+    def ready(self) -> bool:
+        """Check current runtime readiness without generating or loading a model."""
 
 
 class TtsPort(Protocol):

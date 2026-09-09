@@ -1,15 +1,16 @@
+# v1.5 | 09-Sep-2026 | Handle real LLM failures and degrade to text when speech is unavailable.
 # v1.4 | 07-Sep-2026 | Handle real STT failures and release audio before downstream stages.
 # v1.3 | 06-Sep-2026 | Normalise audio before canned inference and time preparation.
 # v1.2 | 05-Sep-2026 | Add fixture-labelled receipts and prerecorded failure audio.
 # v1.1 | 04-Sep-2026 | Compose canned ports and record complete WP1 timing shape.
 # v1.0 | 02-Sep-2026 | Return deterministic canned turns without inference or state.
 
-"""Transcribe and release audio before the still-canned generation/speech stages."""
+"""Transcribe, release audio, then generate a reply before the still-canned speech stage."""
 
 from time import perf_counter  #v1.1
 
 from kaki_backend.contracts.ports import LlmPort, RetrieverPort, SttPort, TtsPort  #v1.1
-from kaki_backend.contracts.ports import SttError, Transcription
+from kaki_backend.contracts.ports import LlmError, SttError, Transcription  #v1.5
 from kaki_backend.orchestration.audio_lifecycle import TestAudioRetention, TurnAudio
 from kaki_backend.contracts.responses import TurnResponse, TurnState
 from kaki_backend.contracts.turn_log import TurnExecution, TurnLog, TurnTimings  #v1.1
@@ -73,6 +74,7 @@ class TurnPipeline:  #v1.1
                 "reply_audio": None,
             })
 
+        llm_error = None  #v1.5
         if transcription is not None:
             transcript = transcription.text
 
@@ -81,11 +83,26 @@ class TurnPipeline:  #v1.1
             timings.routing_ms = (perf_counter() - routing_started_at) * 1000  #v1.1
 
             llm_started_at = perf_counter()  #v1.1
-            reply_text = self._llm.generate(transcript)  #v1.1
-            timings.llm_ms = (perf_counter() - llm_started_at) * 1000  #v1.1
+            try:  #v1.5
+                reply_text = self._llm.generate(transcript)  #v1.1
+            except LlmError as error:  #v1.5
+                llm_error = error.code
+                response = self._failed_response(turn_id).model_copy(update={
+                    "reply_text": "The reply service is not available right now. "
+                    "Please try again shortly.",
+                    "display_text": "Please try again shortly.",
+                    "reply_audio": None,
+                })
+            finally:  #v1.5
+                timings.llm_ms = (perf_counter() - llm_started_at) * 1000  #v1.1
 
+        if transcription is not None and llm_error is None:  #v1.5
             tts_started_at = perf_counter()  #v1.1
-            reply_audio = self._tts.synthesize(reply_text)  #v1.1
+            try:  #v1.5
+                reply_audio = self._tts.synthesize(reply_text)  #v1.1
+            except ValueError:  #v1.5
+                # Real generation precedes real speech until WP2.4; answer as text only.
+                reply_audio = None
             timings.tts_ms = (perf_counter() - tts_started_at) * 1000  #v1.1
             response = TurnResponse(  #v1.1
                 turn_id=turn_id,
@@ -114,6 +131,7 @@ class TurnPipeline:  #v1.1
             timings=timings,
             stt_language=transcription.evidence if transcription else None,
             stt_error=stt_error,
+            llm_error=llm_error,  #v1.5
         )
         return TurnExecution(response=response, log=log)  #v1.1
 

@@ -1,0 +1,15 @@
+# v1.0 | 09-Sep-2026 | Package the local MLX/Qwen HTTP adapter separately from orchestration.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kaki-qwen-local"
+version = "0.1.0"
+description = "Local MLX-LM Qwen generation adapter for KaKi-Talkie"
+requires-python = ">=3.11"
+dependencies = ["kaki-backend==0.1.0", "httpx>=0.27,<1"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["kaki_qwen_local*"]

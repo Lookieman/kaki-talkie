@@ -1,3 +1,4 @@
+# v1.3 | 09-Sep-2026 | Report canned LLM readiness for the shared port protocol.
 # v1.2 | 07-Sep-2026 | Return typed canned STT results without invented language evidence.
 # v1.1 | 05-Sep-2026 | Return packaged spoken fixtures without runtime synthesis.
 # v1.0 | 04-Sep-2026 | Supply deterministic WP1 implementations of shared ports.
@@ -37,6 +38,10 @@ class CannedSttPort:
 
 class CannedLlmPort:
     """Supply the fixed WP1 reply while real generation remains deferred."""
+
+    def ready(self) -> bool:
+        """Report that canned generation needs no external runtime."""
+        return True
 
     def generate(self, transcript: str) -> str:
         """Ignore recognised text and keep the prerecorded reply contract."""

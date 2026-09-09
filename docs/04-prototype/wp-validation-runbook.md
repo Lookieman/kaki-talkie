@@ -1,6 +1,6 @@
 # KaKi-Talkie WP validation runbook
 
-Version 1.2 | 07-Sep-2026 | SGLN Group 10
+Version 1.3 | 09-Sep-2026 | SGLN Group 10
 
 Repository location: `docs/04-prototype/wp-validation-runbook.md`
 
@@ -573,12 +573,19 @@ Mark VERIFIED only after the owner completes Tests 1-4 on the Mac.
 ## 7.3 WP2.3 - MLX/Qwen generation
 
 Owner level: **S**  
-Status: **DRAFT - structure fixed; Prepare WP2.3 fills in adapter commands**
+Status: **VERIFIED / CLOSED 9 Sep**
 
 Machine: Mac Mini. User: `websvc`. Locked runtime family: MLX-LM with a small
 quantised Qwen-class instruct model. Do not introduce RAG, DSPy or SEA-LION.
 
+Scope: WP2-AT-04 - the fixed request yields a reply of 60 words or fewer in
+five consecutive runs. Baseline model (selected 07-Sep-2026):
+`mlx-community/Qwen3-8B-4bit`. Record any change here with a date.
+
 ### 7.3.1 Setup and installation
+
+Install and configure through `setup.md`. This table maps each component to
+its `setup.md` section. All of these are complete on the Mac Mini.
 
 ```text
 +---------------------------------------+---------------------+
@@ -591,30 +598,192 @@ quantised Qwen-class instruct model. Do not introduce RAG, DSPy or SEA-LION.
 +---------------------------------------+---------------------+
 ```
 
-Components crucial to the solution and absent from `setup.md`:
+Components crucial to the solution and absent from `setup.md` are installed
+here.
 
-- Exact model identifier. Selected 07-Sep-2026: `mlx-community/Qwen3-8B-4bit`.
-  Record any change here with a date.
-- Thinking-mode suppression. Qwen3 emits `<think>` blocks by default; the
-  adapter must disable them (`enable_thinking=False` in the chat template) so
-  the kiosk does not stream silence while the model deliberates.
-- The LLM adapter package under `services/llm/`. `Prepare WP2.3` documents its
-  installation, start, readiness and stop commands.
+#### Install the LLM adapter
+
+The adapter is the WP2.3 deliverable: it connects FastAPI to the MLX-LM
+service. On the Mac, as `websvc`, from the application checkout root with its
+`.venv` active:
+
+```sh
+python -m pip install -e services/llm/qwen_local
+python -c "from kaki_qwen_local.adapter import QwenLlm; print('Qwen adapter import OK')"
+```
+
+On Windows, install it into the worktree `.venv` for the regression tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e services/llm/qwen_local
+```
+
+The adapter declares HTTPX >=0.27,<1, already used by backend tests. Do not
+install into a global Python.
+
+#### Start the LLM service with thinking disabled
+
+Qwen3 emits `<think>` deliberation blocks by default, which would leave the
+kiosk silent while the model thinks. The server must be started with thinking
+disabled; the adapter additionally strips or rejects think content as defence
+in depth. Check that port 8082 is free, then start the service in a foreground
+terminal:
+
+```sh
+lsof -nP -iTCP:8082 -sTCP:LISTEN
+export HF_HOME=/Users/websvc/models/huggingface
+~/.venvs/kaki-llm/bin/python -m mlx_lm server \
+  --model mlx-community/Qwen3-8B-4bit --host 127.0.0.1 --port 8082 \
+  --chat-template-args '{"enable_thinking":false}'
+```
+
+If the port is occupied, identify the process; do not kill an existing service
+or change the documented port. The model is already cached; no download should
+occur. Stop the service with Ctrl+C in its terminal.
+
+#### Prepare the validation environment
+
+Repeat these exports in every terminal of a validation session. Reuse the same
+printed evidence directory within one session instead of creating another.
+
+```sh
+cd ~/projects/kaki-talkie
+export KAKI_APP_ROOT="$PWD"
+source "$KAKI_APP_ROOT/.venv/bin/activate"
+export KAKI_DATA_ROOT="/Users/websvc/kaki-talkie-data"
+umask 077
+mkdir -p "$KAKI_DATA_ROOT/wp2.3"
+export WP23_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp2.3/smoke.XXXXXX")"
+export KAKI_LLM_MODE=qwen
+export KAKI_LLM_URL=http://127.0.0.1:8082
+export KAKI_LLM_TIMEOUT_SECONDS=120
+printf '%s\n' "$KAKI_APP_ROOT" "$WP23_EVIDENCE"
+```
+
+`KAKI_LLM_MODE` accepts `canned` (default) or `qwen`; invalid values fail
+startup. The URL must be HTTP with a literal loopback address, port and no
+credentials, path or query. Readiness uses a two-second network timeout;
+generation uses the configured 0.1-300-second network timeout (default 120
+seconds). These bound network operations; they are not latency acceptance
+targets. Redirects and proxies are disabled; response size is capped at
+256 KiB. The application does not auto-load `.env`, so export settings
+explicitly. Leave `KAKI_STT_MODE` unset (canned) unless the Whisper service
+from 7.2 is also running.
+
+#### Record the runtime identity
+
+Record the runtime once per session into the evidence directory:
+
+```sh
+~/.venvs/kaki-llm/bin/python -c "import mlx_lm; print('mlx-lm', mlx_lm.__version__)"
+ls "$HF_HOME/hub/models--mlx-community--Qwen3-8B-4bit/snapshots"
+```
+
+Copy both outputs into the current evidence directory together with the
+application commit (`git rev-parse HEAD`), OS and Python versions.
 
 ### 7.3.2 Testing and validation
 
-`Prepare WP2.3` supplies exact commands. The tests and objectives are fixed:
+Each test states its objective. Run the tests in order on the Mac as `websvc`
+with the 7.3.1 exports active.
 
-- Test 1, LLM service readiness. Objective: prove the model loads once, stays
-  resident across turns, and serves only on `127.0.0.1:8082`.
-- Test 2, bounded generation. Objective: prove a fixed transcript input yields
-  a concise reply - five runs, each 60 words or fewer - because long replies
-  break spoken delivery for elderly users.
-- Test 3, failure and recovery. Objective: prove FastAPI returns a calm
-  `failed` response while the LLM service is down and recovers without an
-  application restart.
-- Test 4, WP1 regression. Objective: prove the contract still holds with the
-  LLM adapter installed (Test 5 command set from 7.2.2).
+#### Test 1: LLM service readiness
+
+Objective: prove the model loads once, stays resident across turns, and
+serves only on `127.0.0.1:8082`.
+
+Start the service as in 7.3.1, then in a second terminal:
+
+```sh
+curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8082/health
+curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8082/v1/models
+lsof -nP -iTCP:8082 -sTCP:LISTEN
+```
+
+Expected: HTTP 200 from both endpoints, `/v1/models` listing exactly
+`mlx-community/Qwen3-8B-4bit`, and only `127.0.0.1:8082` listening. Retry
+manually while the model loads. Record startup errors; a listening socket
+alone is not readiness.
+
+Start order for the full stack: MLX-LM service (and Whisper, if used), then
+FastAPI, then the optional simulator. Test 2 does not require FastAPI.
+
+#### Test 2: bounded generation
+
+Objective: prove WP2-AT-04 through the production adapter - the fixed
+transcript yields a concise reply, five runs, each 60 words or fewer, with no
+leaked think content - because long replies break spoken delivery for elderly
+users.
+
+```sh
+cd "$KAKI_APP_ROOT"
+python scripts/wp_check.py --unit WP2.3 --tier B | tee "$WP23_EVIDENCE/wp_check_wp23_tierB.json"
+```
+
+The CLI reports JSON with the configured mode/URL/model, the five replies,
+word counts, per-run latencies and named checks. Expected: every check true
+and exit status zero. Inspect the replies for sensible concise English; no
+invented quality threshold applies.
+
+#### Test 3: failure and recovery
+
+Objective: prove FastAPI returns a calm `failed` response while the LLM
+service is down and recovers without an application restart.
+
+Start FastAPI in a separate foreground terminal with the 7.3.1 exports and
+`.venv` active (`python -m kaki_backend.main`), confirm
+`curl --fail http://127.0.0.1:8000/api/health`, then:
+
+1. Submit a turn with a fresh `turn_id` while the LLM service is up:
+
+   ```sh
+   curl --fail --silent --show-error --max-time 120 http://127.0.0.1:8000/api/device/turn \
+     -F device_id=wp23-smoke -F session_id=wp23-smoke -F turn_id=wp23-smoke-1 \
+     -F "audio=@$KAKI_APP_ROOT/backend/src/kaki_backend/fixtures/canned_reply.wav"
+   ```
+
+   Expected: `answered` with generated `reply_text` and `reply_audio` null -
+   real speech arrives in WP2.4; until then answered turns degrade to text
+   only because the canned TTS has no recording for generated text.
+2. Stop the LLM service with Ctrl+C in its terminal. Rerun the Test 2 command;
+   it must exit non-zero with `service_ready` false. Submit the turn with a
+   fresh `turn_id`; expect HTTP 200, status `failed`, calm non-empty text and
+   no invented speech audio.
+3. Restart the LLM service, wait for Test 1 readiness, and submit a fresh-ID
+   turn to prove recovery without restarting FastAPI. Expected: `answered`.
+
+Reusing a completed failed `turn_id` deliberately returns its first failure.
+
+#### Test 4: deterministic regression
+
+Objective: prove the WP1 contract and all prior behaviour still hold with the
+LLM adapter installed. Run the 7.2.2 Test 5 command set with both adapters
+installed and `KAKI_STT_MODE`/`KAKI_LLM_MODE` unset or `canned`. The LLM
+adapter unit tests live in `backend/tests/unit/test_qwen_adapter.py` and run
+without a model service.
+
+Known limitation: `scripts/tests/test_check_code_history.py` fails on any
+machine because it references the deliberately removed history checker; this
+predates WP2.3 and is tracked separately by the owner.
+
+#### Teardown and evidence
+
+Stop the stack in reverse order with Ctrl+C in each owned terminal:
+simulator, FastAPI, then the LLM service. Never use broad process kills. Keep
+the model cache for reruns.
+
+Retain under `WP23_EVIDENCE`: application path and commit, OS and
+architecture, Python and mlx-lm versions, model snapshot revision, the Test 2
+JSON report, readiness and listener observations, the answered/failed/
+recovered turn responses, and the regression results.
+
+Evidence of the 09-Sep-2026 automated execution:
+`/Users/websvc/kaki-talkie-data/wp2.3/smoke.y5wWTd/` containing
+`wp_check_wp23_tierB.json` (five runs, 26 words each, all checks true),
+`runtime_identity.txt`, `http_turn_answered.json`, `wp_check_llm_down.json`,
+`http_turn_llm_down.json` and `http_turn_recovered.json`.
+
+Mark VERIFIED only after the owner completes Tests 1-3 on the Mac.
 
 ## 7.4 WP2.4 - macOS say + full WP2 gate
 
