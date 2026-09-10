@@ -1,18 +1,23 @@
+# v1.1 | 10-Sep-2026 | Read manual sources from seeded markdown snapshots; route cleaning by type.
 # v1.0 | 10-Sep-2026 | Run the corpus ingestion: fetch, snapshot, clean, chunk, provenance.
 """End-to-end corpus ingestion for the WP3 grounded-knowledge corpus.
 
-For every allowlisted source: fetch the official page, keep or reuse a dated
-snapshot under `KAKI_DATA_ROOT/corpus/snapshots/`, clean and chunk the
-snapshot content, and attach full provenance to every chunk. The processed
-store (`corpus/processed/chunks.jsonl` plus one inspection markdown file per
-source) is rewritten atomically from the current snapshots each run, so it
-can never hold duplicate chunks and an unchanged re-ingestion reproduces it
-byte-for-byte (WP3-AT-01/02).
+`capture: manual` sources (the MVP corpus, design.md 7.2 v1.2) are never
+fetched: each reads its newest owner-seeded snapshot and reports status
+`manual`; a manual source with no usable snapshot fails the run with
+`no seeded snapshot`. `capture: auto` sources fetch the official page and
+keep or reuse a dated snapshot under `KAKI_DATA_ROOT/corpus/snapshots/`.
+Snapshots whose content type is text/markdown are cleaned with the markdown
+cleaner; others with the HTML cleaner. Every chunk carries full provenance,
+and the processed store (`corpus/processed/chunks.jsonl` plus one inspection
+markdown file per source) is rewritten atomically from the current snapshots
+each run, so it can never hold duplicate chunks and an unchanged
+re-ingestion reproduces it byte-for-byte (WP3-AT-01/02).
 
-A failed fetch of one source never blocks the others: the source keeps its
-most recent good snapshot when one exists and is reported as failed, and the
-run's report marks the whole run unsuccessful.
-"""
+A failed fetch of one auto source never blocks the others: the source keeps
+its most recent good snapshot when one exists and is reported as failed, and
+the run's report marks the whole run unsuccessful.
+"""  #v1.1
 
 import json
 import os
@@ -22,8 +27,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from kaki_rag.ingest.chunk import Chunk, chunk_blocks
-from kaki_rag.ingest.clean import blocks_to_markdown, clean_html
+from kaki_rag.ingest.clean import blocks_to_markdown, clean_html, clean_markdown  #v1.1
 from kaki_rag.ingest.fetch import (
+    MARKDOWN_CONTENT_TYPE,  #v1.1
     Allowlist,
     AllowlistedSource,
     FetchError,
@@ -36,6 +42,7 @@ from kaki_rag.ingest.metadata import Provenance, chunk_identifier, content_sha25
 
 STATUS_FETCHED = "fetched"
 STATUS_UNCHANGED = "unchanged"
+STATUS_MANUAL = "manual"  #v1.1
 STATUS_FAILED = "failed"
 
 
@@ -169,7 +176,11 @@ def run_ingestion(
         )
         chunk_count = 0
         if record is not None:
-            blocks = clean_html(store.read_content(record).decode("utf-8", errors="replace"))
+            content_text = store.read_content(record).decode("utf-8", errors="replace")  #v1.1
+            if record.content_type == MARKDOWN_CONTENT_TYPE:  #v1.1
+                blocks = clean_markdown(content_text)  #v1.1
+            else:  #v1.1
+                blocks = clean_html(content_text)  #v1.1
             if not blocks:
                 status, error, record = STATUS_FAILED, "cleaning produced no content", None
             else:
@@ -213,14 +224,21 @@ def _capture_source(
     allowed_domains: tuple[str, ...],
     capture_date: str,
 ) -> tuple[SnapshotRecord | None, str, str | None]:
-    """Fetch one source and reconcile it with its newest existing snapshot.
+    """Resolve one source to the snapshot to process, its status and any error.
 
-    Returns the snapshot to process (None only when nothing usable exists),
-    the run status and a sanitised error. Unchanged content reuses the
-    existing snapshot so `captured_at` keeps meaning the capture that holds
-    the content; a failed fetch falls back to the newest good snapshot.
-    """
+    Manual sources are never fetched: their newest seeded snapshot is used
+    (status `manual`), and a missing snapshot is a failure. Auto sources
+    fetch and reconcile with their newest existing snapshot: unchanged
+    content reuses the existing snapshot so `captured_at` keeps meaning the
+    capture that holds the content, and a failed fetch falls back to the
+    newest good snapshot. Returns None for the record only when nothing
+    usable exists.
+    """  #v1.1
     existing = store.latest(source.source_id)
+    if source.capture == "manual":  #v1.1
+        if existing is None:  #v1.1
+            return None, STATUS_FAILED, "no seeded snapshot"  #v1.1
+        return existing, STATUS_MANUAL, None  #v1.1
     try:
         result = fetcher.fetch(source, allowed_domains)
     except FetchError as failure:

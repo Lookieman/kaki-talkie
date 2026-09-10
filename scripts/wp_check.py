@@ -1,3 +1,4 @@
+# v1.3 | 10-Sep-2026 | Accept manual-capture sources in the WP3.1 ingestion checks.
 # v1.2 | 10-Sep-2026 | Add the WP3.1 corpus ingestion and idempotency checks.
 # v1.1 | 09-Sep-2026 | Add the WP2.4 speech, readiness and full-loop checks.
 # v1.0 | 09-Sep-2026 | Provide the WP2.3 owner checks behind a per-unit check runner.
@@ -17,10 +18,11 @@ Currently registered:
   check and expects the complete stack (Whisper, MLX-LM, FastAPI in real
   modes) already running per runbook 7.4.1.
 - WP3.1 tier B - grounded-corpus ingestion (WP3-AT-01/02). Requires
-  `KAKI_DATA_ROOT` and the installed `kaki-rag` package; runs the real
-  ingestion twice over `rag/corpus/allowlist.yaml`, checking dated
-  snapshots, full per-chunk provenance and hash/chunk stability. Needs no
-  model services.
+  `KAKI_DATA_ROOT` and the installed `kaki-rag` package; runs the ingestion
+  twice over `rag/corpus/allowlist.yaml`, checking dated snapshots, full
+  per-chunk provenance and hash/chunk stability. Manual-capture sources
+  read their owner-seeded snapshots and are never fetched; only
+  `capture: auto` sources need the network. Needs no model services.
 
 Side effects: WP2.3 tier B sends five fixed-transcript generation requests to
 the local LLM service. WP2.4 tier B synthesises one fixed sentence locally
@@ -226,11 +228,12 @@ def _load_processed_chunks(processed_path: str) -> list[dict[str, object]]:
 
 
 def check_wp31_tier_b() -> tuple[dict[str, object], dict[str, bool]]:
-    """Prove WP3-AT-01/02 with two real ingestion runs over the committed allowlist.
+    """Prove WP3-AT-01/02 with two ingestion runs over the committed allowlist.
 
-    Requires an absolute `KAKI_DATA_ROOT`, network access to the allowlisted
-    official domains and `python -m pip install -e rag` (runbook 8.1 WP3.1).
-    """
+    Requires an absolute `KAKI_DATA_ROOT`, seeded snapshots for every
+    manual source, `python -m pip install -e rag`, and network access only
+    for `capture: auto` sources (runbook 8.1 WP3.1).
+    """  #v1.3
     from kaki_rag.ingest.metadata import (
         PROVENANCE_FIELDS,
         REQUIRED_PROVENANCE_FIELDS,
@@ -262,7 +265,7 @@ def check_wp31_tier_b() -> tuple[dict[str, object], dict[str, bool]]:
         Path(result.snapshot_path) for result in first.results if result.snapshot_path
     ]
     checks = {
-        "allowlist_has_five_or_more_sources": len(first.results) >= 5,
+        "allowlist_has_four_or_more_sources": len(first.results) >= 4,  #v1.3
         "first_run_ingested_every_source": first.succeeded,
         "every_source_has_a_dated_snapshot": bool(snapshot_paths) and len(
             snapshot_paths
@@ -283,7 +286,7 @@ def check_wp31_tier_b() -> tuple[dict[str, object], dict[str, bool]]:
         ),
         "no_duplicate_chunk_ids": len(chunk_ids) == len(set(chunk_ids)),
         "second_run_reports_every_source_unchanged": all(
-            result.status == "unchanged" for result in second.results
+            result.status in ("unchanged", "manual") for result in second.results  #v1.3
         ),
         "content_hashes_stable_across_runs": all(
             before.content_hash == after.content_hash

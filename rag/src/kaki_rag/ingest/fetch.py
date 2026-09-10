@@ -1,3 +1,4 @@
+# v1.1 | 10-Sep-2026 | Add capture: manual sources and markdown-aware snapshot records.
 # v1.0 | 10-Sep-2026 | Load the source allowlist, fetch official pages and keep dated snapshots.
 """Allowlist loading, bounded fetching and dated snapshot storage.
 
@@ -11,8 +12,11 @@ outside the subset is rejected loudly rather than guessed at.
 Snapshots are the durable capture record: raw page bytes plus a metadata file
 under `KAKI_DATA_ROOT/corpus/snapshots/YYYY-MM-DD/`, never hand-edited.
 Provenance `captured_at` derives from the snapshot metadata, not from the
-clock at processing time.
-"""
+clock at processing time. Sources marked `capture: manual` are never fetched
+here: their snapshots are owner-reviewed markdown seeded with
+`scripts/seed_snapshot.py` (design.md 7.2), and the store reads `.md` and
+`.html` snapshots alike.
+"""  #v1.1
 
 import ipaddress
 import json
@@ -35,7 +39,10 @@ DATE_DIRECTORY_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 USER_AGENT = "kaki-talkie-ingest/0.1 (allowlisted official-source snapshot)"
 
 REQUIRED_SOURCE_KEYS = ("source_id", "url", "page_title", "scheme", "freshness_class")
-OPTIONAL_SOURCE_KEYS = ("valid_until",)
+OPTIONAL_SOURCE_KEYS = ("valid_until", "capture")  #v1.1
+CAPTURE_MODES = ("auto", "manual")  #v1.1
+MARKDOWN_CONTENT_TYPE = "text/markdown"  #v1.1
+DEFAULT_SNAPSHOT_CONTENT_TYPE = "text/html"  #v1.1
 
 
 class AllowlistError(ValueError):
@@ -53,7 +60,11 @@ class FetchError(RuntimeError):
 
 @dataclass(frozen=True)
 class AllowlistedSource:
-    """One approved official page with its retrieval-facing metadata."""
+    """One approved official page with its retrieval-facing metadata.
+
+    `capture` is `auto` (fetched over HTTPS) or `manual` (owner-seeded
+    snapshots only; never fetched live).
+    """  #v1.1
 
     source_id: str
     url: str
@@ -61,6 +72,7 @@ class AllowlistedSource:
     scheme: str
     freshness_class: str
     valid_until: str | None = None
+    capture: str = "auto"  #v1.1
 
 
 @dataclass(frozen=True)
@@ -211,6 +223,11 @@ def load_allowlist(path: Path | str) -> Allowlist:
                 f"{source_id}: freshness_class must be one of "
                 f"{', '.join(FRESHNESS_CLASSES)}."
             )
+        capture = entry.get("capture", "auto")  #v1.1
+        if capture not in CAPTURE_MODES:  #v1.1
+            raise AllowlistError(  #v1.1
+                f"{source_id}: capture must be one of {', '.join(CAPTURE_MODES)}."  #v1.1
+            )  #v1.1
         _validate_source_url(entry["url"], tuple(domains), source_id)
         sources.append(
             AllowlistedSource(
@@ -220,6 +237,7 @@ def load_allowlist(path: Path | str) -> Allowlist:
                 scheme=entry["scheme"],
                 freshness_class=entry["freshness_class"],
                 valid_until=entry.get("valid_until"),
+                capture=capture,  #v1.1
             )
         )
     return Allowlist(allowed_domains=tuple(domains), sources=tuple(sources))
@@ -301,7 +319,11 @@ class SourceFetcher:
 
 @dataclass(frozen=True)
 class SnapshotRecord:
-    """One stored capture of one source, as later stages consume it."""
+    """One stored capture of one source, as later stages consume it.
+
+    `content_type` comes from the metadata sidecar (default text/html) and
+    routes cleaning: text/markdown snapshots use the markdown cleaner.
+    """  #v1.1
 
     source_id: str
     snapshot_path: Path
@@ -309,6 +331,7 @@ class SnapshotRecord:
     captured_at: str
     content_hash: str
     source_updated_at: str | None
+    content_type: str = DEFAULT_SNAPSHOT_CONTENT_TYPE  #v1.1
 
 
 class SnapshotStore:
@@ -374,6 +397,7 @@ class SnapshotStore:
             captured_at=result.fetched_at,
             content_hash=content_hash,
             source_updated_at=result.source_updated_at,
+            content_type=result.content_type,  #v1.1
         )
 
     def read_content(self, record: SnapshotRecord) -> bytes:
@@ -381,14 +405,28 @@ class SnapshotStore:
         return record.snapshot_path.read_bytes()
 
     def _read_record(self, directory: Path, source_id: str) -> SnapshotRecord | None:
-        """Build a record from one dated directory when both files are usable."""
+        """Build a record from one dated directory when its files are usable.
+
+        A snapshot may be `<source_id>.md` (owner-seeded markdown) or
+        `<source_id>.html`. When both exist, the extension the metadata
+        `content_type` names wins; otherwise whichever file exists is used.
+        """  #v1.1
         meta_path = directory / f"{source_id}.meta.json"
-        snapshot_path = directory / f"{source_id}.html"
-        if not meta_path.is_file() or not snapshot_path.is_file():
+        if not meta_path.is_file():  #v1.1
             return None
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
+            return None
+        content_type = meta.get("content_type")  #v1.1
+        if not isinstance(content_type, str) or not content_type:  #v1.1
+            content_type = DEFAULT_SNAPSHOT_CONTENT_TYPE  #v1.1
+        preferred = ".md" if content_type == MARKDOWN_CONTENT_TYPE else ".html"  #v1.1
+        other = ".html" if preferred == ".md" else ".md"  #v1.1
+        snapshot_path = directory / f"{source_id}{preferred}"  #v1.1
+        if not snapshot_path.is_file():  #v1.1
+            snapshot_path = directory / f"{source_id}{other}"  #v1.1
+        if not snapshot_path.is_file():  #v1.1
             return None
         captured_at = meta.get("captured_at")
         content_hash = meta.get("content_hash")
@@ -404,4 +442,5 @@ class SnapshotStore:
             captured_at=captured_at,
             content_hash=content_hash,
             source_updated_at=source_updated_at,
+            content_type=content_type,  #v1.1
         )

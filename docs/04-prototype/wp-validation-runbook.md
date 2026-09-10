@@ -1,6 +1,6 @@
 # KaKi-Talkie WP validation runbook
 
-Version 1.7 | 10-Sep-2026 | SGLN Group 10
+Version 1.8 | 10-Sep-2026 | SGLN Group 10
 
 > v1.7 revises the WP3.1 block only: the corpus is captured manually as
 > owner-reviewed markdown (design.md 7.2, v1.2). Four `capture: manual`
@@ -1077,7 +1077,7 @@ performed in Chrome through the protected simulator.
 
 # 8. WP3 - grounded knowledge + refusal
 
-Status: **WP3.1 READY (prepared 09-Sep-2026); WP3.2-WP3.4 DRAFT - structure
+Status: **WP3.1 VERIFIED / CLOSED 10-Sep-2026; WP3.2-WP3.4 DRAFT - structure
 fixed; Prepare WP3.x fills in commands**
 
 The fixed 8.1/8.2/8.3 skeleton is retained. Each `Prepare WP3.x` adds its
@@ -1112,13 +1112,13 @@ intentional, small, non-sensitive deterministic fixtures.
 #### WP3.1 setup - allowlist, fetch/snapshot, clean/chunk, provenance
 
 Owner level: **S**  
-Status: **READY - implemented 10-Sep-2026; manual-capture revision
-pending implementation; owner Mac validation pending.**
+Status: **VERIFIED / CLOSED 10-Sep-2026.**
 Owner pilot runs on 10-Sep-2026 found that most target pages render
 their content with JavaScript or block automated fetching, so the
-corpus is now captured manually as owner-reviewed markdown (design.md
-7.2, v1.2). The pipeline revision that reads markdown snapshots is a
-follow-up implementation task; run the tests below after it lands.
+corpus is captured manually as owner-reviewed markdown (design.md
+7.2, v1.2). The manual-capture pipeline revision is implemented and
+owner-validated; this section remains the reference for re-seeding and
+re-running validation when the corpus changes.
 
 Scope: WP3-AT-01/02 - ingestion writes dated runtime snapshots under
 `KAKI_DATA_ROOT`, and an unchanged re-ingestion keeps content hashes stable

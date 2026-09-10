@@ -1,13 +1,15 @@
+# v1.1 | 10-Sep-2026 | Four owner-reviewed manual sources; drop silver-housing-bonus and hdb domain.
 # v1.0 | 10-Sep-2026 | Initial five official sources for the WP3 vertical slice.
 #
 # This file defines every page KaKi-Talkie may fetch and cite (setup.md 13.1,
 # 13.3). Strict YAML subset only: scalars, lists and flat mappings with
 # two-space indents; the parser in kaki_rag.ingest.fetch rejects anything else.
 #
-# OWNER REVIEW REQUIRED: the exact URLs below were selected offline and could
-# not be verified from the implementation environment (network egress denied).
-# Confirm each URL loads the intended official page before the first Mac
-# ingestion run (runbook 8.1 WP3.1); a wrong URL fails ingestion loudly.
+# All MVP sources are `capture: manual` (design.md 7.2 v1.2): the owner
+# captures each page as reviewed markdown and seeds it with
+# scripts/seed_snapshot.py. The pipeline never fetches manual sources live;
+# their URL records the official source for provenance. `capture: auto`
+# (the default when the field is absent) keeps the automated HTML fetch path.
 
 version: 1
 
@@ -18,7 +20,6 @@ allowed_domains:
   - www.life.gov.sg
   - ask.gov.sg
   - supportgowhere.life.gov.sg
-  - www.hdb.gov.sg
   - www.cpf.gov.sg
 
 sources:
@@ -27,27 +28,25 @@ sources:
     page_title: I forgot my Singpass password. How do I reset it?
     scheme: singpass
     freshness_class: stable
+    capture: manual
 
   - source_id: careshield-life
     url: https://www.cpf.gov.sg/member/healthcare-financing/careshield-life
     page_title: Overview of Careshield Life
     scheme: Careshield Life
     freshness_class: stable
+    capture: manual
 
   - source_id: cdc-vouchers-residents
     url: https://vouchers.cdc.gov.sg/residents/
     page_title: CDC Vouchers for residents
     scheme: cdc-vouchers
     freshness_class: periodic
+    capture: manual
 
   - source_id: chas-about
     url: https://www.chas.sg/about-chas
     page_title: About the Community Health Assist Scheme
     scheme: chas
     freshness_class: stable
-    
-  - source_id: silver-housing-bonus
-    url: https://www.hdb.gov.sg/managing-my-home/retirement-planning/monetising-flat-for-retirement/silver-housing-bonus
-    page_title: Silver Housing Bonus
-    scheme: housing bonus
-    freshness_class: stable
+    capture: manual

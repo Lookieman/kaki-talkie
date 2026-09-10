@@ -1,3 +1,4 @@
+# v1.1 | 10-Sep-2026 | Cover markdown cleaning for owner-curated snapshots.
 # v1.0 | 10-Sep-2026 | Verify HTML cleaning and heading-aware bounded chunking.
 """Exercise cleaning and chunking deterministically from committed fixtures."""
 
@@ -5,7 +6,12 @@ import unittest
 from pathlib import Path
 
 from kaki_rag.ingest.chunk import chunk_blocks
-from kaki_rag.ingest.clean import CleanBlock, blocks_to_markdown, clean_html
+from kaki_rag.ingest.clean import (  #v1.1
+    CleanBlock,  #v1.1
+    blocks_to_markdown,  #v1.1
+    clean_html,  #v1.1
+    clean_markdown,  #v1.1
+)  #v1.1
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -55,6 +61,54 @@ class CleanHtmlTests(unittest.TestCase):
         markdown = blocks_to_markdown(self.blocks)
         self.assertIn("# About CDC Vouchers", markdown)
         self.assertIn("## How to claim", markdown)
+
+
+class CleanMarkdownTests(unittest.TestCase):  #v1.1
+    def test_markdown_fixture_cleans_to_heading_and_paragraph_blocks(self) -> None:  #v1.1
+        blocks = clean_markdown(  #v1.1
+            (FIXTURES / "careshield-life.md").read_text(encoding="utf-8")  #v1.1
+        )  #v1.1
+        headings = [(block.text, block.level) for block in blocks  #v1.1
+                    if block.kind == "heading"]  #v1.1
+        self.assertEqual(headings, [  #v1.1
+            ("CareShield Life (fixture)", 1),  #v1.1
+            ("What it covers", 2),  #v1.1
+            ("How to claim", 2),  #v1.1
+        ])  #v1.1
+        joined = " ".join(block.text for block in blocks)  #v1.1
+        self.assertIn("long-term care insurance payouts", joined)  #v1.1
+        self.assertIn("- Submit the claim online with the assessment report.", joined)  #v1.1
+
+    def test_markdown_heading_level_caps_at_six(self) -> None:  #v1.1
+        blocks = clean_markdown("####### Very deep heading\n\n#Bare heading\n")  #v1.1
+        self.assertEqual(  #v1.1
+            [(block.kind, block.level, block.text) for block in blocks],  #v1.1
+            [("heading", 6, "Very deep heading"), ("heading", 1, "Bare heading")],  #v1.1
+        )  #v1.1
+
+    def test_markdown_paragraph_runs_split_on_blank_lines_and_normalise_whitespace(  #v1.1
+        self,  #v1.1
+    ) -> None:  #v1.1
+        text = "First   line\n continues  here\n\nSecond    paragraph\n"  #v1.1
+        blocks = clean_markdown(text)  #v1.1
+        self.assertEqual(  #v1.1
+            [block.text for block in blocks],  #v1.1
+            ["First line continues here", "Second paragraph"],  #v1.1
+        )  #v1.1
+        self.assertTrue(all(block.kind == "paragraph" for block in blocks))  #v1.1
+
+    def test_markdown_short_lines_below_minimum_are_dropped(self) -> None:  #v1.1
+        blocks = clean_markdown("ok\n\n# a\n\nA real paragraph here.\n")  #v1.1
+        self.assertEqual([block.text for block in blocks],  #v1.1
+                         ["A real paragraph here."])  #v1.1
+
+    def test_markdown_blocks_chunk_with_heading_paths(self) -> None:  #v1.1
+        blocks = clean_markdown(  #v1.1
+            (FIXTURES / "careshield-life.md").read_text(encoding="utf-8")  #v1.1
+        )  #v1.1
+        chunks = chunk_blocks(blocks)  #v1.1
+        self.assertGreaterEqual(len(chunks), 1)  #v1.1
+        self.assertEqual(chunks[0].heading_path, ("CareShield Life (fixture)",))  #v1.1
 
 
 class ChunkingTests(unittest.TestCase):

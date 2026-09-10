@@ -1,5 +1,10 @@
+# v1.1 | 10-Sep-2026 | Clean owner-curated markdown snapshots alongside HTML.
 # v1.0 | 10-Sep-2026 | Convert snapshot HTML to clean heading-aware markdown blocks.
-"""Turn raw snapshot HTML into clean, structured text for chunking.
+"""Turn snapshot content into clean, structured text for chunking.
+
+Two cleaners share one block model: `clean_markdown` for the MVP's
+owner-curated markdown snapshots (design.md 7.2 v1.2) and `clean_html` for
+`capture: auto` HTML captures.
 
 Retrieval must run over clean markdown/text, not raw markup or print-to-PDF
 output (design.md 7.2). The extractor keeps headings and content blocks,
@@ -144,3 +149,44 @@ def blocks_to_markdown(blocks: list[CleanBlock]) -> str:
         else:
             lines.append(block.text)
     return "\n\n".join(lines) + "\n"
+
+
+MAXIMUM_HEADING_LEVEL = 6  #v1.1
+
+
+def clean_markdown(text: str) -> list[CleanBlock]:  #v1.1
+    """Return the cleaned blocks of one owner-curated markdown snapshot.
+
+    Lines starting with `#` become heading blocks whose level is the number
+    of leading `#` characters, capped at six. Blank-line-separated runs of
+    other lines become whitespace-normalised paragraph blocks. Headings and
+    paragraphs below the minimum meaningful length are dropped, matching
+    the HTML cleaner's guard.
+    """  #v1.1
+    blocks: list[CleanBlock] = []  #v1.1
+    paragraph_lines: list[str] = []  #v1.1
+
+    def flush_paragraph() -> None:  #v1.1
+        joined = re.sub(r"\s+", " ", " ".join(paragraph_lines)).strip()  #v1.1
+        paragraph_lines.clear()  #v1.1
+        if len(joined) >= MINIMUM_BLOCK_CHARACTERS:  #v1.1
+            blocks.append(CleanBlock(kind="paragraph", text=joined))  #v1.1
+
+    for line in text.splitlines():  #v1.1
+        stripped = line.strip()  #v1.1
+        if not stripped:  #v1.1
+            flush_paragraph()  #v1.1
+            continue  #v1.1
+        if stripped.startswith("#"):  #v1.1
+            flush_paragraph()  #v1.1
+            marker_length = len(stripped) - len(stripped.lstrip("#"))  #v1.1
+            heading_text = stripped[marker_length:].strip()  #v1.1
+            if len(heading_text) >= MINIMUM_BLOCK_CHARACTERS:  #v1.1
+                blocks.append(CleanBlock(  #v1.1
+                    kind="heading", text=heading_text,  #v1.1
+                    level=min(marker_length, MAXIMUM_HEADING_LEVEL),  #v1.1
+                ))  #v1.1
+            continue  #v1.1
+        paragraph_lines.append(stripped)  #v1.1
+    flush_paragraph()  #v1.1
+    return blocks  #v1.1

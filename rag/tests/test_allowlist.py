@@ -1,3 +1,4 @@
+# v1.1 | 10-Sep-2026 | Cover the capture field and the four-source manual allowlist.
 # v1.0 | 10-Sep-2026 | Verify allowlist parsing, validation and rejection behaviour.
 """Exercise the strict allowlist loader against valid and hostile inputs."""
 
@@ -43,7 +44,25 @@ class AllowlistParsingTests(unittest.TestCase):
 
     def test_committed_repository_allowlist_is_valid(self) -> None:
         allowlist = load_allowlist(RAG_ROOT / "corpus/allowlist.yaml")
-        self.assertGreaterEqual(len(allowlist.sources), 5)
+        self.assertGreaterEqual(len(allowlist.sources), 4)  #v1.1
+
+    def test_committed_sources_are_all_manual(self) -> None:  #v1.1
+        allowlist = load_allowlist(RAG_ROOT / "corpus/allowlist.yaml")  #v1.1
+        self.assertTrue(all(  #v1.1
+            source.capture == "manual" for source in allowlist.sources  #v1.1
+        ))  #v1.1
+
+    def test_capture_field_defaults_to_auto(self) -> None:  #v1.1
+        allowlist = load_text(VALID_ALLOWLIST)  #v1.1
+        self.assertEqual(allowlist.sources[0].capture, "auto")  #v1.1
+
+    def test_capture_manual_is_accepted(self) -> None:  #v1.1
+        allowlist = load_text(VALID_ALLOWLIST + "    capture: manual\n")  #v1.1
+        self.assertEqual(allowlist.sources[0].capture, "manual")  #v1.1
+
+    def test_rejects_unknown_capture_value(self) -> None:  #v1.1
+        with self.assertRaises(AllowlistError):  #v1.1
+            load_text(VALID_ALLOWLIST + "    capture: scheduled\n")  #v1.1
 
     def test_rejects_non_https_url(self) -> None:
         with self.assertRaises(AllowlistError):

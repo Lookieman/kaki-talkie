@@ -1,11 +1,15 @@
+<!-- v1.1 | 10-Sep-2026 | Document the manual markdown capture model for the MVP corpus. -->
 <!-- v1.0 | 10-Sep-2026 | Describe the WP3.1 corpus ingestion package. -->
 # kaki-rag
 
 The KaKi-Talkie retrieval subsystem. WP3.1 delivers corpus ingestion:
-allowlisted official pages are fetched over HTTPS, kept as dated snapshots,
-cleaned to heading-aware markdown blocks, chunked along semantic boundaries
-and stored with full per-chunk provenance. Embeddings, Chroma and hybrid
-retrieval arrive in WP3.2+.
+allowlisted official sources are kept as dated snapshots, cleaned to
+heading-aware blocks, chunked along semantic boundaries and stored with
+full per-chunk provenance. The MVP corpus is captured manually as
+owner-reviewed markdown (`capture: manual` in the allowlist, seeded with
+`scripts/seed_snapshot.py`; design.md 7.2) and is never fetched live; the
+automated HTTPS fetch path remains for `capture: auto` sources. Embeddings,
+Chroma and hybrid retrieval arrive in WP3.2+.
 
 ## Layout
 

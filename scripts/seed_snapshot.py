@@ -1,30 +1,35 @@
+# v1.1 | 10-Sep-2026 | Accept curated .md input and record content_type text/markdown.
 # v1.0 | 10-Sep-2026 | Seed snapshot store from browser-saved HTML for manual corpus capture.
-"""Create a dated snapshot and metadata sidecar from a browser-saved HTML file.
+"""Create a dated snapshot and metadata sidecar from a captured source file.
 
-Run from the kaki-talkie repository root after saving an allowlisted page in
-Chrome. The script validates the source-id against the allowlist, computes
-the content hash using the same function as the ingestion pipeline, copies
-the HTML file into the snapshot directory, and writes the .meta.json sidecar.
+Run from the kaki-talkie repository root after capturing an allowlisted
+page: either owner-curated markdown (.md, the MVP path per design.md 7.2)
+or a browser-saved HTML file. The script validates the source-id against
+the allowlist, computes the content hash using the same function as the
+ingestion pipeline, copies the file into the snapshot directory, and writes
+the .meta.json sidecar with the matching content_type (text/markdown for
+.md input, text/html for .html/.htm input).
 
 Side effects:
   - creates KAKI_DATA_ROOT/corpus/snapshots/<date>/ if absent;
-  - writes <source-id>.html and <source-id>.meta.json in that directory.
+  - writes <source-id>.md or <source-id>.html plus <source-id>.meta.json
+    in that directory.
 
 Does not commit, merge or push. Does not overwrite existing files unless
 --force is given.
 
 Examples:
 
-    python scripts/seed_snapshot.py --source-id singpass-reset \\
-        --html ~/Downloads/Rest_Singpass_howto.html
+    python scripts/seed_snapshot.py --source-id singpass-support \\
+        --html ~/corpus/singpass-support.md
 
-    python scripts/seed_snapshot.py --source-id singpass-reset \\
+    python scripts/seed_snapshot.py --source-id singpass-support \\
         --html ~/Downloads/Rest_Singpass_howto.html \\
         --data-root /Users/websvc/kaki-talkie-data \\
         --date 2026-09-10
 
     python scripts/seed_snapshot.py --list
-"""  #v1.0
+"""  #v1.1
 
 from __future__ import annotations  #v1.0
 
@@ -41,6 +46,11 @@ from pathlib import Path  #v1.0
 
 SOURCE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")  #v1.0
 DEFAULT_ALLOWLIST = "rag/corpus/allowlist.yaml"  #v1.0
+INPUT_TYPES = {  #v1.1
+    ".md": ("text/markdown", ".md", "curated-markdown"),  #v1.1
+    ".html": ("text/html", ".html", "browser-save"),  #v1.1
+    ".htm": ("text/html", ".html", "browser-save"),  #v1.1
+}  #v1.1
 
 
 def find_repo_root(start: Path) -> Path:  #v1.0
@@ -125,32 +135,42 @@ def list_sources(allowlist_path: Path) -> None:  #v1.0
 
 def seed_snapshot(  #v1.0
     source_id: str,  #v1.0
-    html_path: Path,  #v1.0
+    input_path: Path,  #v1.1
     data_root: Path,  #v1.0
     capture_date: str,  #v1.0
     source_entry: dict[str, str],  #v1.0
     force: bool,  #v1.0
 ) -> None:  #v1.0
-    """Copy the HTML file and write the .meta.json sidecar."""  #v1.0
+    """Copy the captured file and write the .meta.json sidecar.
+
+    Markdown input (.md) is stored as <source-id>.md with content_type
+    text/markdown; HTML input keeps the original .html behaviour.
+    """  #v1.1
+    input_type = INPUT_TYPES.get(input_path.suffix.lower())  #v1.1
+    if input_type is None:  #v1.1
+        raise RuntimeError(  #v1.1
+            f"Input must end in .md, .html or .htm: {input_path}"  #v1.1
+        )  #v1.1
+    content_type, extension, capture_method = input_type  #v1.1
     snapshot_dir = data_root / "corpus" / "snapshots" / capture_date  #v1.0
-    target_html = snapshot_dir / f"{source_id}.html"  #v1.0
+    target_snapshot = snapshot_dir / f"{source_id}{extension}"  #v1.1
     target_meta = snapshot_dir / f"{source_id}.meta.json"  #v1.0
 
     if not force:  #v1.0
         existing = []  #v1.0
-        if target_html.exists():  #v1.0
-            existing.append(str(target_html))  #v1.0
+        if target_snapshot.exists():  #v1.1
+            existing.append(str(target_snapshot))  #v1.1
         if target_meta.exists():  #v1.0
             existing.append(str(target_meta))  #v1.0
         if existing:  #v1.0
             raise RuntimeError(  #v1.0
-                f"Files already exist (use --force to overwrite):\n"  #v1.0
+                "Files already exist (use --force to overwrite):\n"  #v1.1
                 + "\n".join(f"  {path}" for path in existing)  #v1.0
             )  #v1.0
 
-    content = html_path.read_bytes()  #v1.0
+    content = input_path.read_bytes()  #v1.1
     if not content.strip():  #v1.0
-        raise RuntimeError(f"HTML file is empty: {html_path}")  #v1.0
+        raise RuntimeError(f"Input file is empty: {input_path}")  #v1.1
 
     hash_value = content_sha256(content)  #v1.0
     captured_at = datetime.now(timezone.utc).isoformat(timespec="seconds")  #v1.0
@@ -160,15 +180,15 @@ def seed_snapshot(  #v1.0
         "final_url": source_entry.get("url", ""),  #v1.0
         "captured_at": captured_at,  #v1.0
         "http_status": 200,  #v1.0
-        "content_type": "text/html",  #v1.0
+        "content_type": content_type,  #v1.1
         "content_hash": hash_value,  #v1.0
         "content_length": len(content),  #v1.0
         "source_updated_at": None,  #v1.0
-        "capture_method": "browser-save",  #v1.0
+        "capture_method": capture_method,  #v1.1
     }  #v1.0
 
     snapshot_dir.mkdir(parents=True, exist_ok=True)  #v1.0
-    shutil.copy2(html_path, target_html)  #v1.0
+    shutil.copy2(input_path, target_snapshot)  #v1.1
     target_meta.write_text(  #v1.0
         json.dumps(meta, indent=2, ensure_ascii=False) + "\n",  #v1.0
         encoding="utf-8",  #v1.0
@@ -177,9 +197,10 @@ def seed_snapshot(  #v1.0
     print(f"Source:    {source_id}")  #v1.0
     print(f"Title:     {source_entry.get('page_title', '(unknown)')}")  #v1.0
     print(f"URL:       {source_entry.get('url', '(unknown)')}")  #v1.0
+    print(f"Type:      {content_type}")  #v1.1
     print(f"Hash:      {hash_value}")  #v1.0
     print(f"Size:      {len(content):,} bytes")  #v1.0
-    print(f"Snapshot:  {target_html}")  #v1.0
+    print(f"Snapshot:  {target_snapshot}")  #v1.1
     print(f"Metadata:  {target_meta}")  #v1.0
     print(f"Date:      {capture_date}")  #v1.0
 
@@ -188,9 +209,10 @@ def parse_arguments() -> argparse.Namespace:  #v1.0
     """Parse and return command-line arguments."""  #v1.0
     parser = argparse.ArgumentParser(  #v1.0
         description=(  #v1.0
-            "Seed the snapshot store from a browser-saved HTML file. "  #v1.0
-            "Creates the dated snapshot directory, copies the HTML, "  #v1.0
-            "computes the content hash, and writes the .meta.json sidecar."  #v1.0
+            "Seed the snapshot store from a curated markdown (.md) or "  #v1.1
+            "browser-saved HTML file. Creates the dated snapshot directory, "  #v1.1
+            "copies the file, computes the content hash, and writes the "  #v1.1
+            ".meta.json sidecar with the matching content_type."  #v1.1
         ),  #v1.0
         epilog=(  #v1.0
             "Run --list to see available source-ids from the allowlist. "  #v1.0
@@ -203,7 +225,7 @@ def parse_arguments() -> argparse.Namespace:  #v1.0
     )  #v1.0
     parser.add_argument(  #v1.0
         "--html",  #v1.0
-        help="Path to the browser-saved HTML file.",  #v1.0
+        help="Path to the curated markdown (.md) or browser-saved HTML file.",  #v1.1
     )  #v1.0
     parser.add_argument(  #v1.0
         "--data-root",  #v1.0
@@ -268,9 +290,9 @@ def main() -> int:  #v1.0
         )  #v1.0
         return 1  #v1.0
 
-    html_path = Path(args.html).expanduser().resolve()  #v1.0
-    if not html_path.is_file():  #v1.0
-        print(f"Error: HTML file not found: {html_path}", file=sys.stderr)  #v1.0
+    input_path = Path(args.html).expanduser().resolve()  #v1.1
+    if not input_path.is_file():  #v1.1
+        print(f"Error: input file not found: {input_path}", file=sys.stderr)  #v1.1
         return 1  #v1.0
 
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date):  #v1.0
@@ -299,7 +321,7 @@ def main() -> int:  #v1.0
         data_root = resolve_data_root(args.data_root)  #v1.0
         seed_snapshot(  #v1.0
             source_id=source_id,  #v1.0
-            html_path=html_path,  #v1.0
+            input_path=input_path,  #v1.1
             data_root=data_root,  #v1.0
             capture_date=args.date,  #v1.0
             source_entry=entries[source_id],  #v1.0
