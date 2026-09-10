@@ -2,7 +2,12 @@
 
 **Final locked design for the voice pipeline, grounded retrieval, web simulator, and deployment architecture**
 
-Version 1.1 | 02-Sep-2026 | SGLN Group 10
+Version 1.2 | 10-Sep-2026 | SGLN Group 10
+
+> v1.2 changes section 7.2 only: the MVP corpus is captured manually as
+> owner-reviewed markdown, with `capture: manual` sources in the
+> allowlist. The automated HTML fetch path remains for `capture: auto`
+> sources and later change detection.
 
 Suggested repository location: `docs/04-prototype/design.md`
 
@@ -391,16 +396,34 @@ flowchart TD
 
 ### 7.2 Corpus ingestion
 
-Do not use print-to-PDF output as the primary retrieval text.
+The MVP corpus is captured manually as owner-reviewed markdown. Pilot
+ingestion showed that most target pages render their content with
+JavaScript or sit behind bot protection, so automated HTML fetching
+produced empty or unstable snapshots for three of five sources. Curated
+markdown gives the prototype a corpus the owner can read, trust, and
+correct with a text editor. Retrieval runs over this clean markdown;
+raw markup and raw print-to-PDF text are never the retrieval text.
 
 For each allowlisted page:
 
-1. fetch or export the source content;
-2. preserve a dated human-readable snapshot, including PDF where useful;
-3. convert the useful content to clean structured markdown/text;
+1. save the official page (PDF or HTML export) as the capture record;
+2. extract the useful content to clean structured markdown: one H1
+   title, section headings, the official wording, and none of the
+   banner, navigation, or footer noise;
+3. review the markdown against the source, then seed it as the dated
+   snapshot under `KAKI_DATA_ROOT`;
 4. chunk using headings and semantic boundaries rather than arbitrary character counts;
 5. attach provenance metadata;
 6. embed and upsert into the vector store.
+
+Manual sources carry `capture: manual` in the allowlist. The pipeline
+reads their newest seeded snapshot and never fetches them live. The
+automated HTML fetch path remains for `capture: auto` sources and for
+later change detection, but it is not the MVP capture path.
+
+Freshness is the owner's responsibility for manual sources: re-capture
+when the official page changes. `captured_at` records the capture time
+and the user-facing "Source checked" date derives from it.
 
 Recommended starting chunk size: roughly 300-500 tokens, adjusted after real retrieval tests.
 

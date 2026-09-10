@@ -16,18 +16,22 @@ allowed_domains:
   - vouchers.cdc.gov.sg
   - www.chas.sg
   - www.life.gov.sg
+  - ask.gov.sg
+  - supportgowhere.life.gov.sg
+  - www.hdb.gov.sg
+  - www.cpf.gov.sg
 
 sources:
   - source_id: singpass-support
-    url: https://www.singpass.gov.sg/home/ui/support
-    page_title: Singpass support and password reset guidance
+    url: https://ask.gov.sg/singpass/questions/clukze5iv000zufi2ybl5uje7?from=topics
+    page_title: I forgot my Singpass password. How do I reset it?
     scheme: singpass
     freshness_class: stable
 
-  - source_id: cdc-vouchers-about
-    url: https://vouchers.cdc.gov.sg/about-us/
-    page_title: About CDC Vouchers
-    scheme: cdc-vouchers
+  - source_id: careshield-life
+    url: https://www.cpf.gov.sg/member/healthcare-financing/careshield-life
+    page_title: Overview of Careshield Life
+    scheme: Careshield Life
     freshness_class: stable
 
   - source_id: cdc-vouchers-residents
@@ -41,9 +45,9 @@ sources:
     page_title: About the Community Health Assist Scheme
     scheme: chas
     freshness_class: stable
-
-  - source_id: lifesg-services
-    url: https://www.life.gov.sg/
-    page_title: LifeSG government services overview
-    scheme: lifesg
-    freshness_class: periodic
+    
+  - source_id: silver-housing-bonus
+    url: https://www.hdb.gov.sg/managing-my-home/retirement-planning/monetising-flat-for-retirement/silver-housing-bonus
+    page_title: Silver Housing Bonus
+    scheme: housing bonus
+    freshness_class: stable

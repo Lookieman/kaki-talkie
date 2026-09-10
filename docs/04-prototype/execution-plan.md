@@ -2,7 +2,10 @@
 
 **Six work packages, decomposed into bounded Codex implementation units with independent test checkpoints**
 
-Version 1.3 | 06-Sep-2026 | SGLN Group 10
+Version 1.4 | 10-Sep-2026 | SGLN Group 10
+
+> v1.4 adds the WP3 corpus-capture note: manual owner-reviewed markdown
+> sources, four-source corpus, `capture: manual` allowlist flag.
 
 Suggested repository location: `docs/04-prototype/execution-plan.md`
 
@@ -295,6 +298,13 @@ WP3-AT-13 WP1/WP2 regressions remain green
 ```
 
 Golden paths are defined in section 1.7.
+
+Corpus capture: MVP sources are captured manually as owner-reviewed
+markdown and seeded as dated snapshots (design.md 7.2). The allowlist
+marks them `capture: manual`; the pipeline never fetches them live.
+WP3-AT-01 and WP3-AT-02 apply to the seeded snapshots. The corpus
+holds four sources (Singpass reset, CDC Vouchers, CHAS, CareShield
+Life); golden paths GP1 and GP2 are covered.
 
 Generated snapshots/processed data belong under `KAKI_DATA_ROOT`, not Git. Deliberate deterministic fixtures are the narrow exception.
 

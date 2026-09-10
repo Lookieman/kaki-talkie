@@ -1,6 +1,11 @@
 # KaKi-Talkie WP validation runbook
 
-Version 1.6 | 09-Sep-2026 | SGLN Group 10
+Version 1.7 | 10-Sep-2026 | SGLN Group 10
+
+> v1.7 revises the WP3.1 block only: the corpus is captured manually as
+> owner-reviewed markdown (design.md 7.2, v1.2). Four `capture: manual`
+> sources, `seed_snapshot.py` workflow, and revised Test 1-3
+> expectations.
 
 Repository location: `docs/04-prototype/wp-validation-runbook.md`
 
@@ -1107,16 +1112,18 @@ intentional, small, non-sensitive deterministic fixtures.
 #### WP3.1 setup - allowlist, fetch/snapshot, clean/chunk, provenance
 
 Owner level: **S**  
-Status: **READY - implemented 10-Sep-2026; owner Mac validation pending.**
-The implementation session's sandbox denied outbound network and the real
-data root, so Tier B Tests 1-2 were exercised end-to-end against a mocked
-network only; the owner run below is the real evidence. The committed
-allowlist URLs could not be network-verified: review them first.
+Status: **READY - implemented 10-Sep-2026; manual-capture revision
+pending implementation; owner Mac validation pending.**
+Owner pilot runs on 10-Sep-2026 found that most target pages render
+their content with JavaScript or block automated fetching, so the
+corpus is now captured manually as owner-reviewed markdown (design.md
+7.2, v1.2). The pipeline revision that reads markdown snapshots is a
+follow-up implementation task; run the tests below after it lands.
 
 Scope: WP3-AT-01/02 - ingestion writes dated runtime snapshots under
 `KAKI_DATA_ROOT`, and an unchanged re-ingestion keeps content hashes stable
 without duplicating chunks. WP3.1 delivers the corpus pipeline only: the
-allowlist definition, fetch/snapshot, clean/chunk and per-chunk provenance
+allowlist definition, snapshot store, clean/chunk and per-chunk provenance
 metadata (the eight `setup.md` 13.2 fields). No embeddings, Chroma,
 retrieval or backend behaviour change; the turn contract and FastAPI stack
 are untouched.
@@ -1133,14 +1140,43 @@ owner CLI `scripts/ingest_corpus.py` (Python, per the human-operated
 script contract; supersedes the advisory `ingest_corpus.sh` name in the
 design tree).
 
-Allowlist content: `rag/corpus/allowlist.yaml` holds the initial five to
-seven official pages for the `setup.md` 13.3 topics (Singpass reset, CDC
-Vouchers, one CHAS page, one LifeSG/ServiceSG page), each with
-`source_id`, URL, `page_title`, `scheme` and `freshness_class`. Only
-official government domains (for example `singpass.gov.sg`,
-`vouchers.cdc.gov.sg`, `chas.sg`, `life.gov.sg`) are eligible. The owner
-reviews the exact URLs in the committed allowlist before the first Mac
-ingestion run; the runbook does not pre-record unverified URLs.
+Allowlist content: `rag/corpus/allowlist.yaml` holds four official
+pages, each with `source_id`, URL, `page_title`, `scheme`,
+`freshness_class` and `capture: manual`:
+
+```text
++--------------------------+--------------------------------------+
+| source_id                | Official source                      |
++--------------------------+--------------------------------------+
+| singpass-support         | ask.gov.sg (PA Singpass reset FAQ)   |
+| cdc-vouchers-residents   | vouchers.cdc.gov.sg residents' FAQ   |
+| chas-about               | chas.sg FAQ                          |
+| careshield-life          | cpf.gov.sg CareShield Life page      |
++--------------------------+--------------------------------------+
+```
+
+Only official government domains are eligible. The URL records the
+official source for provenance; the pipeline never fetches
+`capture: manual` sources live.
+
+Manual capture workflow, per source:
+
+1. Save the official page from the browser (PDF print or HTML export)
+   as the capture record.
+2. Extract the useful content to clean structured markdown: one H1
+   title, section headings, the official wording, no
+   banner/navigation/footer noise.
+3. Review the markdown against the source page.
+4. Seed it as the dated snapshot:
+
+```sh
+python scripts/seed_snapshot.py --source-id <source_id> \
+    --html <path-to-markdown-file>
+```
+
+The seeding tool computes the content hash and writes the
+`.meta.json` sidecar with `content_type: text/markdown`; re-seed with
+`--force` after re-capturing a changed source.
 
 Install the corpus package into the existing application environment
 (prerequisites: `setup.md` 6, 7.1, 13.1). From the checkout root with its
@@ -1211,21 +1247,23 @@ python scripts/ingest_corpus.py --allowlist rag/corpus/allowlist.yaml
 ```
 
 Expected: exit zero; a summary (JSON to stdout) listing each `source_id`
-with its status, content hash, snapshot path and chunk count. Under
-`KAKI_DATA_ROOT/corpus/snapshots/<today YYYY-MM-DD>/` there is one raw
-capture (`<source_id>.html`) and one capture-metadata file
+with its status, content hash, snapshot path and chunk count. Manual
+sources report status `manual` and read their newest seeded snapshot;
+they are never fetched live. Under
+`KAKI_DATA_ROOT/corpus/snapshots/<date>/` there is one seeded capture
+(`<source_id>.md`) and one capture-metadata file
 (`<source_id>.meta.json`) per allowlisted source. Under
 `KAKI_DATA_ROOT/corpus/processed/`, `chunks.jsonl` holds the chunk
 records and `pages/<source_id>.md` holds the cleaned page for human
-inspection; chunk records hold clean markdown/text (not print-to-PDF
-text) and all eight provenance fields
+inspection; chunk records hold clean markdown/text and all eight
+provenance fields
 (`source_url`, `page_title`, `scheme`, `captured_at`, `source_updated_at`,
 `content_hash`, `freshness_class`, `valid_until`; the last two may be
 explicit nulls where the source offers no value). `captured_at` derives
 from the snapshot, not the clock at chunking time. Spot-check one chunk
-against the live page. A failed fetch of one source must exit non-zero,
-name that source and leave other sources' snapshots intact. Copy the
-summary into `WP31_EVIDENCE`.
+against the official page. A manual source with no seeded snapshot must
+be reported as failed, exit non-zero, name that source and leave other
+sources' snapshots intact. Copy the summary into `WP31_EVIDENCE`.
 
 ##### WP3.1 Test 2: unchanged re-ingestion is stable (WP3-AT-02)
 
@@ -1236,11 +1274,14 @@ upserts (WP3.2) can rely on stable chunk identity.
 Rerun the Test 1 ingestion command, then compare its summary with the
 Test 1 summary.
 
-Expected: exit zero; every source reported unchanged with an identical
-content hash; identical chunk counts and chunk identifiers; no second
-snapshot copy of unchanged content and no appended/duplicated chunk
-records in the processed store. Copy the second summary into
-`WP31_EVIDENCE` alongside the first.
+Expected: exit zero; every source reported with an identical content
+hash (manual sources report status `manual` in both runs); identical
+chunk counts and chunk identifiers; no second snapshot copy of
+unchanged content and no appended/duplicated chunk records in the
+processed store. Seeded markdown is static, so hash and chunk-identity
+stability hold by construction; this test proves the pipeline does not
+break them. Copy the second summary into `WP31_EVIDENCE` alongside the
+first.
 
 ##### WP3.1 Test 3: deterministic offline regression
 
@@ -1260,10 +1301,11 @@ python -m unittest discover -s scripts/tests -v
 ```
 
 Expected: all pass without network access. `rag/tests` must cover, from
-committed fixtures: allowlist validation (non-allowlisted URL rejected),
-cleaning of a fixture HTML page, heading-aware chunking within the
-roughly 300-500-token guidance, presence of all eight provenance fields,
-and hash/chunk-identity stability across a repeated run. The web suite
+committed fixtures: allowlist validation (non-allowlisted URL rejected;
+`capture` field accepted), cleaning of a fixture markdown page and a
+fixture HTML page, heading-aware chunking within the roughly
+300-500-token guidance, presence of all eight provenance fields, and
+hash/chunk-identity stability across a repeated run. The web suite
 and `scripts/check_wp1_integration.py` are unaffected by WP3.1 (no
 backend or web change); rerunning them is optional.
 
@@ -1276,11 +1318,12 @@ Python version, install verification output, both ingestion summaries and
 the regression results. No audio, credentials or personal data are
 involved.
 
-Troubleshooting: if ingestion fails for one source, retry that URL
-manually with `curl -fsSL <url> -o /dev/null -w '%{http_code}\n'` to
-separate a network/source fault from a pipeline fault. If cleaning
-produces empty or junk text for a page, keep the snapshot as evidence
-and fix the cleaner against it rather than hand-editing output.
+Troubleshooting: if ingestion reports a manual source as failed, check
+that its seeded snapshot exists under the newest snapshot date with a
+matching `.meta.json` (`scripts/seed_snapshot.py --list` shows the
+allowlisted source-ids). If cleaning produces empty or junk text for a
+seeded markdown file, fix the markdown at its source extraction and
+re-seed with `--force`; do not hand-edit the processed output.
 
 Known limitations: no embeddings, vector store, retrieval, grounded
 answering or refusal behaviour yet - those are WP3.2-WP3.4. Mark this
