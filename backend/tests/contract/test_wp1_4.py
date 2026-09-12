@@ -1,3 +1,4 @@
+# v1.3 | 12-Sep-2026 | Build the application from the canned environment, not the shell's.
 # v1.2 | 09-Sep-2026 | Accept the WP2-AT-10 readiness fields in the health shape.
 # v1.1 | 06-Sep-2026 | Use valid audio for the packaged response regression.
 # v1.0 | 05-Sep-2026 | Verify WP1 deployment defaults and packaged spoken fixtures.
@@ -14,8 +15,13 @@ from unittest.mock import patch  #v1.0
 
 from fastapi.testclient import TestClient  #v1.0
 
-from kaki_backend.main import app, run  #v1.0
 from kaki_backend.orchestration.canned_ports import CannedTtsPort, canned_audio  #v1.0
+from kaki_test_env import canned_backend  #v1.3
+
+# The application is built at import time from the environment, so it must be
+# imported through the canned sanitiser rather than directly.
+_backend = canned_backend()  #v1.3
+app, run = _backend.app, _backend.run  #v1.3
 
 
 class Wp14ContractTests(unittest.TestCase):  #v1.0
@@ -64,6 +70,7 @@ class Wp14ContractTests(unittest.TestCase):  #v1.0
                 "stt_ready": True,
                 "llm_ready": True,
                 "tts_ready": True,
+                "retrieval_ready": True,  #v1.1
             },
         )
 

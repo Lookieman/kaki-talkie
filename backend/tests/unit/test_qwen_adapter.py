@@ -1,3 +1,5 @@
+# v1.3 | 12-Sep-2026 | Cover the SOURCE: 0 no-coverage signal and the zero/one boundary.
+# v1.1 | 11-Sep-2026 | Cover grounded generation and the bounded query rewrite.
 # v1.0 | 09-Sep-2026 | Verify Qwen adapter parsing, bounded failures and pipeline degradation.
 """Exercise the MLX/Qwen adapter deterministically without a model service.
 
@@ -142,6 +144,121 @@ class QwenGenerationTest(unittest.TestCase):
                 adapter.generate("hello")
 
 
+class QwenGroundedGenerationTest(unittest.TestCase):  #v1.1
+    """Grounded generation restricts the prompt and reports the cited block."""
+
+    def test_grounded_call_uses_the_grounded_prompt_and_bounded_reply(self):
+        seen = {}
+
+        def handler(request):
+            seen.update(json.loads(request.content))
+            return chat_response("1. Open the SMS link. 2. Spend at hawkers.\nSOURCE: 1")
+
+        adapter_for(handler).generate_grounded(  #v1.2
+            "How do I use my CDC vouchers?", evidence="[1] CDC FAQ\nClaim via SMS link.",
+        )
+        self.assertIn("only the official information", seen["messages"][0]["content"])
+        self.assertIn("numbered steps", seen["messages"][0]["content"])
+        self.assertIn("no more than 50 spoken words", seen["messages"][0]["content"])  #v1.2
+        self.assertIn("SOURCE: n", seen["messages"][0]["content"])  #v1.2
+        self.assertIn("Official information:\n[1] CDC FAQ", seen["messages"][1]["content"])
+        self.assertIn("Question: How do I use my CDC vouchers?",
+                      seen["messages"][1]["content"])
+
+    def test_citation_is_reported_and_stripped_from_the_reply(self):  #v1.2
+        adapter = adapter_for(
+            lambda r: chat_response("Open the SMS link to claim.\nSOURCE: 2")
+        )
+        reply = adapter.generate_grounded("How do I claim?", evidence="[1] a\n\n[2] b")
+        self.assertEqual(reply.text, "Open the SMS link to claim.")
+        self.assertEqual(reply.cited_index, 2)
+
+    def test_marker_variants_never_survive_into_the_spoken_text(self):  #v1.2
+        # `SOURCE: 0` moved to its own test at WP3.4: it now means no coverage
+        # rather than an unusable citation, so it no longer keeps its text.
+        variants = {
+            "Answer here.\nSOURCE: 3": 3,
+            "Answer here.\nsource: 3": 3,
+            "Answer here. SOURCE:3": 3,
+            "Answer here.\n[SOURCE: 3]": 3,
+            "Answer here.\nSOURCE - 3": 3,
+            "Answer here.": None,
+        }
+        for raw, expected_index in variants.items():
+            adapter = adapter_for(lambda r, body=raw: chat_response(body))
+            reply = adapter.generate_grounded("q", evidence="[1] a")
+            self.assertEqual(reply.text, "Answer here.", msg=raw)
+            self.assertNotIn("SOURCE", reply.text.upper(), msg=raw)
+            self.assertEqual(reply.cited_index, expected_index, msg=raw)
+            self.assertFalse(reply.no_coverage, msg=raw)  #v1.3
+
+    def test_source_zero_reports_no_coverage_and_discards_the_text(self):  #v1.3
+        """Decision: a no-coverage verdict must never carry a partial answer."""
+        for raw in ("SOURCE: 0", "Some half answer.\nSOURCE: 0", "[source:0]"):
+            adapter = adapter_for(lambda r, body=raw: chat_response(body))
+            reply = adapter.generate_grounded("q", evidence="[1] a")
+            self.assertTrue(reply.no_coverage, msg=raw)
+            self.assertEqual(reply.text, "", msg=raw)
+            self.assertIsNone(reply.cited_index, msg=raw)
+
+    def test_block_numbering_starts_at_one_so_zero_stays_unambiguous(self):  #v1.3
+        """The off-by-one boundary: 1 is the first block, 0 is no coverage."""
+        first = adapter_for(lambda r: chat_response("Answer here.\nSOURCE: 1"))
+        reply = first.generate_grounded("q", evidence="[1] a")
+        self.assertEqual((reply.cited_index, reply.no_coverage), (1, False))
+        none = adapter_for(lambda r: chat_response("Answer here.\nSOURCE: 0"))
+        self.assertTrue(none.generate_grounded("q", evidence="[1] a").no_coverage)
+
+    def test_marker_only_reply_is_an_empty_reply_failure(self):  #v1.2
+        adapter = adapter_for(lambda r: chat_response("SOURCE: 1"))
+        with self.assertRaises(LlmError) as raised:
+            adapter.generate_grounded("q", evidence="[1] a")
+        self.assertEqual(raised.exception.code, "empty_reply")
+
+    def test_ungrounded_generate_keeps_the_conversational_prompt(self):
+        seen = {}
+
+        def handler(request):
+            seen.update(json.loads(request.content))
+            return chat_response("The centre opens at nine.")
+
+        adapter_for(handler).generate("What time does the centre open?")
+        self.assertNotIn("official information", seen["messages"][0]["content"])
+
+    def test_blank_or_oversized_evidence_is_rejected_without_a_request(self):
+        def handler(request):
+            self.fail("No request should be sent for invalid evidence")
+
+        adapter = adapter_for(handler)
+        for evidence in ("   ", "x" * 20000):
+            with self.assertRaises(LlmError):
+                adapter.generate_grounded("hello", evidence=evidence)  #v1.2
+
+
+class QwenRewriteQueryTest(unittest.TestCase):  #v1.1
+    """The rewrite is tightly bounded so callers can degrade instead of stall."""
+
+    def test_rewrite_uses_small_completion_and_rewrite_prompt(self):
+        seen = {}
+
+        def handler(request):
+            seen.update(json.loads(request.content))
+            return chat_response("how to use CDC vouchers")
+
+        query = adapter_for(handler).rewrite_query("Macam mana nak guna baucar CDC?")
+        self.assertEqual(query, "how to use CDC vouchers")
+        self.assertEqual(seen["max_tokens"], 32)
+        self.assertIn("search query", seen["messages"][0]["content"])
+
+    def test_rewrite_failures_map_to_safe_codes(self):
+        def slow(request):
+            raise httpx.ReadTimeout("slow")
+
+        with self.assertRaises(LlmError) as raised:
+            adapter_for(slow).rewrite_query("hello")
+        self.assertEqual(raised.exception.code, "timeout")
+
+
 class LlmSettingsTest(unittest.TestCase):
     """Environment selection keeps canned as the safe default."""
 
@@ -170,7 +287,13 @@ class FailingLlm:
     def ready(self) -> bool:
         return True
 
-    def generate(self, transcript: str) -> str:
+    def generate(self, transcript: str) -> str:  #v1.2
+        raise LlmError("unavailable")
+
+    def generate_grounded(self, transcript: str, *, evidence: str):  #v1.2
+        raise LlmError("unavailable")
+
+    def rewrite_query(self, transcript: str) -> str:  #v1.1
         raise LlmError("unavailable")
 
 

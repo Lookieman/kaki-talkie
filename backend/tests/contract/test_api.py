@@ -1,3 +1,4 @@
+# v1.4 | 12-Sep-2026 | Build the application from the canned environment, not the shell's.
 # v1.3 | 09-Sep-2026 | Require health readiness reporting and the last-turn debug view.
 # v1.2 | 05-Sep-2026 | Require versioned health and playable WP1 canned audio.
 # v1.1 | 04-Sep-2026 | Isolate WP1.1 assertions from the WP1.2 memory store.
@@ -12,7 +13,11 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from kaki_backend.contracts.responses import TurnResponse
-from kaki_backend.main import app
+from kaki_test_env import canned_backend  #v1.4
+
+# The application is built at import time from the environment, so it must be
+# imported through the canned sanitiser rather than directly.
+app = canned_backend().app  #v1.4
 
 
 def synthetic_audio() -> bytes:
@@ -57,6 +62,7 @@ class ApiContractTests(unittest.TestCase):
                 "stt_ready": True,
                 "llm_ready": True,
                 "tts_ready": True,
+                "retrieval_ready": True,  #v1.4
             },
         )
         self.assertTrue(result["version"])  #v1.2

@@ -1,3 +1,5 @@
+# v1.6 | 12-Sep-2026 | Return a typed grounded reply for the shared port protocol.
+# v1.5 | 11-Sep-2026 | Match the WP3.3 port shapes: rewrite, evidence and readiness.
 # v1.4 | 09-Sep-2026 | Report canned TTS readiness for the shared port protocol.
 # v1.3 | 09-Sep-2026 | Report canned LLM readiness for the shared port protocol.
 # v1.2 | 07-Sep-2026 | Return typed canned STT results without invented language evidence.
@@ -10,8 +12,7 @@ from base64 import b64encode  #v1.1
 from functools import lru_cache  #v1.1
 from importlib.resources import files  #v1.1
 
-from kaki_backend.contracts.responses import SourceRecord
-from kaki_backend.contracts.ports import Transcription
+from kaki_backend.contracts.ports import EvidenceChunk, GroundedReply, Transcription  #v1.6
 
 
 @lru_cache(maxsize=2)  #v1.1
@@ -44,9 +45,17 @@ class CannedLlmPort:
         """Report that canned generation needs no external runtime."""
         return True
 
-    def generate(self, transcript: str) -> str:
+    def generate(self, transcript: str) -> str:  #v1.6
         """Ignore recognised text and keep the prerecorded reply contract."""
         return "This is a KaKi-Talkie test reply. Your audio has not been interpreted."
+
+    def generate_grounded(self, transcript: str, *, evidence: str) -> GroundedReply:  #v1.6
+        """Return the canned reply with no citation; canned mode cites nothing."""
+        return GroundedReply(text=self.generate(transcript), cited_index=None)
+
+    def rewrite_query(self, transcript: str) -> str:  #v1.5
+        """Return the transcript unchanged; canned mode never rewrites queries."""
+        return transcript
 
 
 class CannedTtsPort:
@@ -65,9 +74,13 @@ class CannedTtsPort:
 
 
 class CannedRetrieverPort:
-    """Keep retrieval unused until the grounded knowledge work package."""
+    """Keep retrieval inert when the grounded configuration is not selected."""
+    def ready(self) -> bool:  #v1.5
+        """Report readiness; the inert retriever has nothing that can fail."""
+        return True
+
     def retrieve(
         self, original_query: str, normalized_query: str | None
-    ) -> tuple[SourceRecord, ...]:
+    ) -> tuple[EvidenceChunk, ...]:  #v1.5
         """Return no evidence and make no external requests."""
         return ()

@@ -1,3 +1,4 @@
+# v1.1 | 12-Sep-2026 | Give spawned helpers a canned environment instead of the shell's.
 # v1.0 | 09-Sep-2026 | Verify stack helper safety rules without starting real services.
 """Deterministic dev-stack helper tests; no service processes are spawned."""
 
@@ -10,6 +11,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+from kaki_test_env import canned_environment  #v1.1
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/dev_stack.py"
@@ -27,9 +30,12 @@ class DevStackCliTests(unittest.TestCase):
             self.assertIn(action, result.stdout)
 
     def test_missing_data_root_is_a_usage_error(self) -> None:
+        # The child must not inherit the shell's KAKI_* switches: with a real
+        # data root exported this assertion would silently stop testing.
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "status"], capture_output=True,
-            env={**os.environ, "KAKI_DATA_ROOT": "relative/path"},
+            env={**os.environ, **canned_environment(),
+                 "KAKI_DATA_ROOT": "relative/path"},  #v1.1
         )
         self.assertEqual(result.returncode, 2)
         self.assertIn(b"KAKI_DATA_ROOT", result.stderr)

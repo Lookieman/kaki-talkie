@@ -1,9 +1,11 @@
+# v1.2 | 12-Sep-2026 | Pin the canned adapters for this check and the backend it starts.
 # v1.1 | 09-Sep-2026 | Accept the WP2-AT-10 readiness fields in the health shape.
 # v1.0 | 05-Sep-2026 | Exercise WP1 over real loopback HTTP with optional owned servers.
 
 import argparse  #v1.0
 import base64  #v1.0
 import io  #v1.0
+import os  #v1.2
 import socket  #v1.0
 import subprocess  #v1.0
 import sys  #v1.0
@@ -17,7 +19,24 @@ from pathlib import Path  #v1.0
 import httpx  #v1.0
 
 from kaki_backend.contracts.responses import TurnResponse  #v1.0
-from kaki_backend.main import app  #v1.0
+
+# This check validates the WP1 *canned* contract over real loopback HTTP, so
+# canned mode is its subject rather than an accident. Pinning it here - before
+# the application is imported, and for the backend started below, which
+# inherits this environment - stops a validation shell's KAKI_* exports from
+# silently pointing the check at live Whisper, MLX-LM, say and Chroma
+# (runbook 8.2 WP3.4 Test 7).
+CANNED_MODES = {  #v1.2
+    "KAKI_STT_MODE": "canned",
+    "KAKI_LLM_MODE": "canned",
+    "KAKI_TTS_MODE": "canned",
+    "KAKI_RETRIEVAL_MODE": "canned",
+}
+for _leaked in [_name for _name in os.environ if _name.startswith("KAKI_")]:  #v1.2
+    del os.environ[_leaked]
+os.environ.update(CANNED_MODES)  #v1.2
+
+from kaki_backend.main import app  # noqa: E402  - canned modes must be set first  #v1.2
 
 BACKEND = "http://127.0.0.1:8000"  #v1.0
 WEB = "http://127.0.0.1:3000"  #v1.0

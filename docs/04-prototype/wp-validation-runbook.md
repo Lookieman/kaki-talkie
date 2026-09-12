@@ -1,7 +1,23 @@
 # KaKi-Talkie WP validation runbook
 
-Version 1.8 | 10-Sep-2026 | SGLN Group 10
+Version 1.12 | 12-Sep-2026 | SGLN Group 10
 
+> v1.12 removes secret redaction from WP3.4 after an owner decision
+> that redaction creates a false security promise the MVP cannot defend.
+> The credential-action refusal stays. The credential-request fixture,
+> layer 2 (redaction), Test 3 (secret handling), the benign-six-digit
+> devset item, and the transcript_redacted debug field are removed.
+> Tests renumber: old 4-8 become 3-7.
+> v1.11 restructures the WP3.4 setup and test blocks into titled
+> subsections (one topic each, specification before rationale, tables for
+> structured fields). Adds a section-structure standard to section 12 and
+> applies it to the WP4, WP5 and WP6 draft scaffolds.
+> v1.10 updates sections 1, 3 and 4 to the Mac Mini development model and
+> removes the retired Windows and named-agent references from the live
+> sections. Closed WP2.x sections keep their original machine names as
+> historical evidence of what was run at the time.
+> v1.9 adds the WP3.4 setup and test blocks (Prepare WP3.4): refusal,
+> no-coverage, devset regression and the WP3 gate.
 > v1.7 revises the WP3.1 block only: the corpus is captured manually as
 > owner-reviewed markdown (design.md 7.2, v1.2). Four `capture: manual`
 > sources, `seed_snapshot.py` workflow, and revised Test 1-3
@@ -19,23 +35,28 @@ Repository location: `docs/04-prototype/wp-validation-runbook.md`
 
 ```text
 +--------------------------+-----------------------------+-------------------------+
-| Environment              | Primary purpose             | Codex                   |
+| Environment              | Primary purpose             | Coding agent            |
 +--------------------------+-----------------------------+-------------------------+
-| Windows gaming desktop   | Development and Tier A      | Installed here          |
-| Mac Mini                 | Runtime and Tier B tests    | Not installed           |
-| Raspberry Pi             | Thin client/Tier C tests    | Not installed           |
+| Mac Mini (websvc)        | Development, Tier A, Tier B | Runs here               |
+|                          | and the runtime             |                         |
+| Raspberry Pi             | Thin client/Tier C tests    | Does not run here       |
 | Phone/laptop browser     | Interaction smoke/gates     | Not applicable          |
 +--------------------------+-----------------------------+-------------------------+
 ```
 
 Rules:
 
-- Code is created in an isolated Windows worktree.
-- Mac Mini/Pi preparation is performed manually by the owner.
-- Do not assume a Windows package also exists on the Mac.
+- Code is created in a worktree on the Mac Mini.
+- Runtime and Pi preparation is performed manually by the owner.
 - Runtime/model caches stay outside the Git repository.
 - Generated application data uses `KAKI_DATA_ROOT` where applicable.
+- Tier A tests run with the `KAKI_*` mode switches cleared, so a canned test
+  never reaches a live service.
 - Chrome is the primary simulator acceptance browser; Safari is optional/non-gating.
+
+Closed WP2.x sections below name a Windows development machine. That machine is
+retired. Read those sections as evidence of what was run at the time, and run any
+repeated command on the Mac Mini.
 
 ---
 
@@ -73,18 +94,18 @@ Each active `WPn.m` section contains, as applicable:
 15. known limitations/deferred validation;
 16. troubleshooting.
 
-Codex completion reports point here instead of duplicating these procedures.
+Completion reports point here instead of duplicating these procedures.
 
 ---
 
 ## 4. Development worktree lifecycle
 
-Machine: Windows gaming desktop  
-Repository: `C:\projects\kaki-talkie`
+Machine: Mac Mini as `websvc`  
+Repository: `~/projects/kaki-talkie`
 
 ### 4.1 Before creating a worktree
 
-```powershell
+```sh
 git switch main
 git pull --ff-only
 git status
@@ -96,22 +117,22 @@ git status
 
 Use the repository helper after its pre-WP2 contract update:
 
-```powershell
-python scripts\setup_wp_worktree.py --help
+```sh
+python scripts/setup_wp_worktree.py --help
 ```
 
 Example:
 
-```powershell
-python scripts\setup_wp_worktree.py `
-    --unit WP2.1 `
-    --slug audio-normalisation `
+```sh
+python scripts/setup_wp_worktree.py \
+    --unit WP2.1 \
+    --slug audio-normalisation \
     --run-baseline
 ```
 
 The helper creates the sibling worktree, local feature branch and worktree-local development environment. It does not commit, merge or push.
 
-Point the temporary Codex project only at the new worktree.
+Point the agent session only at the new worktree.
 
 ### 4.3 Manual acceptance boundary
 
@@ -129,10 +150,10 @@ Do not automate this approval boundary.
 
 After the feature is committed, fast-forward merged, pushed, and both trees are clean:
 
-```powershell
-cd C:\projects\kaki-talkie
-python scripts\cleanup_wp_worktree.py --help
-python scripts\cleanup_wp_worktree.py --unit WP2.1
+```sh
+cd ~/projects/kaki-talkie
+python scripts/cleanup_wp_worktree.py --help
+python scripts/cleanup_wp_worktree.py --unit WP2.1
 ```
 
 The cleanup helper must refuse cleanup when main is not pushed, the worktree is dirty, or the branch is not merged.
@@ -1077,8 +1098,9 @@ performed in Chrome through the protected simulator.
 
 # 8. WP3 - grounded knowledge + refusal
 
-Status: **WP3.1 VERIFIED / CLOSED 10-Sep-2026; WP3.2-WP3.4 DRAFT - structure
-fixed; Prepare WP3.x fills in commands**
+Status: **WP3.1 VERIFIED / CLOSED 10-Sep-2026; WP3.2 VERIFIED / CLOSED
+12-Sep-2026; WP3.3 VERIFIED / CLOSED 12-Sep-2026; WP3.4 IMPLEMENTED
+12-Sep-2026 - owner validation pending**
 
 The fixed 8.1/8.2/8.3 skeleton is retained. Each `Prepare WP3.x` adds its
 IU-labelled blocks inside 8.1 and 8.2 without renumbering, so earlier
@@ -1213,84 +1235,660 @@ is a run-to-completion tool and needs no Whisper, MLX-LM or FastAPI
 process. Outbound HTTPS to the allowlisted domains is required on the Mac
 for the live ingestion tests only; all committed tests run offline.
 
-### 8.2 Testing and validation
+#### WP3.2 setup - multilingual embeddings, Chroma, hybrid retrieval
 
-#### WP3.1 tests - ingestion, idempotency and regression
+Owner level: **S**  
+Status: **VERIFIED / CLOSED 12-Sep-2026.**
+The retrieval layer was exercised end to end during WP3.3 owner
+validation, which serves the grounded stack from the index this section
+builds. This section remains the reference for re-indexing and
+re-running retrieval validation whenever the corpus or the embedding
+model changes.
 
-Run in order on the Mac as `websvc` with the WP3.1 exports active. The
-WP-level Tests 1-4 further below belong to WP3.2-WP3.4; WP3.1 owns only
-the snapshot/clean/provenance parts proven here.
+Scope: WP3-AT-03/04/10 - a CDC query returns CDC evidence in the top
+three, an exact `CHAS` term proves the lexical path, and Malay/Singlish/
+code-switch fixtures exercise original + normalised retrieval. WP3.2
+delivers the retrieval layer only: multilingual embedding of the WP3.1
+processed chunks, a persistent Chroma collection under
+`KAKI_DATA_ROOT/chroma`, a lexical BM25 path over the same chunks, and
+hybrid merge (reciprocal rank fusion, de-duplicated by chunk identifier)
+behind a `Retriever` interface per design.md 7.4. No backend, contract or
+web change; grounded answering, slips and refusal remain WP3.3/WP3.4.
 
-Automated runner: the objective observations of Tests 1 and 2 are also
-registered as one command, which runs the real ingestion twice and checks
-dated snapshots, full provenance and hash/chunk stability:
+Machine and account: Mac Mini as `websvc`, application checkout
+`~/projects/kaki-talkie`. Deterministic tests also run on the development
+checkout without network or model services.
+
+Prerequisite corpus: WP3.1 is VERIFIED and its processed store exists
+(`$KAKI_DATA_ROOT/corpus/processed/chunks.jsonl`). If it is absent,
+re-run WP3.1 Test 1 first.
+
+Embedding runtime and model (the selection deferred to this block by
+8.1, owner-approved 10-Sep-2026): the `sentence-transformers` runtime
+with model `Qwen/Qwen3-Embedding-0.6B` (multilingual, 1024-dimensional,
+roughly 1.2 GB; the adapter applies the model's built-in `query`
+instruction prompt to queries only, per its model card). The approved
+fallback if its quality or Mac performance disappoints is `BAAI/bge-m3`
+(pass `--model BAAI/bge-m3` to the CLIs; re-index before querying). The
+model caches under the Hugging Face cache at `$HF_HOME`
+(`~/models/huggingface`, the same cache `scripts/dev_stack.py` uses).
+Chroma runs embedded via `PersistentClient`
+(no server, setup.md 13) with collection `kaki_corpus`; vectors are
+always supplied by the application adapter, and Chroma's built-in
+English-only default embedder stays unused. Application code depends on
+the `Retriever`/embedding interfaces, not Chroma or model APIs directly.
+
+Install into the existing application environment (prerequisites:
+`setup.md` 6, 7.1, 13.1). From the checkout root with its `.venv`
+active:
+
+```sh
+export HF_HOME="$HOME/models/huggingface"
+python -m pip install -e "rag[retrieve,embed]"
+python -c "import chromadb; print('chromadb', chromadb.__version__)"
+python -c "from sentence_transformers import SentenceTransformer; \
+model = SentenceTransformer('Qwen/Qwen3-Embedding-0.6B'); \
+print('embedding dim', model.get_embedding_dimension())"
+```
+
+Expected: `embedding dim 1024`. The first model command downloads the
+checkpoint once and needs outbound HTTPS to `huggingface.co`; later runs
+read the cache offline. The `retrieve` extra adds `chromadb` and is also
+what CI needs for the offline retrieval tests; the `embed` extra adds
+`sentence-transformers`/`transformers` (Mac runtime only - the offline
+tests use a fake embedding port and never import them).
+
+Prepare the validation environment in every session terminal:
+
+```sh
+cd ~/projects/kaki-talkie
+export KAKI_APP_ROOT="$PWD"
+source "$KAKI_APP_ROOT/.venv/bin/activate"
+export KAKI_DATA_ROOT="/Users/websvc/kaki-talkie-data"
+umask 077
+mkdir -p "$KAKI_DATA_ROOT/wp3.2"
+export WP32_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp3.2/evidence.XXXXXX")"
+printf '%s\n' "$KAKI_APP_ROOT" "$WP32_EVIDENCE"
+```
+
+No new backend environment variables and no service start order change:
+the index and query CLIs read `KAKI_DATA_ROOT` only, run to completion,
+and need no Whisper, MLX-LM or FastAPI process. Chroma data persists at
+`$KAKI_DATA_ROOT/chroma`.
+
+New repository areas: `rag/src/kaki_rag/retrieve/` (embedding port +
+sentence-transformers adapter, Chroma store adapter, lexical BM25,
+hybrid `Retriever`), optional extras in `rag/pyproject.toml`,
+`rag/tests/` additions including the committed multilingual query
+fixtures, owner CLIs `scripts/index_corpus.py` and
+`scripts/query_corpus.py` (human-operated script contract), and the
+WP3.2 tier B block in `scripts/wp_check.py`.
+
+Pending documentation maintenance: record this embedding selection and
+installation in `setup.md` 13 per the section 12 rule (this prepare
+session edits only the runbook).
+
+#### WP3.3 setup - grounded answerer, application provenance, output/slip
+
+Owner level: **S**  
+Status: **VERIFIED / CLOSED 12-Sep-2026.**
+Owner validation on 11-12-Sep-2026 found three defects, all fixed on
+12-Sep-2026: the slip attributed the answer to the top-ranked chunk
+rather than the chunk the answer used; `extract_steps` clipped steps at
+seven words and re-punctuated them into fragments such as "contact
+the."; and the source line carried page titles, which are sometimes
+whole questions. Attribution now follows the evidence block the model
+cites, with a deterministic word-overlap fallback; steps are whole
+sentences packed to fit; and the source line is the official domain
+alone. This section remains the reference for re-running validation
+after any corpus or prompt change.
+
+Scope: WP3-AT-06/07 - answered turns cite allowlisted sources whose
+URLs and dates come from application metadata, never from the LLM, and
+the printed slip fits the 40-word bound with its source and "Source
+checked" date. WP3.3 wires WP3.2 retrieval into the backend turn
+pipeline behind the existing internal `RetrieverPort`, adds grounded
+generation through the existing Qwen adapter, fills the response
+`sources` from chunk provenance, and builds the English slip
+deterministically. The public device contract does not change (the WP1
+schema snapshot must stay green). Refusal thresholds, no-coverage
+handling, devset and golden-path gating remain WP3.4;
+DSPy and SQLite persistence remain later units.
+
+Machine and account: Mac Mini as `websvc`, application checkout
+`~/projects/kaki-talkie`. Deterministic tests also run on the
+development checkout with canned ports, no network and no model
+services.
+
+Prerequisites: the WP2.4 full stack (runbook 7.4.1), the WP3.1 corpus,
+and the WP3.2 index and embedding model install (runbook 8.1 WP3.2).
+The embedding model must be present in the real Hugging Face cache
+(`$HF_HOME`, `~/models/huggingface`); if `scripts/index_corpus.py` has
+not yet run on this machine, complete WP3.2 Tests 1-4 first.
+
+New environment variables (backend process):
+
+```text
++------------------------+--------------------------------------------+
+| Variable               | Meaning                                    |
++------------------------+--------------------------------------------+
+| KAKI_RETRIEVAL_MODE    | canned (default) or rag                    |
+| KAKI_DATA_ROOT         | required when mode is rag; locates the     |
+|                        | processed corpus and Chroma collection     |
+| KAKI_QUERY_NORMALISE   | on (default) or off - the WP3.3 query      |
+|                        | rewrite, switchable so the latency script  |
+|                        | can report both paths                      |
+| KAKI_EMBEDDING_MODEL   | optional override of the approved          |
+|                        | Qwen/Qwen3-Embedding-0.6B                  |
++------------------------+--------------------------------------------+
+```
+
+The default stays `canned`, so WP1/WP2 Tier A behaviour and a stack
+started in the WP2 configuration are unchanged. `scripts/dev_stack.py`
+exports `KAKI_RETRIEVAL_MODE=rag` (unless already set) once WP3.3
+lands, so `up` starts the grounded stack.
+
+Start the grounded stack in a prepared terminal:
+
+```sh
+cd ~/projects/kaki-talkie
+export KAKI_APP_ROOT="$PWD"
+source "$KAKI_APP_ROOT/.venv/bin/activate"
+export KAKI_DATA_ROOT="/Users/websvc/kaki-talkie-data"
+export HF_HOME="$HOME/models/huggingface"
+umask 077
+mkdir -p "$KAKI_DATA_ROOT/wp3.3"
+export WP33_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp3.3/evidence.XXXXXX")"
+python scripts/dev_stack.py up
+```
+
+Expected: the three services start as in runbook 7.4.1. Backend
+readiness now also loads the embedding model into the backend process
+(roughly 1.2 GB resident; allow up to ~60 s extra on first readiness)
+and `/api/health` additionally reports `"retrieval_ready": true` when
+the persistent collection is reachable and non-empty. No new package
+installation is needed beyond the WP3.2 extras; no new ports are
+opened.
+
+New repository areas: `rag/src/kaki_rag/adapter.py` (the backend-facing
+retriever adapter over `HybridRetriever`), a slip-builder module and a
+retrieval settings block in `backend/src/kaki_backend/`, grounded-prompt
+support in `services/llm/qwen_local`, one committed spoken CDC-question
+audio fixture for the full-turn check, new Tier A tests in
+`backend/tests/` and `rag/tests/`, the WP3.3 tier B block in
+`scripts/wp_check.py`, and the `dev_stack.py` retrieval export.
+
+One-time fixture capture (owner, once, then committed and never
+regenerated - `say` output changes across macOS versions). The fixture
+speaks exactly this sentence: **"How do I use my CDC vouchers?"**
+
+```sh
+cd ~/projects/kaki-talkie
+say -v Samantha --file-format=WAVE --data-format=LEI16@16000 \
+    -o backend/src/kaki_backend/fixtures/cdc_question.wav \
+    "How do I use my CDC vouchers?"
+afinfo backend/src/kaki_backend/fixtures/cdc_question.wav | grep duration
+```
+
+Expected: a WAV of roughly 1.5-2.5 seconds. Commit it with the WP3.3
+change. `wp_check.py --unit WP3.3` reports a clear usage error while the
+fixture is missing.
+
+#### WP3.4 setup - refusal, no-coverage, devset, golden paths
+
+Owner level: **G**
+Status: **IMPLEMENTED 12-Sep-2026 - owner validation pending.**
+
+Machine: Mac Mini as `websvc`, checkout `~/projects/kaki-talkie`.
+Browser tests use Chrome through the protected simulator.
+Deterministic tests run with canned/fake ports, no network and no
+model services.
+
+##### Prerequisites
+
+The WP3.3 grounded stack (runbook 8.1 WP3.3: WP2.4 full stack, WP3.1
+corpus, WP3.2 index, embedding model in `$HF_HOME`). No new package,
+model, service, port or `setup.md` stage.
+
+Before Tests 2, 3 and 5 can run, capture the three spoken fixtures
+described under **Fixture capture** below. `wp_check.py --unit WP3.4
+--tier B` names any missing fixture and exits 2.
+
+##### Scope
+
+WP3-AT-05, 08, 11, 12, 13 and all five golden paths (execution plan
+1.7). This is the WP3 package gate.
+
+WP3.4 makes the grounded pipeline refuse instead of improvise:
+
+- Unsupported or uncovered questions return state `refused` (GP3, GP5).
+- Credential actions are refused before retrieval or generation (GP4).
+- A committed devset and regression runner report intent accuracy against
+  the >=80% target.
+- All five golden paths pass.
+- WP1, WP2 and WP3.1-3.3 regressions stay green.
+
+The public device contract does not change. `refused` has been in the
+WP1 state enum since WP1.1, the response keeps its nine fields, and the
+WP1 schema snapshot stays unchanged.
+
+Deferred: print/repeat intents (WP4), live lookup (WP5.6), Malay replies
+(WP5.1), DSPy migration (WP5.5). A WP3.4 refusal is spoken and displayed
+in English only.
+
+##### Refusal pipeline
+
+Four layers, evaluated in order. Each layer is deterministic and testable
+offline with fake ports. None calls a model to decide whether to refuse.
+
+**Layer 1 - Intent routing** (`orchestration/intent_router.py`)
+
+The router classifies each transcript as `answer` or `refuse` before
+retrieval. WP3.4 emits these two intents only; later units add others.
+
+A turn is refused with reason `credential_action` when it asks the kiosk
+to perform a credential operation (log in, reset, verify, unlock, transact)
+or to accept a password, PIN, OTP, passcode or verification code.
+
+A procedural question about the same topic ("How do I reset my Singpass
+password?") routes to `answer`, as design.md 8 requires. The rule is
+keyword-and-context based. A number pattern alone never refuses.
+
+**Layer 2 - Evidence gate** (after retrieval, rag mode only)
+
+When the best dense cosine score among retrieved chunks falls below
+`KAKI_EVIDENCE_MIN_DENSE` (default `0.50`), the pipeline refuses with
+reason `no_coverage` and skips generation entirely.
+
+Dense cosine is the gate metric. BM25 and the fused reciprocal-rank score
+stay diagnostic in the debug view.
+
+**Layer 3 - Model no-coverage marker** (rag mode only)
+
+The grounded prompt tells the model to emit `SOURCE: 0` when the
+official information does not cover the question. The adapter returns
+this as a typed `no_coverage` flag on `GroundedReply`, and the pipeline
+refuses with reason `no_coverage`. Any generated text is discarded.
+
+This is defence in depth for near-miss questions the gate lets through.
+
+**Mode scoping.** Layer 1 applies in every configuration because it is
+a safety rule independent of retrieval. Layers 2-3 apply only when
+`KAKI_RETRIEVAL_MODE=rag`. In WP2 configuration an unsupported question
+keeps its ungrounded `answered` reply, so the WP1/WP2 Tier A suites and
+WP2 tier B checks are unchanged. In canned STT mode the transcript is
+the fixed WP1 string, which triggers nothing.
+
+##### Calibration
+
+Measured 12-Sep-2026 against the four-source, 27-chunk corpus with the
+approved embedding model. Re-measure (Test 1) when the corpus or
+embedding model changes.
+
+```text
++--------------------------+--------------------------------------+-------+----------+
+| devset id                | Question (abbreviated)               | dense | expected |
++--------------------------+--------------------------------------+-------+----------+
+| singpass-en        (GP2) | How do I reset my Singpass password? | 0.861 | answer   |
+| careshield-en            | What is CareShield Life ... premiums | 0.782 | answer   |
+| chas-zh                  | 怎样申请CHAS卡 ... 有补贴吗          | 0.768 | answer   |
+| singpass-ms              | Macam mana nak reset kata laluan ... | 0.765 | answer   |
+| cdc-en             (GP1) | How do I use my CDC vouchers?        | 0.764 | answer   |
+| cdc-singlish             | CDC voucher macam mana claim ah? ... | 0.758 | answer   |
+| careshield-codeswitch    | CareShield Life tu apa? ... premium  | 0.739 | answer   |
+| chas-en                  | Can I use CHAS at the clinic ...     | 0.631 | answer   |
+| credential-action  (GP4) | Log in to my Singpass for me ...     | 0.697 | refuse*  |
+| medisave-offcorpus (GP5) | How much Medisave for my hospital... | 0.428 | refuse   |
+| cc-hours-volatile        | What time does the community centre  | 0.355 | refuse   |
+| hdb-offcorpus      (GP5) | How do I apply for a HDB flat?       | 0.344 | refuse   |
+| chit-chat                | Good morning, how are you today?     | 0.277 | refuse   |
+| weather-unsupported(GP3) | What is the weather forecast ...     | 0.235 | refuse   |
+| (not in the devset)      | WP1 canned fixture transcript        | 0.278 | refuse   |
++--------------------------+--------------------------------------+-------+----------+
+```
+
+Supported questions score 0.63-0.86 and unsupported ones 0.24-0.43.
+The default threshold of 0.50 sits in a 0.20-wide gap with margin on
+both sides. The credential action (`*`) scores 0.697 because it
+resembles a supported Singpass question. Retrieval cannot catch it,
+which is why layer 1 runs first.
+
+The community-centre hours question is volatile information, correctly
+refused until the WP5.6 live lookup exists.
+
+**Implementation probe, 12-Sep-2026:** all fourteen devset items
+replayed through the real routing and gate code scored 14 of 14 on the
+expected side. The probe did not exercise generation, citation or
+`SOURCE: 0`, so it informs Test 3 rather than replacing it.
+
+##### Refused turn shape
+
+```text
++---------------------+-------------------------------------------------------+
+| Field               | Value                                                 |
++---------------------+-------------------------------------------------------+
+| state               | refused                                               |
+| reply_text          | Fixed English string, selected by refusal_reason.     |
+| display_text        | Same fixed string.                                    |
+| reply_audio         | TTS of the fixed string (failure degrades to text).   |
+| sources             | Empty.                                                |
+| case_id             | null (until WP4.3 handoff).                           |
+| slip_text           | Referral slip (see below).                            |
++---------------------+-------------------------------------------------------+
+```
+
+Two fixed strings, selected by `refusal_reason`:
+
+- `no_coverage` - names the four supported topics and suggests a staff
+  member.
+- `credential_action` - declines the request, explains the system
+  cannot perform account actions, and offers the official procedure.
+
+These are application strings, never model text. The wording is stable
+for TTS, the demo and the devset.
+
+**Referral slip.** `slip_text` contains a heading, one line telling the
+user to ask a community-centre staff member, and the user's question.
+It carries no `Source:` line and no `Source checked:` date,
+because a refusal has no evidence. WP3-AT-07 governs answered slips
+only. The refusal slip is bound by the same 40-word device limit. If the
+question exceeds the budget, the slip keeps the heading and referral
+line and omits the question.
+
+Nothing prints in WP3. The printer arrives with the Pi at WP6. This
+affects the simulator receipt and the slip formatter only.
+
+##### Debug view additions
+
+Four diagnostic fields, absent from the public response. The WP1 turn
+schema snapshot is unchanged.
+
+```text
++----------------------+----------------------------------------------------+
+| Field                | Value                                              |
++----------------------+----------------------------------------------------+
+| intent               | answer or refuse                                   |
+| refusal_reason       | credential_action, no_coverage, or null            |
+| best_dense_score     | float (0-1) or null                                |
+| evidence_min_dense   | active threshold; travels with best_dense_score    |
+|                      | so evidence stays interpretable after a re-tune    |
++----------------------+----------------------------------------------------+
+```
+
+##### Environment variable
+
+```text
++--------------------------+--------------------------------------------+
+| Variable                 | Meaning                                    |
++--------------------------+--------------------------------------------+
+| KAKI_EVIDENCE_MIN_DENSE  | Evidence-gate threshold on best dense      |
+|                          | cosine, 0-1. Default 0.50. Invalid values  |
+|                          | fail startup. Used only in rag mode.       |
++--------------------------+--------------------------------------------+
+```
+
+##### Devset and regression runner
+
+`agent/data/devset.jsonl` holds the fourteen utterances from the
+calibration table, each labelled with `expected_intent`,
+`expected_source_id` (where applicable) and golden path (GP1-GP5 where
+it is one). Print and repeat utterances join in WP4.2.
+
+`scripts/run_regression.py` drives `TurnPipeline` in-process with a
+transcript-injecting STT port and the configured LLM and retriever
+ports. It measures routing, the evidence gate, grounding and attribution
+without STT variance or audio fixtures.
+
+Requirements: MLX-LM on 8082, `KAKI_RETRIEVAL_MODE=rag`,
+`KAKI_LLM_MODE=qwen`, `KAKI_DATA_ROOT`, `HF_HOME`. Does not need
+Whisper, `say` or FastAPI. May run while the stack is up (loads a second
+copy of the embedding model, roughly 1.2 GB).
+
+Output: one JSON report to stdout with per-item expected and actual
+intent, state, refusal reason, cited source and best dense score, then `intent_accuracy`, `golden_paths_passed` and the
+pass verdict. Exit zero only when accuracy >= 0.80 and every golden-path
+item passes. Writes nothing to disk.
+
+##### Files changed and created
+
+Changed: `contracts/ports.py`, `contracts/turn_log.py`,
+`orchestration/turn_pipeline.py`, `config.py`, `api/debug.py`, the Qwen
+adapter and its test, `scripts/wp_check.py`.
+
+Created:
+
+- `orchestration/intent_router.py` - request rules (layer 1)
+- `agent/data/devset.jsonl` - evaluation data (no `agent/src`)
+- `agent/README.md` - devset format and usage
+- `scripts/run_regression.py` - devset runner
+- `backend/tests/unit/` - router, gate, refusal shape tests
+- `scripts/tests/` - runner validation with fake ports
+
+No new dependency.
+
+##### Fixture capture
+
+One-time owner task, then committed and never regenerated (same as the
+WP3.3 CDC fixture).
+
+```sh
+cd ~/projects/kaki-talkie
+say -v Samantha --file-format=WAVE --data-format=LEI16@16000 \
+    -o backend/src/kaki_backend/fixtures/singpass_question.wav \
+    "How do I reset my Singpass password?"
+say -v Samantha --file-format=WAVE --data-format=LEI16@16000 \
+    -o backend/src/kaki_backend/fixtures/unsupported_question.wav \
+    "What is the weather forecast for tomorrow?"
+for f in singpass_question unsupported_question; do
+    afinfo "backend/src/kaki_backend/fixtures/$f.wav" | grep duration
+done
+```
+
+Expected: two WAVs of roughly 1.5-3 seconds. Record the exact spoken
+text in `backend/src/kaki_backend/fixtures/README.md`.
+
+Fixture reuse: GP1 uses `cdc_question.wav`. GP5 uses the regression
+runner's HDB and MediSave items over the text path and
+`unsupported_question.wav` over HTTP.
+
+##### WP2.4 reconciliation
+
+In grounded configuration the WP1 canned transcript is now correctly
+refused (best dense 0.278, below the 0.50 gate).
+`wp_check.py --unit WP2.4` therefore submits `cdc_question.wav` instead
+of `canned_reply.wav` when `KAKI_RETRIEVAL_MODE=rag`. In WP2
+configuration it still uses `canned_reply.wav`.
+
+> **Re-verification note, 12-Sep-2026.** This finding was re-verified
+> after the Tier A suites were made hermetic, because the original
+> observation came from a session carrying `KAKI_RETRIEVAL_MODE=rag` and
+> could have been the same environment leak. It is not:
+> `wp_check.py --unit WP2.4 --tier B` is a Tier B Mac runtime check that
+> runs with real modes exported. The grounded mode there is deliberate
+> configuration, and the refusal is the gate acting correctly on a
+> transcript no official source covers.
+
+The WP2.4 latency script gains no new option. The grounded baseline
+(Test 6) passes the CDC fixture as `--input`.
+
+---
+
+#### WP3.4 tests - refusal, devset regression and the WP3 gate
+
+Run in order on the Mac as `websvc` with the grounded stack running
+(`scripts/dev_stack.py up`; `KAKI_RETRIEVAL_MODE=rag`). WP3.4 closes
+WP-level objectives Test 3 (refusal) and Test 4 (regression), and the
+8.3 gate.
+
+##### Session setup
+
+```sh
+cd ~/projects/kaki-talkie
+export KAKI_APP_ROOT="$PWD"
+source "$KAKI_APP_ROOT/.venv/bin/activate"
+export KAKI_DATA_ROOT="/Users/websvc/kaki-talkie-data"
+export HF_HOME="$HOME/models/huggingface"
+export KAKI_RETRIEVAL_MODE=rag
+export KAKI_LLM_MODE=qwen
+export KAKI_LLM_URL=http://127.0.0.1:8082
+umask 077
+mkdir -p "$KAKI_DATA_ROOT/wp3.4"
+export WP34_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp3.4/evidence.XXXXXX")"
+printf '%s\n' "$KAKI_APP_ROOT" "$WP34_EVIDENCE"
+```
+
+Leave `KAKI_EVIDENCE_MIN_DENSE` unset (default 0.50) unless Test 1 says
+otherwise. If you export it, restart the backend and use the same value
+for the regression runner.
+
+##### Automated runner
+
+Test 2 observations are also registered as one command:
 
 ```sh
 cd "$KAKI_APP_ROOT"
-python scripts/wp_check.py --unit WP3.1 --tier B
+python scripts/wp_check.py --unit WP3.4 --tier B | tee "$WP34_EVIDENCE/wp_check_wp34_tierB.json"
 ```
 
-Expected: a JSON report and `PASS: all WP3.1 tier B checks succeeded.`
-Copy the report into `WP31_EVIDENCE`. The manual commands below remain
-for inspection and troubleshooting.
+Expected: `PASS: all WP3.4 tier B checks succeeded.` The manual
+commands below remain for inspection and troubleshooting.
 
-##### WP3.1 Test 1: dated snapshot ingestion (WP3-AT-01)
+##### Test 1: evidence-gate calibration
 
-Objective: prove one owner command captures every allowlisted source into
-a dated, never-hand-edited snapshot and produces cleaned, chunked output
-in which every chunk carries full provenance metadata.
+**Objective:** confirm the default gate still separates supported from
+unsupported questions on this corpus.
 
 ```sh
 cd "$KAKI_APP_ROOT"
-python scripts/ingest_corpus.py --help
-python scripts/ingest_corpus.py --allowlist rag/corpus/allowlist.yaml
+python scripts/query_corpus.py --query "How do I use my CDC vouchers?" --top-k 3 --show-paths
+python scripts/query_corpus.py --query "How do I apply for a HDB flat?" --top-k 3 --show-paths
+python scripts/query_corpus.py --query "What is the weather forecast for tomorrow?" --top-k 3 --show-paths
 ```
 
-Expected: exit zero; a summary (JSON to stdout) listing each `source_id`
-with its status, content hash, snapshot path and chunk count. Manual
-sources report status `manual` and read their newest seeded snapshot;
-they are never fetched live. Under
-`KAKI_DATA_ROOT/corpus/snapshots/<date>/` there is one seeded capture
-(`<source_id>.md`) and one capture-metadata file
-(`<source_id>.meta.json`) per allowlisted source. Under
-`KAKI_DATA_ROOT/corpus/processed/`, `chunks.jsonl` holds the chunk
-records and `pages/<source_id>.md` holds the cleaned page for human
-inspection; chunk records hold clean markdown/text and all eight
-provenance fields
-(`source_url`, `page_title`, `scheme`, `captured_at`, `source_updated_at`,
-`content_hash`, `freshness_class`, `valid_until`; the last two may be
-explicit nulls where the source offers no value). `captured_at` derives
-from the snapshot, not the clock at chunking time. Spot-check one chunk
-against the official page. A manual source with no seeded snapshot must
-be reported as failed, exit non-zero, name that source and leave other
-sources' snapshots intact. Copy the summary into `WP31_EVIDENCE`.
+**Expected:** best `dense_original` >= 0.60 for CDC; <= 0.45 for the
+other two. Consistent with the calibration table.
 
-##### WP3.1 Test 2: unchanged re-ingestion is stable (WP3-AT-02)
+If the corpus changed and a supported question falls below 0.50 or an
+unsupported one rises above it: choose a new value in the gap, export
+`KAKI_EVIDENCE_MIN_DENSE`, and record a new table in the setup block.
+Copy the three outputs into `WP34_EVIDENCE`.
 
-Objective: prove re-running ingestion over unchanged sources keeps
-content hashes stable and creates no duplicate chunks, so later Chroma
-upserts (WP3.2) can rely on stable chunk identity.
+##### Test 2: golden paths over HTTP (WP3-AT-05/08/12)
 
-Rerun the Test 1 ingestion command, then compare its summary with the
-Test 1 summary.
+**Objective:** prove GP1-GP5 through the route the kiosk calls, with
+spoken fixtures, end to end.
 
-Expected: exit zero; every source reported with an identical content
-hash (manual sources report status `manual` in both runs); identical
-chunk counts and chunk identifiers; no second snapshot copy of
-unchanged content and no appended/duplicated chunk records in the
-processed store. Seeded markdown is static, so hash and chunk-identity
-stability hold by construction; this test proves the pipeline does not
-break them. Copy the second summary into `WP31_EVIDENCE` alongside the
-first.
+Submit each fixture to `/api/device/turn` with a fresh `turn_id` and
+read `/api/device/debug/last-turn` after each:
 
-##### WP3.1 Test 3: deterministic offline regression
+```sh
+for f in cdc_question singpass_question unsupported_question; do
+  curl --fail --silent --show-error --max-time 300 http://127.0.0.1:8000/api/device/turn \
+    -F device_id=wp34-smoke -F session_id=wp34-smoke -F "turn_id=wp34-$f-$(date +%s)" \
+    -F "audio=@$KAKI_APP_ROOT/backend/src/kaki_backend/fixtures/$f.wav" \
+    | tee "$WP34_EVIDENCE/turn_$f.json"
+  curl --fail --silent http://127.0.0.1:8000/api/device/debug/last-turn \
+    | tee "$WP34_EVIDENCE/debug_$f.json"
+done
+```
 
-Objective: prove the new corpus code is covered by network-free tests and
-that prior WP1/WP2 Tier A behaviour still holds with `kaki-rag`
-installed (WP3-AT-13 stays green as WP3 grows).
+**Expected per fixture:**
 
-From the development checkout root with its virtual environment active
-and no model services running:
+- **GP1** `cdc_question` - state `answered`; `sources[0]` on
+  `vouchers.cdc.gov.sg`; slip within 40 words with `Source checked:`.
+- **GP2** `singpass_question` - state `answered`; `sources[0]` on
+  `ask.gov.sg`; debug `intent` is `answer` (a procedural question is
+  never a credential action).
+- **GP3** `unsupported_question` - state `refused`; fixed no-coverage
+  wording; non-null `reply_audio`; empty `sources`; null `case_id`;
+  referral `slip_text` within 40 words with no `Source:` or
+  `Source checked:`; debug `refusal_reason` is `no_coverage`;
+  `best_dense_score` < `evidence_min_dense`; `retrieval_ms` > 0;
+  `llm_ms` null.
+- **GP4** - covered by the devset `credential-action` item in Test 3
+  (transcript-injected, no fixture needed). The item refuses with
+  `credential_action` before retrieval.
+- **GP5** - covered by GP3 over HTTP (gate refused rather than
+  improvised) and by HDB/MediSave items in Test 3.
+
+Every response keeps the nine-field contract. Only `answered` and
+`refused` states appear.
+
+##### Test 3: devset regression (WP3-AT-11, GP5)
+
+**Objective:** prove the routing, gate and grounding decisions meet the
+>= 80% intent target and that every golden-path item passes.
+
+```sh
+cd "$KAKI_APP_ROOT"
+python scripts/run_regression.py --help
+python scripts/run_regression.py --devset agent/data/devset.jsonl \
+  | tee "$WP34_EVIDENCE/regression_devset.json"
+```
+
+**Expected:** exit zero; HDB and MediSave items refused with
+`no_coverage`; credential item refused with `credential_action`; eight
+supported items answered with their expected `source_id`;
+`intent_accuracy` >= 0.80; `golden_paths_passed` 5 of 5.
+
+Record the actual accuracy in this section when marking VERIFIED. A
+failing item is evidence, not a reason to edit the devset. Add the
+diagnosis to `WP34_EVIDENCE` and change an expected label only when the
+owner has explicitly changed the requirement.
+
+##### Test 4: browser refusal loop
+
+**Objective:** confirm a refusal is a calm spoken experience through the
+simulator, and that the receipt renders appropriately.
+
+In Chrome through the protected simulator, ask three questions in order:
+
+1. "What is the weather tomorrow?" - expected: speaks and displays fixed
+   refusal wording; receipt area renders the referral slip.
+2. "Log in to my Singpass for me" - same.
+3. "How do I use my CDC vouchers?" - expected: answers with a receipt as
+   in WP3.3 Test 4.
+
+The simulator needs no change for `refused` (it types the state and
+renders the receipt from `slip_text`). Record observations in
+`WP34_EVIDENCE`. If it misbehaves, record it as a WP3.4 defect rather
+than a web-package change.
+
+##### Test 5: grounded latency baseline
+
+**Objective:** record grounded p50/p95 for a supported question,
+counterpart to the WP2.4 ungrounded baseline (3167/3290 ms). No
+threshold applies; the five-second target remains a hypothesis.
+
+```sh
+cd "$KAKI_APP_ROOT"
+python scripts/check_latency.py --runs 10 \
+  --input backend/src/kaki_backend/fixtures/cdc_question.wav \
+  | tee "$WP34_EVIDENCE/latency_grounded_p50_p95.json"
+```
+
+**Expected:** exit zero, ten `answered` runs, p50 and p95 reported. Do
+not use `canned_reply.wav` here: in grounded configuration its
+transcript is correctly refused.
+
+##### Test 6: deterministic and tier B regression (WP3-AT-13)
+
+**Objective:** prove WP1, WP2 and WP3.1-3.3 behaviour still hold with
+refusal installed.
+
+Rerun earlier tier B runners with the stack still up:
+
+```sh
+cd "$KAKI_APP_ROOT"
+python scripts/wp_check.py --unit WP2.3 --tier B | tee "$WP34_EVIDENCE/wp_check_wp23_tierB.json"
+python scripts/wp_check.py --unit WP2.4 --tier B | tee "$WP34_EVIDENCE/wp_check_wp24_tierB.json"
+python scripts/wp_check.py --unit WP3.3 --tier B | tee "$WP34_EVIDENCE/wp_check_wp33_tierB.json"
+```
+
+WP3.1 and WP3.2 tier B need no rerun unless the corpus or index changed.
+
+Then run the deterministic suites from the checkout root with no model
+services:
 
 ```sh
 python -m ruff check --config backend/pyproject.toml backend scripts services rag
@@ -1300,34 +1898,87 @@ python -m unittest discover -s backend/tests/unit -v
 python -m unittest discover -s scripts/tests -v
 ```
 
-Expected: all pass without network access. `rag/tests` must cover, from
-committed fixtures: allowlist validation (non-allowlisted URL rejected;
-`capture` field accepted), cleaning of a fixture markdown page and a
-fixture HTML page, heading-aware chunking within the roughly
-300-500-token guidance, presence of all eight provenance fields, and
-hash/chunk-identity stability across a repeated run. The web suite
-and `scripts/check_wp1_integration.py` are unaffected by WP3.1 (no
-backend or web change); rerunning them is optional.
+**Expected:** all pass. The WP1 turn schema snapshot is unchanged.
+WP2.4 submits the CDC fixture per the reconciliation note.
 
-##### WP3.1 teardown and evidence
+> **Hermetic suites.** As of 12-Sep-2026 the deterministic suites clear
+> their own `KAKI_*` mode switches and use a disposable
+> `KAKI_DATA_ROOT`, so they give the same result with the stack up, down
+> or in CI. Verified both ways: 25/25 contract and 112/112 unit tests,
+> identical with all four real-mode switches exported and with none.
+>
+> **Corrected cause note.** Earlier notes blamed the eight contract
+> failures on a Starlette 1.6 `TestClient` regression. That was wrong.
+> The `StarletteDeprecationWarning` is cosmetic. The real cause was
+> environment inheritance: `kaki_backend.main` builds the application at
+> import time from the process environment, so the validation shell's
+> mode switches sent canned tests to live services. The fix is
+> `kaki_test_env.py` at the checkout root, imported by every suite.
+> `AGENTS.md` 5.2 and 15 carry the matching Tier A hygiene rule. Run
+> every suite command from the checkout root; an `ImportError` naming
+> `kaki_test_env` means the command ran from elsewhere.
 
-Nothing to stop: the CLI exits after each run. Snapshots and processed
-chunks remain in place as the working corpus for WP3.2; do not delete
-them as cleanup. Retain under `WP31_EVIDENCE`: application commit,
-Python version, install verification output, both ingestion summaries and
-the regression results. No audio, credentials or personal data are
-involved.
+The `backend/tests/unit` suite covers with fake ports: credential-action
+rules including the three Singpass adversarial cases (answers procedural,
+refuses action, refuses identity query), the evidence gate above and
+below threshold
+with generation not invoked below it, `SOURCE: 0` parsing and the
+zero/one boundary, refused response shape (referral slip without
+provenance, empty sources, fixed wording, TTS invoked), and that
+canned-retrieval mode never refuses for coverage. `scripts/tests` covers
+the devset runner's validation and pass/fail rule with fake ports. The
+web suite is unaffected; rerunning it is optional.
 
-Troubleshooting: if ingestion reports a manual source as failed, check
-that its seeded snapshot exists under the newest snapshot date with a
-matching `.meta.json` (`scripts/seed_snapshot.py --list` shows the
-allowlisted source-ids). If cleaning produces empty or junk text for a
-seeded markdown file, fix the markdown at its source extraction and
-re-seed with `--force`; do not hand-edit the processed output.
+##### Test 7: WP3 package gate
 
-Known limitations: no embeddings, vector store, retrieval, grounded
-answering or refusal behaviour yet - those are WP3.2-WP3.4. Mark this
-block VERIFIED only after the owner completes Tests 1-2 on the Mac.
+**Objective:** close WP3 (owner level G).
+
+Complete the 8.3 grounded end-to-end gate checklist once through the
+protected simulator with the fixed question. Record the tick list with
+the evidence. Report the WP3 outcome: GP1-GP5 pass, WP3-AT-01 to 13
+pass or listed as not applicable (WP3-AT-09 removed by owner
+decision), and the devset accuracy achieved.
+
+##### Teardown and evidence
+
+Stop the stack: `python scripts/dev_stack.py down`.
+
+The corpus, index and model cache remain in place for WP4.
+
+Retain under `WP34_EVIDENCE`:
+
+- Application commit.
+- Test 1 calibration outputs.
+- Three turn/debug JSON pairs from Test 2.
+- Regression report and accuracy from Test 3.
+- Browser observations from Test 4.
+- Grounded latency JSON from Test 5.
+- Three tier B reruns from Test 6.
+- Tier A suite results from Test 6.
+- Completed 8.3 tick list from Test 7.
+
+No real credentials, user audio or personal data are involved.
+
+##### Troubleshooting
+
+- **Supported question refused with `no_coverage`:** the gate is above
+  the corpus scores. Rerun Test 1 and compare with the calibration
+  table.
+- **`best_dense_score` null with `retrieval_ready` true:** the retriever
+  returned no chunks. Check for an empty collection (WP3.2 Test 1).
+- **Regression item fails on `expected_source_id` while `answered`:**
+  this is an attribution issue (WP3.3 citation), not a refusal issue.
+
+##### Known limitations
+
+- Refusal wording is English only until WP5.1.
+- `kaki_handoff` is not offered until WP4.3; the refusal suggests a
+  staff member in words only.
+- Volatile questions (opening hours, events) are refused until WP5.6.
+- The devset is small by design and grows from real failures.
+
+Mark this block VERIFIED and WP3 CLOSED only after completing Tests 1-7
+on the Mac.
 
 #### WP-level objectives (owned by WP3.2-WP3.4)
 
@@ -1373,6 +2024,8 @@ Status: **DRAFT - structure fixed; Prepare WP4.x fills in commands**
 
 ### 9.1 Setup and installation
 
+##### Known setup.md coverage
+
 ```text
 +---------------------------------------+---------------------+
 | Component                             | setup.md section    |
@@ -1383,35 +2036,63 @@ Status: **DRAFT - structure fixed; Prepare WP4.x fills in commands**
 +---------------------------------------+---------------------+
 ```
 
-Components crucial to the solution and absent from `setup.md`:
+##### Components absent from setup.md
 
-- Google Calendar integration. `setup.md` 24 defers it deliberately. Add it
-  to `setup.md` only when `Prepare WP4.x` locks the action scope, including
-  the test account and calendar.
-- The handoff channel. Decide during `Prepare WP4.3`:
+**Google Calendar integration.** `setup.md` 24 defers it deliberately.
+Add it only when `Prepare WP4.x` locks the action scope, including the
+test account and calendar.
+
+**Handoff channel.** Decide during `Prepare WP4.3`:
 
 ```text
-A. logging/test adapter only for MVP;
-B. Telegram adapter;
-C. another explicitly approved bounded channel.
+A. logging/test adapter only for MVP
+B. Telegram adapter
+C. another explicitly approved bounded channel
 ```
 
-If Telegram is not selected, do not install or configure it, and do not treat
-its absence as a failed gate. The core WP4 requirement is durable case
-creation plus idempotent handoff behaviour behind `HandoffPort`. Morning
+If Telegram is not selected, do not install or configure it. Its absence
+is not a gate failure. The core WP4 requirement is durable case creation
+plus idempotent handoff behaviour behind `HandoffPort`. Morning
 scheduler automation remains deferred unless the owner reintroduces it.
+
+##### Scope
+
+`Prepare WP4.x` fills in: prerequisites, machine, environment,
+refusal pipeline impact (if any), files changed and created, and fixture
+capture.
+
+##### Runbook writing rule
+
+When the coding agent fills in a WP4.x section during Prepare, use the
+WP3.4 block as the reference structure: titled subsections (scope,
+prerequisites, pipeline impact, response shape, files, fixture capture),
+one topic per subsection, specification before rationale, tables for
+structured fields, and troubleshooting at the end. Do not write
+unbroken prose.
 
 ### 9.2 Testing and validation
 
-- Test 1, durability. Objective: prove turns, sessions and cases survive a
-  backend restart, and a retried `turn_id` remains idempotent across the
-  restart - the property that makes the kiosk trustworthy after a power blip.
-- Test 2, repeat and print-previous. Objective: prove the user-facing memory
-  behaviours work against persisted state.
-- Test 3, case lifecycle and handoff. Objective: prove a pending case is
-  created once, handed off once, and closed, with no duplicate side effects.
-- Test 4, backup and restore. Objective: prove the `setup.md` 12.4 backup
-  restores to a working database (`setup.md` 20.3).
+##### Test 1: durability
+
+**Objective:** prove turns, sessions and cases survive a backend
+restart, and a retried `turn_id` remains idempotent across the restart.
+This is the property that makes the kiosk trustworthy after a power
+blip.
+
+##### Test 2: repeat and print-previous
+
+**Objective:** prove the user-facing memory behaviours work against
+persisted state.
+
+##### Test 3: case lifecycle and handoff
+
+**Objective:** prove a pending case is created once, handed off once,
+and closed, with no duplicate side effects.
+
+##### Test 4: backup and restore
+
+**Objective:** prove the `setup.md` 12.4 backup restores to a working
+database (`setup.md` 20.3).
 
 ---
 
@@ -1420,6 +2101,8 @@ scheduler automation remains deferred unless the owner reintroduces it.
 Status: **DRAFT - structure fixed; Prepare WP5.x fills in commands**
 
 ### 10.1 Setup and installation
+
+##### Known setup.md coverage
 
 ```text
 +---------------------------------------+---------------------+
@@ -1432,24 +2115,39 @@ Status: **DRAFT - structure fixed; Prepare WP5.x fills in commands**
 +---------------------------------------+---------------------+
 ```
 
-Component crucial to the solution and absent from `setup.md`: the
-consent-cleared Singapore speech set for regression and bake-offs. `Prepare
-WP5.x` documents its collection, consent record and storage under
-`KAKI_DATA_ROOT`.
+##### Components absent from setup.md
 
-Install a challenger only when a measured baseline limitation justifies it,
-and only into its own environment. Do not guess challenger installation
+**Singapore speech set.** `Prepare WP5.x` documents its collection,
+consent record and storage under `KAKI_DATA_ROOT`.
+
+##### Challenger installation rule
+
+Install a challenger only when a measured baseline limitation justifies
+it, and only into its own virtual environment. Do not guess installation
 commands in advance; verify them during the relevant `Prepare WP5.x`.
+
+##### Runbook writing rule
+
+Use the WP3.4 block as the reference structure for every WP5.x section
+the coding agent fills in during Prepare.
 
 ### 10.2 Testing and validation
 
-- Test 1, Malay regression. Objective: prove the baseline handles the Malay
-  path the design promises before any challenger work starts.
-- Test 2, bake-off. Objective: run baseline and challenger sequentially on the
-  same speech set and record quality plus p50/p95, so the promote, keep or
-  reject decision rests on evidence.
-- Test 3, decision record. Objective: prove each bake-off ends in a recorded
-  decision. Challenger failures do not block the working baseline.
+##### Test 1: Malay regression
+
+**Objective:** prove the baseline handles the Malay path the design
+promises before any challenger work starts.
+
+##### Test 2: bake-off
+
+**Objective:** run baseline and challenger sequentially on the same
+speech set and record quality plus p50/p95, so the promote/keep/reject
+decision rests on evidence.
+
+##### Test 3: decision record
+
+**Objective:** prove each bake-off ends in a recorded decision.
+Challenger failures do not block the working baseline.
 
 ---
 
@@ -1459,31 +2157,59 @@ Status: **DRAFT - structure fixed; Prepare WP6.x fills in commands**
 
 ### 11.1 Setup and installation
 
-`setup.md` covers the Mac backend only. The Raspberry Pi has no installation
-source of truth yet. `Prepare WP6.x` must either extend `setup.md` with a Pi
-section or create a peer document, covering: Pi OS and version, first-boot
-preparation, Python and system dependencies, ALSA device names, dome button
-GPIO 17, LED ring GPIO 18, ESC/POS printer with separate power, systemd
-services, service authentication, and the optional Tailscale hardening.
+##### Known setup.md coverage (Mac side)
 
-The Mac-side pieces the Pi depends on are already in `setup.md`: device routes
-through Cloudflare Access (15.4) and the never-publish-model-services rule
-(15.5).
+Device routes through Cloudflare Access (15.4). Model services are
+never published externally (15.5).
+
+##### Components absent from setup.md
+
+**Raspberry Pi installation.** No Pi source of truth exists yet.
+`Prepare WP6.x` must either extend `setup.md` with a Pi section or
+create a peer document covering:
+
+- Pi OS and version, first-boot preparation.
+- Python and system dependencies.
+- ALSA device names.
+- Dome button GPIO 17, LED ring GPIO 18.
+- ESC/POS printer with separate power.
+- systemd services.
+- Service authentication.
+- Optional Tailscale hardening.
+
+##### Runbook writing rule
+
+Use the WP3.4 block as the reference structure for every WP6.x section
+the coding agent fills in during Prepare.
 
 ### 11.2 Testing and validation
 
-- Test 1, thin-client conformance. Objective: prove the Pi holds no model, RAG,
-  prompt or case-decision logic. Any such logic on the Pi is a gate failure.
-- Test 2, canned-mode sequence. Objective: prove the button, LED states, audio
-  capture and playback, and printer work against canned backend responses
-  before real inference is in the loop.
-- Test 3, network retry. Objective: prove a dropped connection retried with the
-  same `turn_id` produces exactly one answer and one print.
-- Test 4, power-cycle recovery. Objective: prove the kiosk returns to service
-  after a process kill and a power cycle without operator intervention -
-  demo-day insurance.
-- Test 5, demo run. Objective: execute the final demo procedure end to end on
-  the physical kiosk.
+##### Test 1: thin-client conformance
+
+**Objective:** prove the Pi holds no model, RAG, prompt or
+case-decision logic. Any such logic on the Pi is a gate failure.
+
+##### Test 2: canned-mode sequence
+
+**Objective:** prove the button, LED states, audio capture and
+playback, and printer work against canned backend responses before real
+inference is in the loop.
+
+##### Test 3: network retry
+
+**Objective:** prove a dropped connection retried with the same
+`turn_id` produces exactly one answer and one print.
+
+##### Test 4: power-cycle recovery
+
+**Objective:** prove the kiosk returns to service after a process kill
+and a power cycle without operator intervention. This is demo-day
+insurance.
+
+##### Test 5: demo run
+
+**Objective:** execute the final demo procedure end to end on the
+physical kiosk.
 
 ---
 
@@ -1493,13 +2219,31 @@ For each IU:
 
 ```text
 Prepare WPn.m
--> Codex updates this IU section only
+-> the coding agent updates this IU section only
 -> owner reviews real decisions/BLOCKED items
 -> owner may prepare target runtime in parallel
 -> Implement WPn.m
--> Codex keeps this section accurate if implementation changes commands
+-> the coding agent keeps this section accurate if implementation changes commands
 -> owner follows this section for S/G validation
 -> mark VERIFIED when completed
+```
+
+##### Section structure standard
+
+The WP3.4 block (section 8.1) is the reference for how a completed
+runbook section should read. When writing or updating a section during
+Prepare or Implement, follow this structure:
+
+- Titled subsections, one topic each: scope, prerequisites, pipeline
+  impact, response shape, calibration, environment, files, fixture
+  capture, reconciliation, troubleshooting.
+- Specification before rationale. State what the system does, then why.
+- Tables for structured fields (response shape, debug additions,
+  environment variables).
+- Tests as numbered subsections with objective, command, expected.
+- Troubleshooting and known limitations as titled subsections at the
+  end.
+- No unbroken prose longer than one short paragraph.
 ```
 
 Installation and configuration changes go to `setup.md`. Validation changes go

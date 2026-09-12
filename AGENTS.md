@@ -1,10 +1,18 @@
 # KaKi-Talkie coding-agent instructions
 
-Version 1.3 | 08-Sep-2026 | SGLN Group 10
+Version 1.5 | 12-Sep-2026 | SGLN Group 10
+
+> v1.5 adds the Tier A environment-hygiene rule to sections 5.2 and 15,
+> after leaked `KAKI_*` mode switches sent the backend contract tests to
+> live services and produced eight false failures.
+> v1.4 made the Mac Mini the development machine as well as the runtime
+> host, allowed agent sessions from a local terminal, a browser or the
+> Claude mobile app, and replaced named-agent wording with vendor-neutral
+> wording.
 
 This file governs coding-agent behaviour in the `kaki-talkie` repository.
 
-The purpose of these rules is to keep Codex safe **without requiring the owner to write perfect prompts**. The agent should use the repository documents to infer the intended workflow, make ordinary implementation choices independently, and stop only for decisions that genuinely change the product or architecture.
+The purpose of these rules is to keep the coding agent safe **without requiring the owner to write perfect prompts**. The agent should use the repository documents to infer the intended workflow, make ordinary implementation choices independently, and stop only for decisions that genuinely change the product or architecture.
 
 ---
 
@@ -117,8 +125,9 @@ When asked `Prepare WPn.m`:
 4. report concisely:
    - expected files/areas to change;
    - product/architecture decisions requiring owner input, if any;
-   - Windows development dependencies;
+   - development dependencies;
    - Mac Mini/Pi runtime prerequisites documented in the runbook;
+   - read-only local probes run during preparation, with their numbers;
    - any `BLOCKED` item;
 5. do not implement application code yet.
 
@@ -154,23 +163,76 @@ Do not require the owner to repeat the safeguards from this file in every prompt
 
 ## 5. Development and runtime environments
 
-Codex is used only on the Windows gaming desktop.
+The Mac Mini is the development machine and the runtime host.
 
 ```text
-+------------------------+--------------------------------------------------+
-| Environment            | Role                                             |
-+------------------------+--------------------------------------------------+
-| Windows gaming desktop | Codex, Git worktrees, coding and Tier A tests    |
-| Mac Mini               | Runtime, local models and Tier B validation      |
-| Raspberry Pi           | Thin client and Tier C hardware validation       |
-+------------------------+--------------------------------------------------+
++------------------------+---------------------------------------------------+
+| Environment            | Role                                              |
++------------------------+---------------------------------------------------+
+| Mac Mini (websvc)      | Coding agent, Git worktrees, Tier A tests,        |
+|                        | runtime, local models, Tier B commands            |
+| Raspberry Pi           | Thin client and Tier C hardware validation        |
+| Phone/laptop browser   | Owner interaction smoke and gate ceremonies       |
++------------------------+---------------------------------------------------+
 ```
 
-Codex is not installed on the Mac Mini or Raspberry Pi.
+### 5.1 Agent sessions
 
-Do not claim to have installed, configured or tested anything on those machines.
+The owner starts an agent session in one of three ways. The rules below apply to all three:
 
-Mac/Pi package, runtime, model and infrastructure preparation belongs in `wp-validation-runbook.md`.
+1. a terminal on the Mac Mini;
+2. Claude Code remote control in a browser;
+3. Claude Code remote control in the Claude mobile app.
+
+Remote sessions run inside `tmux` under the `websvc` account. Assume the owner may be reading the session on a phone.
+
+Therefore:
+
+- keep output short and scannable;
+- do not start long-running foreground processes inside the session;
+- do not run interactive full-screen programs that need a real terminal;
+- group related shell commands so the owner approves fewer prompts;
+- never kill, rename or detach the owner's `tmux` session.
+
+### 5.2 What the agent may do on the Mac Mini
+
+The agent shares a machine with the runtime. Sharing a machine is not permission to operate it.
+
+Proceed without asking:
+
+- read repository files, runtime logs and the contents of `KAKI_DATA_ROOT`;
+- run Tier A tests;
+- run a read-only probe against an already-running service or an already-built index, such as scoring queries to calibrate a threshold;
+- run a read-only script that the active unit owns.
+
+Ask the owner first:
+
+- installing or upgrading any package, binary, model or service;
+- starting, stopping or restarting `whisper.cpp`, `mlx_lm.server` or the backend;
+- writing to, re-seeding, re-ingesting or deleting anything under `KAKI_DATA_ROOT`;
+- running a Tier B or Tier C owner procedure from the runbook;
+- any command that changes the machine outside the worktree.
+
+Report every read-only probe in the completion report, with the command and the numbers it produced. If a probe sets a threshold, a default or an acceptance expectation, the probe must be reproducible from a committed script. A number that exists only in a session transcript is not evidence.
+
+Run Tier A tests with the `KAKI_*` mode switches cleared. A session started from the owner's `tmux` window inherits the live runtime exports (`KAKI_STT_MODE`, `KAKI_LLM_MODE`, `KAKI_TTS_MODE`, `KAKI_RETRIEVAL_MODE` and the service URLs), which sends canned tests to real services and produces failures that no code change can fix. Clear them before you conclude anything from a red Tier A run.
+
+### 5.3 Validation ownership stays with the owner
+
+The agent can now execute a Tier B command. It still does not own Tier B validation.
+
+- The owner performs S and G ceremonies from the runbook.
+- The agent never marks a runbook section `VERIFIED`.
+- The agent never records owner evidence on the owner's behalf.
+- Mac and Pi package, runtime, model and infrastructure preparation belongs in `wp-validation-runbook.md`, not in a session transcript.
+
+Do not claim to have installed, configured or tested anything on the Raspberry Pi.
+
+### 5.4 Worktrees and shared runtime data
+
+Worktrees live on the Mac Mini. One `KAKI_DATA_ROOT` serves the machine, and the running services use it.
+
+Two worktrees must not write to the same data root at the same time. If the active unit needs to write generated data, point `KAKI_DATA_ROOT` at a unit-scoped directory and document that in the runbook section.
 
 ---
 
@@ -219,20 +281,21 @@ Generated corpus snapshots, processed corpus data, Chroma data and SQLite runtim
 
 ## 8. Dependency handling
 
-### Windows development dependencies
+### Development dependencies
 
-Codex may add project-local dependencies when the active unit needs them.
+The agent may add project-local dependencies when the active unit needs them.
 
-- Python dependencies belong in the worktree `.venv` and project dependency files.
+- Python dependencies belong in the repository-root `.venv` and the project dependency files.
 - npm dependencies belong in the relevant `package.json` and lock file.
 - Do not install Python packages globally.
 - Do not use `--break-system-packages`.
+- Do not run `brew` without owner approval. Homebrew changes the machine, not the worktree.
 
 Report material dependency additions in the completion summary.
 
 ### Mac Mini and Pi runtime dependencies
 
-Codex does not install them.
+The agent does not install them, even though it now runs on the Mac Mini.
 
 Before code implementation depends on a new runtime package, binary, model, cache, environment variable or service, the active runbook section must document:
 
@@ -326,7 +389,7 @@ Missing or imperfect change-history metadata must not block implementation, vali
 
 Inline `#vX.Y` markers (and equivalents in other languages) are optional and must not be enforced as a gate. Existing markers may remain; do not mass-edit untouched code to add, remove or standardise them.
 
-Codex must not create or maintain tooling whose sole purpose is enforcing change-history metadata. Do not introduce a replacement history checker, policy framework, pre-commit hook or equivalent enforcement mechanism for it.
+The agent must not create or maintain tooling whose sole purpose is enforcing change-history metadata. Do not introduce a replacement history checker, policy framework, pre-commit hook or equivalent enforcement mechanism for it.
 
 Use equivalent valid comments in TypeScript/JavaScript/CSS/shell where applicable.
 
@@ -379,9 +442,11 @@ Tests are gates, not obstacles.
 
 Do not delete, weaken, skip or rewrite an acceptance test merely to obtain a green run.
 
+A Tier A test must not depend on the shell environment, on a running service, or on the state of the live `KAKI_DATA_ROOT`. Write Tier A tests so they set their own mode switches to canned defaults and use a temporary data root. A test that passes only because a service happens to be up has stopped being a test.
+
 When an earlier test genuinely conflicts with an approved current requirement, report the mismatch and reconcile implementation + test together. This is not considered test weakening when the owner has explicitly changed the requirement.
 
-Tier B/C tests unavailable on Windows are not failures. The owner runs them using the runbook.
+A Tier B or Tier C test that the agent did not run is not a failure. Name the tests you skipped and say why. The owner runs them from the runbook.
 
 ---
 
@@ -401,6 +466,8 @@ Runbook section/status:
 Decisions or limitations:
 Later scope untouched: yes/no
 ```
+
+Under `Decisions or limitations`, name any read-only local probe you ran and the numbers it produced.
 
 For S/G validation, point to the exact runbook section. Do not reproduce the procedure.
 

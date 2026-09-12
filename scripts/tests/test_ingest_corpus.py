@@ -1,3 +1,4 @@
+# v1.1 | 12-Sep-2026 | Guard the CLI tests against ambient KAKI_* exports.
 # v1.0 | 10-Sep-2026 | Verify the ingestion CLI contract without any network access.
 """Exercise the ingest_corpus CLI deterministically; no real fetch is made."""
 
@@ -13,6 +14,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx
+
+from kaki_test_env import CannedEnvironment  #v1.1
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/ingest_corpus.py"
@@ -52,8 +55,9 @@ def run_main(arguments: list[str], respond) -> tuple[int, str, str]:
     return status, out.getvalue(), err.getvalue()
 
 
-class IngestCorpusCliTests(unittest.TestCase):
+class IngestCorpusCliTests(CannedEnvironment, unittest.TestCase):  #v1.1
     def setUp(self) -> None:
+        super().setUp()  # sanitise KAKI_* before building the fixtures  #v1.1
         self._directory = tempfile.TemporaryDirectory()
         self.addCleanup(self._directory.cleanup)
         self.data_root = Path(self._directory.name)

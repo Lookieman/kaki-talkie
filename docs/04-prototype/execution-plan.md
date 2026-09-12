@@ -1,9 +1,16 @@
 # KaKi-Talkie MVP execution plan
 
-**Six work packages, decomposed into bounded Codex implementation units with independent test checkpoints**
+**Six work packages, decomposed into bounded implementation units with independent test checkpoints**
 
-Version 1.4 | 10-Sep-2026 | SGLN Group 10
+Version 1.6 | 12-Sep-2026 | SGLN Group 10
 
+> v1.6 removes WP3-AT-09 (secret redaction) and the secret-handling scope
+> from WP3.4 after an owner decision that redaction creates a false
+> security promise the MVP cannot defend. GP4 stays as a credential-action
+> refusal.
+> v1.5 removes the retired Windows desktop and the named coding agent from
+> sections 1.2, 1.5, 1.6, 1.8 and 11. Development, Tier A and Tier B all
+> run on the Mac Mini.
 > v1.4 adds the WP3 corpus-capture note: manual owner-reviewed markdown
 > sources, four-source corpus, `capture: manual` allowlist flag.
 
@@ -13,7 +20,7 @@ This document translates `docs/04-prototype/design.md` into a build sequence.
 
 `design.md` is the architecture source of truth. This execution plan owns work-package scope, implementation-unit boundaries, acceptance criteria and delivery gates. Operational installation/setup/test commands live only in `docs/04-prototype/wp-validation-runbook.md`.
 
-The process is deliberately light enough for a solo prototype. Codex should move quickly inside one implementation unit; the owner controls product/architecture decisions and gate closure.
+The process is deliberately light enough for a solo prototype. The coding agent should move quickly inside one implementation unit; the owner controls product/architecture decisions and gate closure.
 
 ---
 
@@ -45,7 +52,7 @@ A package closes when:
 | Level                | Purpose                                          |
 +----------------------+--------------------------------------------------+
 | Work package         | Delivery milestone and end-to-end gate           |
-| Implementation unit  | Normal Codex build/review/test boundary          |
+| Implementation unit  | Normal agent build/review/test boundary          |
 | Acceptance test      | Behaviour that must be proven                    |
 | R/S/G owner level    | Human review/smoke/package-gate requirement      |
 +----------------------+--------------------------------------------------+
@@ -73,7 +80,7 @@ Use the decision model in `AGENTS.md`:
 
 - **locked architecture** needs explicit owner approval to change;
 - **baselined but changeable MVP choices** may be revised by the owner's latest explicit direction;
-- **implementation choices** are made by Codex inside the active IU.
+- **implementation choices** are made by the coding agent inside the active IU.
 
 This prevents stale optional choices from becoming accidental hard requirements.
 
@@ -86,7 +93,7 @@ flowchart LR
     D -->|Yes| O["Owner decides"]
     D -->|No| I["Implement WPn.m"]
     O --> I
-    I --> T["Codex Tier A tests"]
+    I --> T["Agent Tier A tests"]
     T --> V["Owner S/G validation from runbook"]
     V --> C["Manual commit/merge/push"]
 ```
@@ -101,13 +108,15 @@ flowchart LR
 +--------+---------------------+---------------------------------------------+
 | Tier   | Environment         | Typical evidence                            |
 +--------+---------------------+---------------------------------------------+
-| A      | Windows/hosted CI   | lint, unit, contract, schema, web build     |
+| A      | Any machine + CI    | lint, unit, contract, schema, web build     |
 | B      | Mac Mini            | STT/LLM/TTS/RAG, regression, latency       |
 | C      | Raspberry Pi        | GPIO, audio, printer, boot/recovery        |
 +--------+---------------------+---------------------------------------------+
 ```
 
-A Tier B/C test unavailable to Codex is performed by the owner from the runbook.
+Tier A runs with the `KAKI_*` mode switches cleared, so it never reaches a live
+service. A Tier B/C test that the coding agent does not run is performed by the
+owner from the runbook.
 
 ### 1.7 Golden-path suite
 
@@ -120,12 +129,12 @@ From WP3 onward:
 | 1  | CDC question -> grounded CDC answer + provenance             |
 | 2  | Singpass reset -> official procedural guidance              |
 | 3  | Unsupported question -> refusal                              |
-| 4  | Authentication/credential action -> refuse; do not persist   |
+| 4  | Authentication/credential action -> refuse                   |
 | 5  | Insufficient evidence -> refusal instead of improvisation    |
 +----+---------------------------------------------------------------+
 ```
 
-### 1.8 Per-unit Codex completion report
+### 1.8 Per-unit completion report
 
 Keep it concise:
 
@@ -265,7 +274,7 @@ Goal: make supported answers evidence-backed, sourced and bounded using static t
 |       | retrieval/merge                               |       |
 | WP3.3 | grounded answerer + application provenance  | S     |
 |       | + output/slip                                 |       |
-| WP3.4 | refusal/no-coverage/secret handling/devset/ | G     |
+| WP3.4 | refusal/no-coverage/devset/                 | G     |
 |       | golden paths                                  |       |
 +-------+-----------------------------------------------+-------+
 ```
@@ -276,7 +285,7 @@ Acceptance ownership:
 WP3.1 -> WP3-AT-01, 02
 WP3.2 -> WP3-AT-03, 04, 10
 WP3.3 -> WP3-AT-06, 07
-WP3.4 -> WP3-AT-05, 08, 09, 11, 12, 13
+WP3.4 -> WP3-AT-05, 08, 11, 12, 13
 ```
 
 Acceptance criteria:
@@ -290,7 +299,6 @@ WP3-AT-05 insufficient evidence -> refusal/no coverage
 WP3-AT-06 answered regression sources are allowlisted
 WP3-AT-07 slip <=40 words + source + Source checked date
 WP3-AT-08 unsupported/authentication-action requests refuse
-WP3-AT-09 volunteered secret redacted/not persisted; benign 6-digit value not auto-refused
 WP3-AT-10 Malay/Singlish/code-switch fixtures exercise original + normalised retrieval
 WP3-AT-11 regression reports results; initial intent target >=80%
 WP3-AT-12 all five golden paths pass
@@ -553,7 +561,7 @@ Current execution point: **WP2.1**.
 
 ---
 
-## 11. Codex handoff
+## 11. Agent handoff
 
 The normal prompts are intentionally short because repository rules carry the detail.
 
@@ -577,7 +585,14 @@ The normal prompts are intentionally short because repository rules carry the de
 +---------+-------------+------------------------------------------------------+
 | Version | Date        | Change                                               |
 +---------+-------------+------------------------------------------------------+
-| 1.3     | 06-Sep-2026 | Simplified Codex workflow; made validation runbook  |
+| 1.6     | 12-Sep-2026 | Removed WP3-AT-09 (secret redaction) and secret-    |
+|         |             | handling scope from WP3.4. GP4 stays as credential- |
+|         |             | action refusal.                                     |
+| 1.5     | 12-Sep-2026 | Mac Mini development model; removed retired Windows |
+|         |             | and named-agent references; Tier A environment      |
+|         |             | hygiene note.                                       |
+| 1.4     | 10-Sep-2026 | WP3 manual corpus capture; four-source corpus.      |
+| 1.3     | 06-Sep-2026 | Simplified agent workflow; made validation runbook  |
 |         |             | the single operational source; Chrome primary;      |
 |         |             | Safari non-gating; Telegram deferred to WP4.3;      |
 |         |             | reduced stop/approval friction.                     |

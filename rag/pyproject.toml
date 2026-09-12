@@ -1,3 +1,4 @@
+# v1.1 | 10-Sep-2026 | Add the WP3.2 retrieve/embed extras; base stays stdlib plus httpx.
 # v1.0 | 10-Sep-2026 | Package the corpus ingestion pipeline; stdlib plus httpx only.
 [build-system]
 requires = ["setuptools>=68"]
@@ -5,10 +6,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kaki-rag"
-version = "0.1.0"
+version = "0.2.0"
 description = "KaKi-Talkie grounded-knowledge corpus ingestion and retrieval"
 requires-python = ">=3.11"
 dependencies = ["httpx>=0.27,<1"]
+
+[project.optional-dependencies]
+# The ingestion base stays stdlib + httpx. `retrieve` adds the embedded
+# vector store (also needed by CI for the offline retrieval tests);
+# `embed` adds the multilingual embedding runtime for the Mac only -
+# Qwen/Qwen3-Embedding-0.6B needs transformers >= 4.51.
+retrieve = ["chromadb>=0.5,<2"]
+embed = ["sentence-transformers>=2.7", "transformers>=4.51"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

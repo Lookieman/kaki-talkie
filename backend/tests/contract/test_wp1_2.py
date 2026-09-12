@@ -1,3 +1,4 @@
+# v1.4 | 12-Sep-2026 | Build the application from the canned environment, not the shell's.
 # v1.3 | 07-Sep-2026 | Adapt the STT spy to typed recognition without changing assertions.
 # v1.2 | 06-Sep-2026 | Use valid PCM input while preserving the earlier port assertions.
 # v1.1 | 04-Sep-2026 | Prove the canned pipeline executes through injected ports.
@@ -11,9 +12,13 @@ import wave
 
 from fastapi.testclient import TestClient
 
-from kaki_backend.main import app
 from kaki_backend.contracts.ports import Transcription
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline  #v1.1
+from kaki_test_env import canned_backend  #v1.4
+
+# The application is built at import time from the environment, so it must be
+# imported through the canned sanitiser rather than directly.
+app = canned_backend().app  #v1.4
 
 
 def synthetic_audio() -> bytes:
@@ -88,6 +93,7 @@ class Wp12ContractTests(unittest.TestCase):
                 "audio_preparation_ms",
                 "stt_ms",
                 "routing_ms",
+                "query_rewrite_ms",  #v1.3
                 "retrieval_ms",
                 "live_lookup_ms",
                 "llm_ms",
@@ -141,7 +147,7 @@ class Wp12ContractTests(unittest.TestCase):
 
         class LlmSpy:  #v1.1
             """Provide deterministic LlmSpy behaviour for contract tests."""  #v1.2
-            def generate(self, transcript: str) -> str:  #v1.1
+            def generate(self, transcript: str) -> str:  #v1.4
                 """Record invocation and return deterministic reply text."""  #v1.2
                 calls["llm"] += 1  #v1.1
                 return "canned reply"  #v1.1

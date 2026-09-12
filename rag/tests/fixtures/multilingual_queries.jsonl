@@ -1,0 +1,4 @@
+{"label": "malay-singpass", "original": "Macam mana nak reset kata laluan Singpass saya?", "normalised": "how to reset my Singpass password", "expected_source_id": "singpass-support"}
+{"label": "singlish-cdc", "original": "CDC voucher macam mana claim ah? My handphone got the SMS one.", "normalised": "how do I claim my CDC vouchers from the SMS link", "expected_source_id": "cdc-vouchers-residents"}
+{"label": "chinese-chas", "original": "我想知道怎样申请CHAS卡，去诊所看病有补贴吗？", "normalised": "how do I apply for a CHAS card and what clinic subsidies do I get", "expected_source_id": "chas-about"}
+{"label": "codeswitch-careshield", "original": "CareShield Life tu apa? Kena bayar premium every year ke?", "normalised": "what is CareShield Life and how do its premiums work", "expected_source_id": "careshield-life"}

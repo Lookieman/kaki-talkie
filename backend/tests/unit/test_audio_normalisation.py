@@ -1,3 +1,4 @@
+# v1.2 | 12-Sep-2026 | Build the application from the canned environment, not the shell's.
 # v1.1 | 07-Sep-2026 | Keep audio assertions with the typed STT result.
 # v1.0 | 06-Sep-2026 | Verify browser decoding, PCM conversion, failure bounds and integration.
 """Exercise real decoding without model services, microphone capture or retained user audio."""
@@ -14,7 +15,6 @@ from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
-from kaki_backend.main import app
 from kaki_backend.contracts.ports import Transcription
 from kaki_backend.orchestration.audio_normalisation import (
     AudioNormalisationError,
@@ -23,6 +23,12 @@ from kaki_backend.orchestration.audio_normalisation import (
 )
 from kaki_backend.orchestration.idempotency import TurnService
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline
+from kaki_test_env import canned_backend  #v1.2
+
+# This module posts a turn through the real application, which is built at
+# import time from the environment; without the canned sanitiser a validation
+# shell's KAKI_STT_MODE=whisper would send it to a live Whisper service.
+app = canned_backend().app  #v1.2
 
 CHROME = Path(__file__).resolve().parents[1] / "fixtures/audio/chrome-tone.webm"
 

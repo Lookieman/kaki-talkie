@@ -1,3 +1,4 @@
+# v1.4 | 12-Sep-2026 | Depend on python-dotenv for project-root .env loading.
 # v1.3 | 07-Sep-2026 | Clarify the non-gating reason for allowing compact comments.
 # v1.2 | 06-Sep-2026 | Pin bundled audio decoding for WP2.1.
 # v1.1 | 05-Sep-2026 | Package spoken fixtures and configure Tier A lint/format checks.
@@ -16,6 +17,7 @@ dependencies = [
     "av==18.1.0", #v1.2
     "fastapi>=0.115,<1",
     "pydantic>=2,<3",
+    "python-dotenv>=1,<2", #v1.4
     "python-multipart>=0.0.20,<1",
     "uvicorn>=0.30,<1",
 ]

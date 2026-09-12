@@ -1,3 +1,5 @@
+# v1.2 | 12-Sep-2026 | Retry cold readiness probes quickly; load HF_TOKEN from .env.
+# v1.1 | 11-Sep-2026 | Start the grounded stack: retrieval mode export and readiness wait.
 # v1.0 | 09-Sep-2026 | Provide the WP2.4 owner helper to start, check and stop the Mac stack.
 """Start, check or stop the local KaKi-Talkie development stack on the Mac.
 
@@ -11,8 +13,11 @@ simulator is not managed here (runbook 7.4.1; start it per setup.md 14).
 
 Side effects: `up` spawns three long-running local processes, writes logs
 under `$KAKI_DATA_ROOT/logs` and pidfiles under `$KAKI_DATA_ROOT/run`, and
-exports real-mode backend settings (whisper/qwen/say) unless already set in
-the environment. `down` signals those recorded processes and removes their
+exports real-mode backend settings (whisper/qwen/say and grounded retrieval;
+export `KAKI_RETRIEVAL_MODE=canned` first for the WP2 configuration) unless
+already set in the environment. With retrieval grounded, backend readiness
+also requires the health `retrieval_ready` flag, whose first probe loads the
+embedding model. `down` signals those recorded processes and removes their
 pidfiles. Requires an absolute `KAKI_DATA_ROOT`. Paths follow setup.md and
 may be overridden: `KAKI_WHISPER_SERVER`, `KAKI_WHISPER_MODEL`,
 `KAKI_LLM_PYTHON`, `HF_HOME`. Exit status is zero on success; 2 indicates a
@@ -31,6 +36,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
+from dotenv import load_dotenv  #v1.2
+
+# `HF_TOKEN` lives in the untracked project-root .env. Load it before any
+# service starts so the spawned backend and MLX-LM inherit it; a real export
+# always wins, and a missing .env is a silent no-op.
+load_dotenv()  #v1.2
 
 READINESS_POLL_SECONDS = 2.0
 STOP_GRACE_SECONDS = 20.0
@@ -47,6 +58,7 @@ class Service:
     marker: str
     readiness_deadline_seconds: float
     extra_environment: tuple[tuple[str, str], ...] = ()
+    required_health_flags: tuple[str, ...] = ()  #v1.1
 
 
 def build_services(environment: dict[str, str]) -> list[Service]:
@@ -66,7 +78,11 @@ def build_services(environment: dict[str, str]) -> list[Service]:
         ("KAKI_LLM_MODE", "qwen"),
         ("KAKI_LLM_URL", "http://127.0.0.1:8082"),
         ("KAKI_TTS_MODE", "say"),
+        ("KAKI_RETRIEVAL_MODE", "rag"),  #v1.1
+        ("HF_HOME", hf_home),  #v1.1
     )
+    # An explicit KAKI_RETRIEVAL_MODE=canned export selects the WP2 configuration.
+    retrieval_grounded = environment.get("KAKI_RETRIEVAL_MODE", "rag") == "rag"  #v1.1
     return [
         Service(
             name="whisper", port=8081, health_url="http://127.0.0.1:8081/health",
@@ -90,8 +106,13 @@ def build_services(environment: dict[str, str]) -> list[Service]:
         Service(
             name="backend", port=8000, health_url="http://127.0.0.1:8000/api/health",
             command=(sys.executable, "-m", "kaki_backend.main"),
-            marker="kaki_backend", readiness_deadline_seconds=60,
+            # First grounded readiness also loads the embedding model (~1.2 GB).
+            marker="kaki_backend",  #v1.1
+            readiness_deadline_seconds=180 if retrieval_grounded else 60,  #v1.1
             extra_environment=backend_settings,
+            required_health_flags=(  #v1.1
+                ("retrieval_ready",) if retrieval_grounded else ()
+            ),
         ),
     ]
 
@@ -104,11 +125,26 @@ def port_is_free(port: int) -> bool:
 
 
 def service_healthy(service: Service) -> bool:
-    """Report whether the service health endpoint answers 200 within two seconds."""
+    """Report whether health answers 200 and its required readiness flags are true.
+
+    The grounded backend warms the embedding model inside its readiness
+    probe. A cold load outlasts any sensible per-probe wait, so the probe
+    gives up quickly and the caller retries: the model is either resident
+    and answers promptly, or still loading and a later poll will catch it.
+    Abandoned probes cost nothing because the adapter serialises model
+    loading onto one worker thread.
+    """  #v1.2
+    timeout = 10.0 if service.required_health_flags else 2.0  #v1.2
     try:
-        with httpx.Client(timeout=2.0, trust_env=False, follow_redirects=False) as client:
-            return client.get(service.health_url).status_code == 200
-    except httpx.HTTPError:
+        with httpx.Client(timeout=timeout, trust_env=False, follow_redirects=False) as client:  #v1.1
+            response = client.get(service.health_url)
+            if response.status_code != 200:
+                return False
+            if not service.required_health_flags:  #v1.1
+                return True
+            payload = response.json()  #v1.1
+            return all(payload.get(flag) is True for flag in service.required_health_flags)
+    except (httpx.HTTPError, ValueError):  #v1.1
         return False
 
 

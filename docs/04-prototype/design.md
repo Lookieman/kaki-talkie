@@ -2,8 +2,11 @@
 
 **Final locked design for the voice pipeline, grounded retrieval, web simulator, and deployment architecture**
 
-Version 1.2 | 10-Sep-2026 | SGLN Group 10
+Version 1.3 | 12-Sep-2026 | SGLN Group 10
 
+> v1.3 revises section 8: the MVP does not build or promise secret
+> redaction for volunteered credentials. Raw audio deletion after
+> transcription is unchanged.
 > v1.2 changes section 7.2 only: the MVP corpus is captured manually as
 > owner-reviewed markdown, with `capture: manual` sources in the
 > allowlist. The automated HTML fetch path remains for `capture: auto`
@@ -500,11 +503,21 @@ The MVP retains simple rules:
 
 - never ask the user for passwords, OTPs, credentials or authentication secrets;
 - never require those secrets to answer procedural questions;
-- do not intentionally store them if volunteered;
 - delete raw audio after transcription by default;
-- refuse unsupported or scam-shaped requests using the normal refusal path.
+- refuse credential actions (requests to log in, reset or transact) and
+  unsupported or scam-shaped requests using the normal refusal path.
 
-This is intentionally simpler than introducing a separate guardrail model or security-policy service.
+The system does not build or promise secret redaction. If a user
+volunteers a password, the transcript passes through the pipeline like
+any other text. Whisper, the LLM context and backend logs may contain
+it. Redaction at the transcript layer cannot protect what has already
+passed through the STT service and the network, and a module that
+promises otherwise creates a liability the MVP cannot defend. Raw audio
+deletion after transcription limits exposure at the layer the system
+controls.
+
+This is intentionally simpler than introducing a separate guardrail
+model, security-policy service or redaction pipeline.
 
 ---
 
