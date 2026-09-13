@@ -1,3 +1,4 @@
+# v1.3 | 13-Sep-2026 | Export KAKI_DB for WP4.2 validation too.
 # v1.2 | 13-Sep-2026 | Export KAKI_DB for WP4.1 validation.
 # v1.1 | 11-Sep-2026 | Add env-only mode: source kaki_env.sh env
 # v1.0 | 09-Sep-2026 | Initial parameterised validation environment loader
@@ -61,8 +62,8 @@ unset _unit_dir _unit_tag
 
 # Unit-specific exports.                                         #v1.2
 case "$KAKI_UNIT" in                                             #v1.2
-    WP4.1)                                                       #v1.2
-        # The backend's SQLite database (runbook 9.1 WP4.1).
+    WP4.1|WP4.2)                                                 #v1.3
+        # The backend's SQLite database (runbook 9.1 WP4.1, WP4.2).
         export KAKI_DB="${KAKI_SQLITE_PATH:-$KAKI_DATA_ROOT/sqlite/kaki.db}"
         ;;                                                       #v1.2
 esac                                                             #v1.2

@@ -1,3 +1,5 @@
+# v2.2 | 13-Sep-2026 | WP4.2: debug check matches the newest-turn contract; add a repeat replay.
+# v2.1 | 13-Sep-2026 | Add the WP4.2 action checks; WP4.1 accepts later schema versions.
 # v2.0 | 13-Sep-2026 | Add the WP4.1 durable-turn and restart-replay checks.
 # v1.9 | 12-Sep-2026 | Drop the credential fixture and secret checks from WP3.4.
 # v1.8 | 12-Sep-2026 | Add the WP3.4 refusal checks; speak a supported question in rag mode.
@@ -58,6 +60,12 @@ Currently registered:
   and `turn_sources` rows, and replays the same turn_id with different audio.
   Requires `KAKI_DATA_ROOT` (and `KAKI_SQLITE_PATH` if the backend uses it).
   The backend restart itself stays a manual step (runbook 9.2 WP4.1 Test 3).
+- WP4.2 tier B - repeat_previous and print_previous (WP4-AT-04/05). Requires
+  the grounded stack, `KAKI_DATA_ROOT` and the two WP4.2 spoken fixtures. In
+  one fresh session submits an answer, a repeat, a print and a second repeat;
+  replays the print's and the first repeat's turn_ids with different audio;
+  then repeats in a second fresh session with nothing to act on. Reads the live database read-only and
+  asserts its exact schema version.
 
 Side effects: WP2.3 tier B sends five fixed-transcript generation requests to
 the local LLM service. WP2.4 tier B synthesises one fixed sentence locally
@@ -71,7 +79,9 @@ query also runs `scripts/query_corpus.py` in a subprocess. WP3.4 tier B
 submits three packaged fixture turns (fresh `turn_id`s) and writes
 nothing. WP4.1 tier B writes a disposable database under the system temporary
 directory, removed on exit, and submits one fixture turn plus its replay to the
-running backend, which stores them in the live database. Exit status is zero only when every check passes; 2 indicates a
+running backend, which stores them in the live database. WP4.2 tier B submits
+six turns plus two replays to the running backend, which stores them in the
+live database. Exit status is zero only when every check passes; 2 indicates a
 usage or configuration error.
 """
 
@@ -825,7 +835,8 @@ def _restart_replay_in_process() -> tuple[dict[str, object], dict[str, bool]]:  
               "first_state": first.state.value, "replay_state": replay.state.value}
     checks = {
         "disposable_database_is_owner_only": file_mode == 0o600,
-        "disposable_database_at_schema_version_1": schema_version == 1,
+        # At least: later migrations raise it; WP4.2 asserts the exact value.
+        "disposable_database_at_least_schema_version_1": schema_version >= 1,  #v2.1
         "first_execution_ran_once": first_pipeline.execution_count == 1,
         "restart_replay_did_not_execute": restarted_pipeline.execution_count == 0,
         "restart_replay_identical": replay.model_dump() == first.model_dump(),
@@ -919,6 +930,167 @@ def check_wp41_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.0
     return report, checks
 
 
+WP42_SCHEMA_VERSION = 2  #v2.1
+WP42_FIXTURES = ("repeat_request.wav", "print_request.wav")  #v2.1
+
+
+def _wp42_post(client: httpx.Client, session_id: str, fixture_name: str,
+               turn_id: str | None = None) -> tuple[dict, dict, str, float]:  #v2.1
+    """Submit one packaged fixture; return response, debug view, turn_id and elapsed ms."""
+    turn_id = turn_id or f"wp42-check-{uuid4().hex}"
+    audio = files("kaki_backend").joinpath(f"fixtures/{fixture_name}").read_bytes()
+    started = perf_counter()
+    turn = client.post(
+        BACKEND_URL + "/api/device/turn",
+        data={"device_id": "wp42-check", "session_id": session_id, "turn_id": turn_id},
+        files={"audio": (fixture_name, audio, "audio/wav")},
+    ).json()
+    elapsed_ms = (perf_counter() - started) * 1000
+    debug = client.get(BACKEND_URL + "/api/device/debug/last-turn").json()
+    return turn, debug, turn_id, elapsed_ms
+
+
+def _stage_nulls(debug: dict, *stages: str) -> bool:  #v2.1
+    timings = debug.get("timings_ms") or {}
+    return all(timings.get(stage) is None for stage in stages)
+
+
+def check_wp42_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.1
+    """Prove WP4-AT-04/05 against the running grounded stack (runbook 9.2 WP4.2).
+
+    The print policy (WP4-AT-06) is a client rule (design.md 9.3) proven by
+    the web suite and the owner's browser test, so it is not checked here.
+    """
+    if os.environ.get("KAKI_RETRIEVAL_MODE", "canned") != "rag":
+        raise ValueError("export KAKI_RETRIEVAL_MODE=rag before running WP4.2 tier B.")
+    live_path = StorageSettings.from_environment().path
+    missing = [name for name in (GROUNDED_TURN_FIXTURE, *WP42_FIXTURES)
+               if not files("kaki_backend").joinpath(f"fixtures/{name}").is_file()]
+    if missing:
+        raise ValueError(
+            "missing spoken fixtures " + ", ".join(missing)
+            + "; capture them once with scripts/wp4_2_evidence.sh --capture-fixtures "
+            "(runbook 9.1 WP4.2)."
+        )
+
+    session = f"wp42-check-{uuid4().hex}"
+    lonely_session = f"wp42-check-empty-{uuid4().hex}"
+    report: dict[str, object] = {"backend_url": BACKEND_URL, "database": live_path,
+                                 "session_id": session}
+    try:
+        with httpx.Client(
+            timeout=GROUNDED_TURN_TIMEOUT_SECONDS, trust_env=False, follow_redirects=False,
+        ) as client:
+            health = client.get(BACKEND_URL + "/api/health").json()
+            answer, answer_debug, answer_id, answer_ms = _wp42_post(
+                client, session, GROUNDED_TURN_FIXTURE)
+            repeat, repeat_debug, repeat_id, repeat_ms = _wp42_post(
+                client, session, "repeat_request.wav")
+            printed, print_debug, print_id, print_ms = _wp42_post(
+                client, session, "print_request.wav")
+            second, second_debug, second_id, _ = _wp42_post(
+                client, session, "repeat_request.wav")
+            # Different audio under each turn_id: re-execution would swap the action.
+            replay, _, _, replay_ms = _wp42_post(
+                client, session, "repeat_request.wav", turn_id=print_id)
+            repeat_replay, replays_debug, _, repeat_replay_ms = _wp42_post(  #v2.2
+                client, session, "print_request.wav", turn_id=repeat_id)
+            lonely, lonely_debug, lonely_id, _ = _wp42_post(
+                client, lonely_session, "repeat_request.wav")
+    except (httpx.HTTPError, ValueError):
+        print("FAIL: the grounded stack is not reachable; start it first (runbook 9.2 WP4.2).",
+              file=sys.stderr)
+        return report, {"stack_reachable": False}
+
+    try:
+        with closing(sqlite3.connect(f"file:{live_path}?mode=ro", uri=True)) as connection:
+            connection.row_factory = sqlite3.Row
+            schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+            rows = {
+                row["turn_id"]: dict(row) for row in connection.execute(
+                    "SELECT turn_id, state, intent, previous_turn_id, action_outcome, "
+                    "replay_count, slip_text FROM turns WHERE session_id IN (?, ?)",
+                    (session, lonely_session),
+                )
+            }
+            source_rows = {
+                turn_id: [tuple(row) for row in connection.execute(
+                    "SELECT position, source_id, source_url, chunk_id, cited "
+                    "FROM turn_sources WHERE turn_id = ? ORDER BY position", (turn_id,))]
+                for turn_id in (answer_id, repeat_id, print_id)
+            }
+    except sqlite3.Error as error:
+        raise ValueError(f"cannot read {live_path} read-only: {error}") from None
+
+    report.update({
+        "health": health, "schema_version": schema_version,
+        "turn_ids": {"answer": answer_id, "repeat": repeat_id, "print": print_id,
+                     "second_repeat": second_id, "nothing_to_act_on": lonely_id},
+        "elapsed_ms": {"answer": round(answer_ms, 1), "repeat": round(repeat_ms, 1),
+                       "print": round(print_ms, 1), "print_replay": round(replay_ms, 1),
+                       "repeat_replay": round(repeat_replay_ms, 1)},  #v2.2
+        "transcripts": {"repeat": repeat_debug.get("transcript"),
+                        "print": print_debug.get("transcript")},
+        "stored_rows": rows,
+    })
+    answer_row = rows.get(answer_id) or {}
+    checks = {
+        "stack_reachable": True,
+        "health_reports_storage_ready": health.get("storage_ready") is True,
+        "live_database_at_exact_schema_version_2": schema_version == WP42_SCHEMA_VERSION,
+        "answer_answered_with_sources": answer.get("state") == "answered"
+        and bool(answer.get("sources")),
+        "answer_has_null_action_fields": answer_debug.get("previous_turn_id") is None
+        and answer_debug.get("action_outcome") is None,
+        # WP4-AT-04
+        "repeat_routed": repeat_debug.get("intent") == "repeat_previous",
+        "repeat_acted": repeat.get("state") == "acted",
+        "repeat_text_audio_sources_unchanged": all(
+            repeat.get(field) == answer.get(field)
+            for field in ("reply_text", "display_text", "reply_audio", "language", "sources")
+        ),
+        "repeat_slip_empty": repeat.get("slip_text") == "",
+        "repeat_resolved_to_answer": repeat_debug.get("previous_turn_id") == answer_id
+        and repeat_debug.get("action_outcome") == "resolved",
+        "repeat_no_retrieval_llm_or_tts": _stage_nulls(
+            repeat_debug, "retrieval_ms", "llm_ms", "tts_ms", "query_rewrite_ms"),
+        "repeat_stt_ran": ((repeat_debug.get("timings_ms") or {}).get("stt_ms") or 0) > 0,
+        # WP4-AT-05
+        "print_routed": print_debug.get("intent") == "print_previous",
+        "print_acted": printed.get("state") == "acted",
+        "print_slip_equals_stored_answer_slip": bool(answer_row)
+        and printed.get("slip_text") == answer_row.get("slip_text")
+        and printed.get("slip_text") == answer.get("slip_text"),
+        "print_resolved_to_answer_not_repeat": print_debug.get("previous_turn_id") == answer_id,
+        "print_no_retrieval_or_llm": _stage_nulls(print_debug, "retrieval_ms", "llm_ms"),
+        "second_repeat_resolves_to_answer": second_debug.get("previous_turn_id") == answer_id
+        and second.get("reply_text") == answer.get("reply_text"),
+        "action_rows_copy_answer_sources": bool(source_rows[answer_id])
+        and source_rows[repeat_id] == source_rows[answer_id]
+        and source_rows[print_id] == source_rows[answer_id],
+        "action_rows_store_previous_turn": (rows.get(repeat_id) or {}).get("previous_turn_id")
+        == answer_id and (rows.get(print_id) or {}).get("previous_turn_id") == answer_id,
+        # Idempotency of an action turn_id.
+        "print_replay_identical": replay == printed,
+        "print_replay_counted_in_store": (rows.get(print_id) or {}).get("replay_count") == 1,
+        "repeat_replay_identical": repeat_replay == repeat,  #v2.2
+        "repeat_replay_counted_in_store": (rows.get(repeat_id) or {}).get("replay_count") == 1,
+        # The debug view shows the newest *executed* turn (runbook 9.1 WP4.1
+        # "Debug view additions"). A replay writes no row, so after replaying
+        # two older turns it still shows the second repeat, uncounted.
+        "debug_view_stays_on_newest_executed_turn_after_replays": (  #v2.2
+            replays_debug.get("turn_id") == second_id
+            and replays_debug.get("replay_count") == 0
+        ),
+        # Nothing to act on, in a session with no stored turn.
+        "nothing_to_act_on_acted_without_slip": lonely.get("state") == "acted"
+        and lonely.get("slip_text") == "" and lonely.get("sources") == [],
+        "nothing_to_act_on_distinguished": lonely_debug.get("action_outcome")
+        == "nothing_to_act_on" and lonely_debug.get("previous_turn_id") is None,
+    }
+    return report, checks
+
+
 REGISTRY = {
     ("WP2.3", "B"): check_wp23_tier_b,
     ("WP2.4", "B"): check_wp24_tier_b,
@@ -927,6 +1099,7 @@ REGISTRY = {
     ("WP3.3", "B"): check_wp33_tier_b,  #v1.5
     ("WP3.4", "B"): check_wp34_tier_b,  #v1.8
     ("WP4.1", "B"): check_wp41_tier_b,  #v2.0
+    ("WP4.2", "B"): check_wp42_tier_b,  #v2.1
 }
 
 

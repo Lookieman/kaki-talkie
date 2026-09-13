@@ -1,3 +1,4 @@
+# v1.1 | 13-Sep-2026 | Resolve an action's previous turn; store previous_turn_id and outcome.
 # v1.0 | 13-Sep-2026 | Store completed turns durably and replay them by turn_id.
 """Read and write completed turns as the durable idempotency record.
 
@@ -8,6 +9,10 @@ the `turns` row, and one `turn_sources` row per response source. Replaying a
 Reply audio is stored as the raw WAV bytes in a BLOB. The device response
 carries it as a base64 data URL, so this module converts at the storage edge
 in both directions and nothing base64-encoded reaches the database.
+
+WP4.2 actions read this store too: `previous_content_turn` returns the turn
+a repeat or print resolves to, and an action turn copies that turn's source
+rows so its own replay rebuilds from its own rows.
 """
 
 import json
@@ -139,6 +144,24 @@ class TurnRepository:
                 raise
         return stored.response if stored is not None else None
 
+    def previous_content_turn(self, session_id: str) -> TurnExecution | None:  #v1.1
+        """Return the newest `answered` or `refused` turn in the session, or None.
+
+        `acted` and `failed` turns are skipped (runbook 9.1 WP4.2), so a
+        second repeat, or a print after a repeat, resolves to the original
+        answer. Reads the store, so it works after a restart.
+        """
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT turn_id FROM turns WHERE session_id = ? "
+                "AND state IN ('answered', 'refused') ORDER BY rowid DESC LIMIT 1",
+                (session_id,),
+            ).fetchone()
+            stored = self._load(connection, row["turn_id"]) if row is not None else None
+        if stored is None:
+            return None
+        return TurnExecution(response=stored.response, log=stored.log)
+
     def find(self, turn_id: str) -> StoredTurn | None:
         """Return one stored turn without counting a replay."""
         with self.database.connect() as connection:
@@ -222,6 +245,8 @@ class TurnRepository:
                 )
                 for source in source_rows
             ],
+            previous_turn_id=row["previous_turn_id"],  #v1.1
+            action_outcome=row["action_outcome"],  #v1.1
         )
         return StoredTurn(
             response=response, log=log,
@@ -234,8 +259,9 @@ _INSERT_TURN = (
     "transcript, stt_language_json, language, reply_text, display_text, slip_text, "
     "reply_audio, case_id, stt_error, llm_error, tts_error, retrieval_error, "
     "normalised_query, best_dense_score, evidence_min_dense, cited_source_id, "
-    "llm_cited_index, timings_json, retrieval_evidence_json, completed_at) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "llm_cited_index, timings_json, retrieval_evidence_json, completed_at, "
+    "previous_turn_id, action_outcome) "  #v1.1
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 
 
@@ -252,5 +278,5 @@ def _turn_values(execution: TurnExecution, audio: bytes | None, completed_at: st
         log.evidence_min_dense, log.cited_source_id, log.llm_cited_index,
         log.timings.model_dump_json(),
         json.dumps([entry.model_dump(mode="json") for entry in log.retrieval_evidence]),
-        completed_at,
+        completed_at, log.previous_turn_id, log.action_outcome,  #v1.1
     )

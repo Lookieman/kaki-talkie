@@ -1,3 +1,4 @@
+# v1.2 | 13-Sep-2026 | Cover WP4.2 action items, sessions via `after` and the store hook.
 # v1.1 | 12-Sep-2026 | Drop redaction expectations; redaction is no longer performed.
 # v1.0 | 12-Sep-2026 | Verify the devset runner contract with fake ports and no services.
 """Exercise run_regression deterministically: no model, no network, no stack.
@@ -69,6 +70,7 @@ class FakePipeline:
             "cited_source_id": "cdc-vouchers-residents" if state == "answered" else None,
             "best_dense_score": 0.8 if state == "answered" else 0.2,
             "evidence_min_dense": 0.5,
+            "previous_turn_id": None, "action_outcome": None,
         })()
         return type("Execution", (), {"response": response, "log": log})()
 
@@ -81,6 +83,13 @@ class FakeStt:
 
     def speak(self, transcript: str, language: str) -> None:
         self._pipeline.transcripts.append(transcript)
+
+
+class FakeHistory:
+    """Accept recorded executions without storing them."""
+
+    def record(self, execution) -> None:
+        pass
 
 
 class DevsetValidationTests(CannedEnvironment, unittest.TestCase):
@@ -124,6 +133,16 @@ class DevsetValidationTests(CannedEnvironment, unittest.TestCase):
         self.assertEqual(status, 2)
         self.assertIn("no devset items", stderr)
 
+    def test_after_must_name_an_earlier_item(self):
+        path = write_devset([
+            {"id": "repeat", "utterance": "repeat that", "expected_intent": "repeat_previous",
+             "after": "answer"},
+            {"id": "answer", "utterance": "cdc", "expected_intent": "answer"},
+        ])
+        status, _, stderr = run_main(["--devset", str(path)])
+        self.assertEqual(status, 2)
+        self.assertIn("must name an earlier item", stderr)
+
     def test_invalid_target_is_a_usage_error(self):
         status, _, stderr = run_main(["--intent-target", "1.5"])
         self.assertEqual(status, 2)
@@ -142,13 +161,40 @@ class CommittedDevsetTests(unittest.TestCase):
     def test_every_item_declares_a_consistent_expectation(self):
         for item in run_regression.load_devset(COMMITTED_DEVSET):
             with self.subTest(item=item["id"]):
-                if item["expected_intent"] == "refuse":
+                if item["expected_intent"] in run_regression.ACTION_INTENT_VALUES:
+                    self.assertEqual(item["expected_state"], "acted")
+                    self.assertIsNone(item["expected_refusal_reason"])
+                    self.assertIsNone(item["expected_source_id"])
+                    self.assertIn(item["expected_action_outcome"],
+                                  {"resolved", "nothing_to_act_on"})
+                    self.assertEqual(item["expected_previous_id"] is None,
+                                     item["expected_action_outcome"] == "nothing_to_act_on")
+                elif item["expected_intent"] == "refuse":
                     self.assertEqual(item["expected_state"], "refused")
                     self.assertIsNotNone(item["expected_refusal_reason"])
                     self.assertIsNone(item["expected_source_id"])
                 else:
                     self.assertEqual(item["expected_state"], "answered")
                     self.assertIsNone(item["expected_refusal_reason"])
+
+    def test_action_items_cover_both_intents_in_three_varieties(self):
+        items = run_regression.load_devset(COMMITTED_DEVSET)
+        actions = [item for item in items
+                   if item["expected_intent"] in run_regression.ACTION_INTENT_VALUES]
+        self.assertEqual(len(actions), 10)
+        for intent in ("repeat_previous", "print_previous"):
+            languages = {item["language"] for item in actions if item["expected_intent"] == intent}
+            with self.subTest(intent=intent):
+                self.assertTrue({"en", "en-sg", "ms"} <= languages)
+        outcomes = {item["expected_action_outcome"] for item in actions}
+        self.assertEqual(outcomes, {"resolved", "nothing_to_act_on"})
+
+    def test_printing_question_is_an_answer_not_an_action(self):
+        items = {item["id"]: item for item in run_regression.load_devset(COMMITTED_DEVSET)}
+        guard = items["cdc-print-procedural"]
+        self.assertEqual(guard["utterance"], "How do I print my CDC vouchers?")
+        self.assertEqual((guard["expected_intent"], guard["expected_state"]),
+                         ("answer", "answered"))
 
     def test_the_credential_item_expects_a_credential_action_refusal(self):
         items = {item["id"]: item for item in run_regression.load_devset(COMMITTED_DEVSET)}
@@ -173,7 +219,8 @@ class ScoringTests(CannedEnvironment, unittest.TestCase):
         stt = FakeStt(pipeline)
         with (
             patch.object(run_regression, "InjectedStt", lambda: stt),
-            patch.object(run_regression, "build_pipeline", lambda _: pipeline),
+            patch.object(run_regression, "build_pipeline", lambda *_: pipeline),
+            patch.object(run_regression, "open_history", lambda _: FakeHistory()),
         ):
             return run_main(["--devset", str(path), *(argv or [])])
 
@@ -248,6 +295,44 @@ class ScoringTests(CannedEnvironment, unittest.TestCase):
         result = json.loads(stdout)["results"][0]
         self.assertFalse(result["checks"]["refusal_reason"])
         self.assertFalse(result["passed"])
+
+
+class ActionItemTests(CannedEnvironment, unittest.TestCase):
+    """Action items run through the real pipeline and store with canned ports."""
+
+    def test_action_items_resolve_in_their_after_session(self):
+        from kaki_backend.orchestration.turn_pipeline import TurnPipeline
+
+        records = [
+            {"id": "answer", "utterance": "How do I use my CDC vouchers?",
+             "expected_intent": "answer", "expected_state": "answered",
+             "expected_source_id": None, "expected_refusal_reason": None},
+            {"id": "repeat", "utterance": "Can you repeat that?", "after": "answer",
+             "expected_intent": "repeat_previous", "expected_state": "acted",
+             "expected_source_id": None, "expected_refusal_reason": None,
+             "expected_previous_id": "answer", "expected_action_outcome": "resolved"},
+            {"id": "print", "utterance": "Please print that for me.", "after": "repeat",
+             "expected_intent": "print_previous", "expected_state": "acted",
+             "expected_source_id": None, "expected_refusal_reason": None,
+             "expected_previous_id": "answer", "expected_action_outcome": "resolved"},
+            {"id": "lonely", "utterance": "Please repeat that.",
+             "expected_intent": "repeat_previous", "expected_state": "acted",
+             "expected_source_id": None, "expected_refusal_reason": None,
+             "expected_previous_id": None, "expected_action_outcome": "nothing_to_act_on"},
+        ]
+
+        def canned_pipeline(stt, history):
+            return TurnPipeline(stt=stt, tts=run_regression.SilentTts(), history=history)
+
+        path = write_devset(records)
+        with patch.object(run_regression, "build_pipeline", canned_pipeline):
+            status, stdout, stderr = run_main(["--devset", str(path)])
+        report = json.loads(stdout)
+        self.assertEqual(status, 0, stderr)
+        self.assertEqual(report["items_passed"], 4)
+        by_id = {result["id"]: result for result in report["results"]}
+        self.assertEqual(by_id["print"]["previous_turn_id"], "regression-answer")
+        self.assertEqual(by_id["lonely"]["action_outcome"], "nothing_to_act_on")
 
 
 if __name__ == "__main__":

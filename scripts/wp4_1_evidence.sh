@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# v1.1 | 13-Sep-2026 | Test 1 accepts schema version 1 or later; WP4.2 asserts the exact value.
 # v1.0 | 13-Sep-2026 | Owner evidence harness for runbook 9.2 WP4.1 Tests 1-5.
 #
 # Capture WP4.1 validation evidence on the Mac by running the runbook 9.2
@@ -301,7 +302,12 @@ cat "$WP41_EVIDENCE/schema.txt"
 schema_tokens="$(tr -s ' \n' '\n' < "$WP41_EVIDENCE/schema.txt" | sed '/^$/d')"
 check "tables" "$(printf '%s\n' "$schema_tokens" | sed '$d' | sort | tr '\n' ' ' | sed 's/ $//')" \
     "$EXPECTED_TABLES"
-check "user_version" "$(printf '%s\n' "$schema_tokens" | tail -1)" "1"
+# At least 1: later migrations raise the version (WP4.2 adds 0002 and asserts it exactly).
+schema_version="$(printf '%s\n' "$schema_tokens" | tail -1)"
+if ! [ "$schema_version" -ge 1 ] 2>/dev/null; then
+    fail "user_version: expected at least 1, got '$schema_version'"
+fi
+printf 'check ok: user_version = %s (at least 1)\n' "$schema_version"
 
 backend_log="$KAKI_DATA_ROOT/logs/backend.log"
 if ! grep -i 'sqlite' "$backend_log" | tail -2 > "$WP41_EVIDENCE/backend_log_sqlite.txt"; then
@@ -310,8 +316,8 @@ fi
 cat "$WP41_EVIDENCE/backend_log_sqlite.txt"
 last_log_line="$(tail -1 "$WP41_EVIDENCE/backend_log_sqlite.txt")"
 case "$last_log_line" in
-    *"$KAKI_DB"*"schema version 1"*) printf 'check ok: backend log names %s and schema version 1\n' "$KAKI_DB" ;;
-    *) fail "backend log line does not name $KAKI_DB at schema version 1: $last_log_line" ;;
+    *"$KAKI_DB"*"schema version $schema_version"*) printf 'check ok: backend log names %s and schema version %s\n' "$KAKI_DB" "$schema_version" ;;
+    *) fail "backend log line does not name $KAKI_DB at schema version $schema_version: $last_log_line" ;;
 esac
 
 # ---------------------------------------------------------------------------

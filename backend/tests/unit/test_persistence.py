@@ -1,3 +1,4 @@
+# v1.1 | 13-Sep-2026 | Assert at least schema version 1; WP4.2 owns the exact value.
 # v1.0 | 13-Sep-2026 | Cover WP4.1 storage settings, migrations, pragmas and the turn store.
 """SQLite persistence with disposable databases and fake ports; no models or network.
 
@@ -172,7 +173,9 @@ class DatabaseTests(TemporaryDatabaseMixin, unittest.TestCase):
                 )
             }
         self.assertEqual(tables, {"devices", "sessions", "turns", "turn_sources"})
-        self.assertEqual(database.schema_version(), 1)
+        # Later migrations raise the version; the exact value is asserted by
+        # the unit that adds the migration (WP4.2: test_actions.py).
+        self.assertGreaterEqual(database.schema_version(), 1)
         self.assertTrue(database.ready())
 
     def test_packaged_migrations_are_numbered_from_one(self) -> None:
@@ -183,7 +186,8 @@ class DatabaseTests(TemporaryDatabaseMixin, unittest.TestCase):
     def test_reopening_is_idempotent(self) -> None:
         Database.open(self.path)
         database = Database.open(self.path)
-        self.assertEqual(database.schema_version(), 1)
+        self.assertGreaterEqual(database.schema_version(), 1)
+        self.assertEqual(database.schema_version(), database.latest_version)
 
     def test_every_connection_carries_the_pragmas(self) -> None:
         database = Database.open(self.path)

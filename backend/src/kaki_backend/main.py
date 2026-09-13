@@ -1,3 +1,4 @@
+# v2.0 | 13-Sep-2026 | Give the pipeline the turn store so WP4.2 actions resolve from it.
 # v1.9 | 13-Sep-2026 | Open and migrate the SQLite turn store at startup.
 # v1.8 | 12-Sep-2026 | Pass the configured WP3.4 evidence gate into the pipeline.
 # v1.7 | 12-Sep-2026 | Load HF_TOKEN from the project-root .env before building ports.
@@ -43,6 +44,7 @@ print(  #v1.9
     f"at schema version {app.state.database.schema_version()}",
     file=sys.stderr, flush=True,
 )
+turn_repository = TurnRepository(app.state.database)  #v2.0
 retrieval_settings = RetrievalSettings.from_environment()  #v1.6
 app.state.model_ports = {  #v1.5
     "stt": SttSettings.from_environment().create_port(),
@@ -58,7 +60,8 @@ app.state.turn_service = TurnService(TurnPipeline(  #v1.4
     retrieval_active=retrieval_settings.active,  #v1.6
     query_normalise=retrieval_settings.normalise,  #v1.6
     evidence_min_dense=retrieval_settings.evidence_min_dense,  #v1.8
-), TurnRepository(app.state.database))  #v1.9
+    history=turn_repository,  #v2.0
+), turn_repository)  #v2.0
 app.include_router(health_router)
 app.include_router(pending_router)  #v1.1
 app.include_router(turn_router)

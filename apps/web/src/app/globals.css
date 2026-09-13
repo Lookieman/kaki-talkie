@@ -1,3 +1,4 @@
+/* v1.1 | 13-Sep-2026 | Style the WP4.2 print-policy control. */
 /* v1.0 | 04-Sep-2026 | Style the responsive WP1.3 simulator and receipt. */
 
 :root {
@@ -243,4 +244,19 @@ button {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+.print-policy {
+  display: flex;
+  gap: 1rem;
+  margin: 0.5rem 0 0.75rem;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.print-policy legend {
+  float: left;
+  margin-right: 0.5rem;
 }

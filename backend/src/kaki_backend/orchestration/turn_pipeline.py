@@ -1,3 +1,4 @@
+# v2.2 | 13-Sep-2026 | Answer repeat_previous and print_previous from stored turns.
 # v2.1 | 13-Sep-2026 | Link each response source to its evidence chunk for durable storage.
 # v2.0 | 12-Sep-2026 | Drop transcript redaction; keep credential-action and coverage refusal.
 # v1.9 | 12-Sep-2026 | Redact secrets, route credential actions and refuse without evidence.
@@ -33,6 +34,11 @@ Layer 1 is a safety rule and applies in every configuration. Layers 2 and 3
 need retrieval, so in the WP2 configuration an unsupported question keeps
 its ungrounded answered reply exactly as before.
 
+WP4.2 adds deterministic actions after routing. `repeat_previous` and
+`print_previous` resolve the previous turn in the session from the store and
+return an `acted` turn without retrieval or generation; a resolved repeat
+also replays the stored audio instead of synthesising (runbook 9.1 WP4.2).
+
 The pipeline does not redact volunteered credentials (design.md 8, owner
 decision 12-Sep-2026): a transcript has already passed through the STT
 service and the network, so redacting it here cannot protect the value and
@@ -50,9 +56,13 @@ from kaki_backend.orchestration.audio_lifecycle import TestAudioRetention, TurnA
 from kaki_backend.contracts.responses import SourceRecord, TurnResponse, TurnState  #v1.7
 from kaki_backend.contracts.turn_log import EvidenceScore, TurnExecution, TurnLog, TurnTimings  #v1.7
 from kaki_backend.contracts.turn_log import SourceLink  #v2.1
+from kaki_backend.actions import ActionOutcome, NoTurnHistory, TurnHistory  #v2.2
+from kaki_backend.actions.print_action import print_previous  #v2.2
+from kaki_backend.actions.repeat_action import repeat_previous  #v2.2
 from kaki_backend.config import DEFAULT_EVIDENCE_MIN_DENSE  #v1.9
 from kaki_backend.orchestration.citation import select_cited_evidence  #v1.8
 from kaki_backend.orchestration.intent_router import (  #v1.9
+    ACTION_INTENTS,  #v2.2
     Intent,
     RefusalReason,
     refusal_message,
@@ -160,6 +170,7 @@ class TurnPipeline:  #v1.1
         retrieval_active: bool = False,  #v1.7
         query_normalise: bool = True,  #v1.7
         evidence_min_dense: float = DEFAULT_EVIDENCE_MIN_DENSE,  #v1.9
+        history: TurnHistory | None = None,  #v2.2
     ) -> None:
         """Select supplied ports or the existing deterministic canned adapters.
 
@@ -167,8 +178,9 @@ class TurnPipeline:  #v1.1
         the retrieval and rewrite stages are never invoked and their timings
         stay null, preserving the WP1/WP2 behaviour exactly.
         `evidence_min_dense` is the WP3.4 refusal gate and applies only when
-        retrieval is active.
-        """  #v1.9
+        retrieval is active. `history` is the stored-turn reader the WP4.2
+        actions resolve from; without one, every action has nothing to act on.
+        """  #v2.2
         self._stt = stt or CannedSttPort()  #v1.1
         self._llm = llm or CannedLlmPort()  #v1.1
         self._tts = tts or CannedTtsPort()  #v1.1
@@ -176,6 +188,7 @@ class TurnPipeline:  #v1.1
         self._retrieval_active = retrieval_active  #v1.7
         self._query_normalise = query_normalise  #v1.7
         self._evidence_min_dense = evidence_min_dense  #v1.9
+        self._history = history or NoTurnHistory()  #v2.2
         self.execution_count = 0  #v1.1
 
     def execute(  #v1.1
@@ -218,6 +231,7 @@ class TurnPipeline:  #v1.1
         refusal_reason: RefusalReason | None = None  #v1.9
         best_dense = None  #v1.9
         source_chunks: list[EvidenceChunk] = []  #v2.1
+        action: ActionOutcome | None = None  #v2.2
         if transcription is not None:
             transcript = transcription.text  #v2.0
 
@@ -229,7 +243,15 @@ class TurnPipeline:  #v1.1
             refusal_reason = routing.refusal_reason  #v1.9
             timings.routing_ms = (perf_counter() - routing_started_at) * 1000  #v1.1
 
-            if refusal_reason is None and self._retrieval_active:  #v1.9
+            if routing.intent in ACTION_INTENTS:  #v2.2
+                # Actions answer from the store: no retrieval, gate or model.
+                previous = self._history.previous_content_turn(session_id)
+                if routing.intent is Intent.REPEAT_PREVIOUS:
+                    action = repeat_previous(previous)
+                else:
+                    action = print_previous(previous)
+
+            if refusal_reason is None and action is None and self._retrieval_active:  #v2.2
                 if self._query_normalise and _needs_rewrite(transcript, transcription.evidence):
                     rewrite_started_at = perf_counter()
                     try:
@@ -262,7 +284,7 @@ class TurnPipeline:  #v1.1
                     "display_text": "Please try again shortly.",
                     "reply_audio": None,
                 })
-            elif refusal_reason is None:  #v1.9
+            elif refusal_reason is None and action is None:  #v2.2
                 llm_started_at = perf_counter()  #v1.1
                 try:  #v1.5
                     if evidence:  #v1.8
@@ -293,7 +315,14 @@ class TurnPipeline:  #v1.1
             # A failed stage has already built its own response above; only a
             # turn that got through it has a reply to shape.
             if retrieval_error is None and llm_error is None:  #v1.9
-                if refusal_reason is not None:
+                if action is not None:  #v2.2
+                    reply_text = action.reply_text
+                    display_text = action.display_text
+                    slip_text = action.slip_text
+                    sources = list(action.sources)
+                    language = action.language
+                    state = TurnState.ACTED
+                elif refusal_reason is not None:
                     # Whichever layer refused, the wording is the router's,
                     # not the model's, so the spoken output stays stable.
                     intent = Intent.REFUSE.value
@@ -322,18 +351,22 @@ class TurnPipeline:  #v1.1
 
         tts_error = None  #v1.6
         if transcription is not None and llm_error is None and retrieval_error is None:  #v1.7
-            tts_started_at = perf_counter()  #v1.1
-            try:  #v1.5
-                reply_audio = self._tts.synthesize(reply_text)  #v1.1
-            except TtsError as error:  #v1.6
-                # Losing speech must not lose the answer; degrade to text only.
-                tts_error = error.code
-                reply_audio = None
-            except ValueError:  #v1.5
-                # The canned engine has no recording for generated text; answer as text only.
-                tts_error = "unavailable"  #v1.6
-                reply_audio = None
-            timings.tts_ms = (perf_counter() - tts_started_at) * 1000  #v1.1
+            if action is not None and not action.speak:  #v2.2
+                # A resolved repeat replays the stored bytes; TTS is not called.
+                reply_audio = action.reply_audio
+            else:
+                tts_started_at = perf_counter()  #v1.1
+                try:  #v1.5
+                    reply_audio = self._tts.synthesize(reply_text)  #v1.1
+                except TtsError as error:  #v1.6
+                    # Losing speech must not lose the answer; degrade to text only.
+                    tts_error = error.code
+                    reply_audio = None
+                except ValueError:  #v1.5
+                    # The canned engine has no recording for generated text; answer as text only.
+                    tts_error = "unavailable"  #v1.6
+                    reply_audio = None
+                timings.tts_ms = (perf_counter() - tts_started_at) * 1000  #v1.1
             response = TurnResponse(  #v1.1
                 turn_id=turn_id,
                 reply_audio=reply_audio,
@@ -357,8 +390,9 @@ class TurnPipeline:  #v1.1
             intent=intent,  #v1.9
             refusal_reason=refusal_reason.value if refusal_reason else None,  #v1.9
             best_dense_score=best_dense,  #v1.9
-            evidence_min_dense=(  #v1.9
-                self._evidence_min_dense if self._retrieval_active else None
+            evidence_min_dense=(  #v2.2
+                self._evidence_min_dense
+                if self._retrieval_active and action is None else None
             ),
             stt_language=transcription.evidence if transcription else None,
             stt_error=stt_error,
@@ -368,7 +402,12 @@ class TurnPipeline:  #v1.1
             normalised_query=normalised_query,  #v1.7
             cited_source_id=cited.source_id if cited else None,  #v1.8
             llm_cited_index=llm_cited_index,  #v1.8
-            source_links=_source_links(evidence, source_chunks, cited),  #v2.1
+            source_links=(  #v2.2
+                list(action.source_links) if action is not None
+                else _source_links(evidence, source_chunks, cited)
+            ),
+            previous_turn_id=action.previous_turn_id if action else None,  #v2.2
+            action_outcome=action.kind.value if action else None,  #v2.2
             retrieval_evidence=[  #v1.7
                 EvidenceScore(
                     chunk_id=chunk.chunk_id,

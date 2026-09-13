@@ -1,3 +1,4 @@
+# v1.4 | 13-Sep-2026 | Run MLX-LM with PYTHONUNBUFFERED=1 so llm.log is current per request.
 # v1.3 | 13-Sep-2026 | Require backend storage readiness; document the inherited data root.
 # v1.2 | 12-Sep-2026 | Retry cold readiness probes quickly; load HF_TOKEN from .env.
 # v1.1 | 11-Sep-2026 | Start the grounded stack: retrieval mode export and readiness wait.
@@ -23,7 +24,9 @@ retrieval grounded, `retrieval_ready`, whose first probe loads the embedding
 model. `down` signals those recorded processes and removes their
 pidfiles. Requires an absolute `KAKI_DATA_ROOT`. Paths follow setup.md and
 may be overridden: `KAKI_WHISPER_SERVER`, `KAKI_WHISPER_MODEL`,
-`KAKI_LLM_PYTHON`, `HF_HOME`. Exit status is zero on success; 2 indicates a
+`KAKI_LLM_PYTHON`, `HF_HOME`. MLX-LM runs with `PYTHONUNBUFFERED=1`, so its
+redirected log is written as each request completes; the WP4.2 evidence
+harness counts `llm.log` lines around a turn (runbook 9.2 WP4.2). Exit status is zero on success; 2 indicates a
 usage or configuration error.
 """
 
@@ -104,7 +107,9 @@ def build_services(environment: dict[str, str]) -> list[Service]:
                 "--chat-template-args", '{"enable_thinking":false}',
             ),
             marker="mlx_lm", readiness_deadline_seconds=300,
-            extra_environment=(("HF_HOME", hf_home),),
+            # Redirected Python stdout is block-buffered; unbuffered keeps
+            # llm.log current for per-request log counts (runbook 9.2 WP4.2).
+            extra_environment=(("HF_HOME", hf_home), ("PYTHONUNBUFFERED", "1")),  #v1.4
         ),
         Service(
             name="backend", port=8000, health_url="http://127.0.0.1:8000/api/health",

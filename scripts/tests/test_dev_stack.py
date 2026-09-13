@@ -1,8 +1,11 @@
+# v1.4 | 13-Sep-2026 | Occupied-port test binds an OS-assigned port, hermetic with the stack up.
+# v1.3 | 13-Sep-2026 | Prove MLX-LM starts with PYTHONUNBUFFERED=1.
 # v1.2 | 13-Sep-2026 | Prove storage readiness is required and children inherit the data root.
 # v1.1 | 12-Sep-2026 | Give spawned helpers a canned environment instead of the shell's.
 # v1.0 | 09-Sep-2026 | Verify stack helper safety rules without starting real services.
 """Deterministic dev-stack helper tests; no service processes are spawned."""
 
+import dataclasses  #v1.4
 import importlib.util
 import json
 import os
@@ -57,6 +60,23 @@ class DevStackSafetyTests(unittest.TestCase):
         self.assertEqual(overrides["KAKI_LLM_MODE"], "qwen")
         self.assertEqual(overrides["KAKI_TTS_MODE"], "say")
 
+    def test_llm_service_runs_unbuffered(self) -> None:  #v1.3
+        # The WP4.2 harness counts llm.log lines around one turn; a buffered
+        # log would report "unchanged" for a turn that called the model.
+        llm = dev_stack.build_services({})[1]
+        self.assertEqual(dict(llm.extra_environment)["PYTHONUNBUFFERED"], "1")
+
+    def test_llm_child_receives_pythonunbuffered(self) -> None:  #v1.3
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(os.environ, {"KAKI_DATA_ROOT": directory}), \
+                patch.object(dev_stack, "port_is_free", return_value=True), \
+                patch.object(dev_stack.subprocess, "Popen") as popen:
+            os.environ.pop("PYTHONUNBUFFERED", None)  # patch.dict restores it
+            popen.return_value.pid = 4242
+            llm = dev_stack.build_services(dict(os.environ))[1]
+            self.assertTrue(dev_stack.start_service(llm, Path(directory), Path(directory)))
+        self.assertEqual(popen.call_args.kwargs["env"]["PYTHONUNBUFFERED"], "1")
+
     def test_backend_requires_storage_readiness(self) -> None:  #v1.2
         backend = dev_stack.build_services({})[2]
         self.assertEqual(backend.required_health_flags, ("storage_ready", "retrieval_ready"))
@@ -87,16 +107,23 @@ class DevStackSafetyTests(unittest.TestCase):
             self.assertFalse(dev_stack.port_is_free(port))
         self.assertTrue(dev_stack.port_is_free(port))
 
-    def test_up_refuses_an_occupied_port_without_touching_it(self) -> None:
-        service = dev_stack.build_services({})[0]
+    def test_up_refuses_an_occupied_port_without_touching_it(self) -> None:  #v1.4
+        # Bind an OS-assigned port, never a real service port: with the stack
+        # running, 8081 is already held and binding it fails with EADDRINUSE,
+        # so the result would depend on whether the stack is up.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-            listener.bind(("127.0.0.1", service.port))
+            listener.bind(("127.0.0.1", 0))
             listener.listen(1)
-            with tempfile.TemporaryDirectory() as directory:
+            occupied_port = listener.getsockname()[1]
+            service = dataclasses.replace(dev_stack.build_services({})[0], port=occupied_port)
+            with tempfile.TemporaryDirectory() as directory, \
+                    patch.object(dev_stack.subprocess, "Popen",
+                                 side_effect=AssertionError("must not spawn")) as popen:
                 started = dev_stack.start_service(
                     service, Path(directory), Path(directory)
                 )
             self.assertFalse(started)
+            popen.assert_not_called()
 
     def test_unreadable_and_missing_pidfiles_are_handled_safely(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

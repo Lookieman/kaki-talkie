@@ -2,7 +2,8 @@
 
 Date: 13-Sep-2026
 
-Status: accepted for WP4.1 by owner decision, 13-Sep-2026. Implements the
+Status: accepted for WP4.1 by owner decision, 13-Sep-2026. Amended for WP4.2
+(migration 0002), 13-Sep-2026. Implements the
 SQLite state decision in design.md sections 2 and 14.
 
 ## Decision
@@ -66,18 +67,60 @@ much. WP4.1 does no pruning. Size review belongs with the WP4.5 backup work.
 design.md is not edited in WP4.1. Reconcile section 14 at the next baseline
 update.
 
-## Direction for WP4.3: the cases table
+## Direction if the cases table is revived
 
 Migration 0001 creates `devices`, `sessions`, `turns` and `turn_sources` only.
+Handoff and follow-up, which `cases` served, are deferred beyond the MVP
+(design.md v1.4), so no MVP migration creates it. Migration 0002 belongs to
+WP4.2 (below); a revived `cases` takes the next free number.
 
 SQLite cannot add a foreign key to an existing table without rebuilding it.
 The reference therefore points from the new table to the old one:
-`cases.opened_by_turn_id` references `turns (turn_id)`. Migration 0002 creates
-`cases` with that column and needs no change to `turns`.
+`cases.opened_by_turn_id` references `turns (turn_id)`, and no change to
+`turns` is needed.
 
 `turns.case_id` already exists as plain text with no foreign key, because it
 belongs to the public response. It records the case a turn reports. It does
 not own the relationship.
+
+## Migration 0002 (WP4.2): action resolution
+
+`0002_previous_turn.sql` adds two nullable columns to `turns`:
+
+```text
++-------------------+----------------------------------------------------------+
+| Column            | Meaning                                                  |
++-------------------+----------------------------------------------------------+
+| previous_turn_id  | TEXT REFERENCES turns (turn_id). The stored turn a       |
+|                   | repeat_previous or print_previous resolved to.           |
+| action_outcome    | TEXT, 'resolved' or 'nothing_to_act_on' (CHECK). Null on |
+|                   | answer and refuse turns.                                 |
++-------------------+----------------------------------------------------------+
+```
+
+Both are additive; rows written at version 1 read null. `ADD COLUMN` needs no
+table rebuild, and the existing `turns_by_session` index serves the lookup.
+
+An action turn copies the resolved turn's `turn_sources` rows and, for a
+repeat, its reply audio, so the action's own replay rebuilds from its own
+rows. Each repeat therefore adds another copy of the reply audio. The WP4.2
+probe of the live database measured 806 KB on average and 944 KB at most over
+nine stored turns, larger than the 70-180 KB fixture range estimated above.
+
+**Rollback.** A WP4.1 build refuses a version 2 database, so rolling back the
+code needs a schema downgrade:
+
+1. Stop the backend: `python scripts/dev_stack.py down --only backend`.
+2. Back up: `sqlite3 "$KAKI_DB" ".backup '$KAKI_DB.pre-rollback'"`.
+3. Downgrade:
+   `sqlite3 "$KAKI_DB" "ALTER TABLE turns DROP COLUMN action_outcome; ALTER TABLE turns DROP COLUMN previous_turn_id; PRAGMA user_version = 1;"`
+4. Check out the WP4.1 commit and start the backend.
+
+`DROP COLUMN` needs SQLite 3.35 or later; the `.venv` library is 3.53.4 and
+the macOS CLI 3.51.0. Rows that were action turns stay, with state `acted`
+and their copied sources; WP4.1 replays them unchanged. The downgrade SQL is
+tested in `backend/tests/unit/test_actions.py`. Starting a WP4.2 build again
+re-applies 0002.
 
 ## Consequences
 

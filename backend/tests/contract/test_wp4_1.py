@@ -1,3 +1,4 @@
+# v1.1 | 13-Sep-2026 | Assert at least schema version 1; WP4.2 owns the exact value.
 # v1.0 | 13-Sep-2026 | Verify WP4-AT-01/02/03 over HTTP, including a real process restart.
 """WP4.1 durable turns over the device HTTP contract; canned or fake ports only.
 
@@ -130,8 +131,8 @@ class Wp41ContractTests(unittest.TestCase):
         self.assertEqual(replay, first)
         self.assertEqual(restarted.execution_count, 0)
         debug = self.client.get("/api/device/debug/last-turn").json()
-        self.assertEqual((debug["turn_id"], debug["replay_count"], debug["schema_version"]),
-                         ("replayed", 1, 1))
+        self.assertEqual((debug["turn_id"], debug["replay_count"]), ("replayed", 1))
+        self.assertGreaterEqual(debug["schema_version"], 1)
 
     def test_health_reports_storage_ready(self) -> None:
         self.assertIs(self.client.get("/api/health").json()["storage_ready"], True)

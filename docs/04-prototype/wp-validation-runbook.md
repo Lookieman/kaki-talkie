@@ -1,7 +1,24 @@
 # KaKi-Talkie WP validation runbook
 
-Version 1.14 | 13-Sep-2026 | SGLN Group 10
+Version 1.15 | 13-Sep-2026 | SGLN Group 10
 
+> v1.15 also corrects the WP3.4 credential rule (runbook 8.1 WP3.4 layer
+> 1): "Print my Singpass password" routed to `answer` because disclosure
+> matched a fixed verb list. The rule is now inverted, with Malay
+> procedural markers, and the layer 1 text states what the code does.
+> v1.15 adds the WP4.2 setup and test blocks (Prepare and Implement
+> WP4.2): `repeat_previous` and `print_previous` from stored turns,
+> migration 0002 (`previous_turn_id`, `action_outcome`), the client
+> print policy of design.md 9.3, ten devset action items and the owner
+> evidence harness `scripts/wp4_2_evidence.sh`. The harness drops its
+> `whisper.log` cross-checks (block-buffered, so the count lags) and keeps
+> the `llm.log` check with a positive control; `dev_stack.py` runs MLX-LM
+> with `PYTHONUNBUFFERED=1`. The WP4.2 tier B check
+> and harness Test 4 replay both action types and read the debug view as
+> the newest executed turn. Owner decisions 2-4
+> approved 13-Sep-2026. Schema-version checks in earlier units now
+> assert "at least"; only WP4.2 asserts the exact version. WP4.2 is
+> marked VERIFIED / CLOSED as of 13-Sep-2026.
 > v1.14 records the owner decision of 13-Sep-2026: the handoff and
 > calendar capabilities, and their Telegram and Google Calendar
 > integrations, are deferred beyond the MVP. Section 9 loses the handoff
@@ -1501,13 +1518,52 @@ offline with fake ports. None calls a model to decide whether to refuse.
 The router classifies each transcript as `answer` or `refuse` before
 retrieval. WP3.4 emits these two intents only; later units add others.
 
-A turn is refused with reason `credential_action` when it asks the kiosk
-to perform a credential operation (log in, reset, verify, unlock, transact)
-or to accept a password, PIN, OTP, passcode or verification code.
+A turn is refused with reason `credential_action` when it has no
+procedural marker and either:
 
-A procedural question about the same topic ("How do I reset my Singpass
-password?") routes to `answer`, as design.md 8 requires. The rule is
-keyword-and-context based. A number pattern alone never refuses.
+- names an authentication act: log in, login, log on, sign in, sign on,
+  unlock or authenticate; or
+- mentions a credential, whatever the verb: password, passcode, PIN,
+  OTP, one-time password, verification code or kata laluan.
+
+"Reset", "verify" and "transact" are not rule words. "Reset my
+password" refuses because it mentions a password. "Verify my account"
+and "transact for me" do not refuse at layer 1.
+
+The procedural markers exempt a turn from both rules:
+
+```text
++----------+----------------------------------------------------------------+
+| Language | Markers                                                        |
++----------+----------------------------------------------------------------+
+| English  | how do/can/to/does/would, where do/can/is/are, what do/should  |
+|          | I, steps to, guide to, process for                             |
+| Malay    | macam mana, bagaimana, di mana, cara nak/untuk/mahu, apa yang  |
+|          | perlu/patut/harus/kena/boleh, apa langkah/cara                 |
++----------+----------------------------------------------------------------+
+```
+
+A procedural question ("How do I reset my Singpass password?", "Macam
+mana nak reset kata laluan Singpass saya?") routes to `answer`, as
+design.md 8 requires. The rule matches words, not secret values; a
+number pattern alone never refuses.
+
+**Why the credential rule is inverted.** Until 13-Sep-2026 it refused
+only a fixed list of disclosure verbs (what is, tell me, show me, give
+me, read out, say). "Print my Singpass password" missed the list,
+passed the evidence gate against the Singpass corpus and got a helpful
+reply. Listing more verbs would miss the next one, so any credential
+mention without a procedural marker now refuses.
+
+**Why bare "apa" is not a marker.** "Apa kata laluan Singpass saya?"
+asks for the password itself, the Malay form of "What is my Singpass
+password?", which refuses. Only the procedural forms of "apa" exempt.
+
+**Consequence.** A statement that mentions a credential without asking
+how now refuses, for example "I forgot my Singpass password" or "My
+Singpass OTP did not arrive". The refusal wording offers the official
+steps, so the user can ask again with "how do I". The word "pin" as a
+verb ("Can I pin my CDC voucher?") also refuses.
 
 **Layer 2 - Evidence gate** (after retrieval, rag mode only)
 
@@ -2090,8 +2146,8 @@ through the protected simulator, once per WP3 gate:
 
 # 9. WP4 - memory + deterministic actions
 
-Status: **WP4.1 VERIFIED / CLOSED 13-Sep-2026; later WP4.x DRAFT - structure
-fixed; Prepare WP4.x fills in commands**
+Status: **WP4.1 and WP4.2 VERIFIED / CLOSED 13-Sep-2026; later WP4.x DRAFT -
+structure fixed; Prepare WP4.x fills in commands**
 
 ### 9.1 Setup and installation
 
@@ -2458,6 +2514,345 @@ from WP3.3 and WP3.4.
 - Runbook 13.1 step 3 does not yet list `storage_ready`; `dev_stack.py
   status` already requires it.
 
+#### WP4.2 setup - repeat_previous, print_previous, print policy
+
+Owner level: **S**
+Status: **VERIFIED / CLOSED 13-Sep-2026.**
+
+Machine: Mac Mini as `websvc`, checkout `~/projects/kaki-talkie`.
+Deterministic tests run with canned ports, no network and no model
+services. Tier B runs against the WP4.1 grounded stack and database.
+Browser tests use Chrome through the simulator.
+
+##### Prerequisites
+
+The WP4.1 grounded stack and its database (runbook 9.1 WP4.1). No new
+package, model, service or port.
+
+New in kind, not in installation:
+
+- Two spoken fixtures, `repeat_request.wav` and `print_request.wav`
+  (see "Fixture capture").
+- The simulator built from the WP4.2 checkout, because the print
+  policy rule lives in the client.
+- An interactive terminal. The evidence harness stops for owner
+  verdicts and refuses to run without a TTY.
+- macOS built-ins `say`, `afplay` and `afinfo`, plus `jq`, `sqlite3`,
+  `uuidgen` and `npm`, already used by earlier units.
+
+##### Scope
+
+WP4-AT-04, 05, 06. WP4.2 answers two deterministic requests from stored
+state:
+
+- `repeat_previous` replays the previous turn's spoken answer. No
+  retrieval, LLM or TTS call (AT-04).
+- `print_previous` returns the previous turn's slip unchanged. No
+  retrieval or LLM call (AT-05).
+- Under the `on_request` print policy nothing prints until the user
+  asks (AT-06).
+- Devset action items join the regression runner. WP4-AT-13 measures
+  them at WP4.5.
+
+The public device contract does not change. `acted` has been in the
+WP1 state enum since WP1.1, the response keeps its nine fields, and the
+WP1 schema snapshot stays unchanged. `GET /api/device/pending` still
+returns `[]`.
+
+Deferred: backup and the WP4 gate (WP4.5), the physical printer and
+its failure handling (WP6.3), Malay action wording (WP5.1).
+
+Deferred beyond the MVP: `kaki_handoff`, `calendar_create`, the
+`cases` table and pending delivery state. WP4.2 adds none of them.
+
+##### Routing
+
+Action routing adds a rule layer to `orchestration/intent_router.py`.
+Rules run in this order, all deterministic and model-free:
+
+1. Credential action (WP3.4 layer 1, unchanged). Safety first.
+2. Procedural guard. A procedural question is never an action: "How
+   do I print my CDC vouchers?" routes to `answer`.
+3. `repeat_previous` or `print_previous`: an action verb aimed at the
+   previous reply ("that", "it", "again", "the slip"), in English,
+   Singlish or Malay.
+4. Otherwise `answer`, which continues to the WP3.4 evidence gate and
+   `SOURCE: 0` layers.
+
+The rule is keyword-and-anaphora based. A bare topic noun never
+triggers an action: "Can I use CHAS for repeat visits?", "Hari ulang
+tahun saya" and "I lost my CDC voucher slip" route to `answer`. "Print
+my CDC voucher slip" is a print request. Credential rules run first, so
+"Print my Singpass password" refuses with `credential_action` and no
+action can capture a credential request. The Malay procedural markers
+of runbook 8.1 WP3.4 layer 1 guard both credential and action rules.
+The ten action items and the guard item below are in the devset:
+
+```text
++------------------------------------+-----------------+---------------------------+
+| Utterance                          | Intent          | Why it is in the set      |
++------------------------------------+-----------------+---------------------------+
+| Can you repeat that?               | repeat_previous | English baseline          |
+| Say again lah, I didn't catch that.| repeat_previous | Singlish                  |
+| Boleh ulang sekali lagi?           | repeat_previous | Malay                     |
+| Sorry, can you say that again?     | repeat_previous | Repeat of a refusal       |
+| Please repeat that.                | repeat_previous | Nothing to act on         |
+| Please print that for me.          | print_previous  | English baseline          |
+| Can print the slip for me ah?      | print_previous  | Singlish                  |
+| Tolong cetak slip itu.             | print_previous  | Malay                     |
+| Print it again please.             | print_previous  | Print after a repeat      |
+| Can I have the receipt?            | print_previous  | Nothing to act on         |
+| How do I print my CDC vouchers?    | answer          | Procedural guard          |
++------------------------------------+-----------------+---------------------------+
+```
+
+Action routing precedes retrieval because retrieval cannot catch it.
+The 13-Sep-2026 probe scored the five action utterances at best dense
+0.26-0.34, below the 0.50 gate, so today they are refused as
+`no_coverage`. The guard question scored 0.725 and answers from
+`cdc-vouchers-residents`.
+
+##### Previous-turn resolution
+
+An action resolves its target from SQLite at execution time:
+
+- Same `session_id` as the action turn.
+- The most recent stored turn in state `answered` or `refused`.
+- `acted` and `failed` turns are skipped. A repeat after a print, or a
+  second repeat, resolves to the same original answer.
+- The lookup reads the store, not process memory, so it works after a
+  backend restart.
+
+If no turn qualifies, the action returns the "nothing to act on"
+response below.
+
+##### Action turn shape
+
+The action turn is a new turn with its own `turn_id`, stored like any
+other. The fields depend on the outcome:
+
+```text
++--------------+-----------------------------+-----------------------------+---------------------------+
+| Field        | repeat_previous             | print_previous              | Nothing to act on         |
++--------------+-----------------------------+-----------------------------+---------------------------+
+| state        | acted                       | acted                       | acted                     |
+| reply_text   | Previous reply_text         | Fixed confirmation string   | Fixed string              |
+| display_text | Previous display_text       | Fixed confirmation string   | Fixed string              |
+| reply_audio  | Previous stored WAV bytes;  | TTS of the confirmation     | TTS of the fixed string   |
+|              | no TTS call                 | (failure degrades to text)  | (failure degrades to text)|
+| slip_text    | Empty                       | Previous slip_text,         | Empty                     |
+|              |                             | unchanged                   |                           |
+| sources      | Previous sources, same order| Previous sources, same order| Empty                     |
+| language     | Previous language           | en                          | en                        |
+| case_id      | null                        | null                        | null                      |
++--------------+-----------------------------+-----------------------------+---------------------------+
+```
+
+The fixed strings are application strings in the router's catalogue,
+never model text:
+
+- print confirmation: "Here is your slip.";
+- nothing to act on: "I have not answered a question yet. Please ask
+  me first."
+
+`slip_text` carries the print signal. Only `print_previous` returns a
+non-empty slip on an `acted` turn, so a repeat never reprints.
+
+The public response of a "nothing to act on" turn looks like any other
+`acted` turn with an empty slip. The debug field `action_outcome`
+separates it: `resolved` for a real action, `nothing_to_act_on` for the
+no-op.
+
+An action turn copies the previous turn's `turn_sources` rows, so a
+replay of the action `turn_id` rebuilds the same response from its own
+rows.
+
+##### Print policy
+
+design.md 9.3 fixes this: the backend always produces `slip_text`, and
+the device applies its configured print policy, `auto` or `on_request`.
+WP4.2 implements the client rule below; the backend response is the
+same whatever the policy.
+
+```text
++------------+-------------------------------------------------------------+
+| Policy     | Client prints (simulator renders the receipt) when          |
++------------+-------------------------------------------------------------+
+| auto       | slip_text is non-empty. Today's simulator behaviour.        |
+| on_request | state is acted and slip_text is non-empty.                  |
++------------+-------------------------------------------------------------+
+```
+
+A response that does not print leaves the last receipt in place, as a
+real printer would.
+
+The simulator gains a print-policy control on the page, default
+`auto`, held in page state only. The Pi applies the same rule at WP6.3
+from its own configuration; `auto` stays the demo baseline (execution
+plan 9, item 7). The rule is presentation logic on two fields, so the
+thin-client boundary holds.
+
+##### Schema (migration 0002)
+
+Two additive columns in `persistence/migrations/0002_previous_turn.sql`:
+
+```text
++-----------+-------------------+------------------------------------------------+
+| Table     | Column            | Meaning                                        |
++-----------+-------------------+------------------------------------------------+
+| turns     | previous_turn_id  | TEXT, nullable, REFERENCES turns (turn_id).    |
+|           |                   | The turn an action resolved to; null for       |
+|           |                   | answer and refuse turns and for "nothing to    |
+|           |                   | act on".                                       |
+| turns     | action_outcome    | TEXT, nullable, CHECK resolved or              |
+|           |                   | nothing_to_act_on. Null on answer and refuse   |
+|           |                   | turns.                                         |
++-----------+-------------------+------------------------------------------------+
+```
+
+`PRAGMA user_version` becomes 2. The existing `turns_by_session` index
+serves the lookup. No existing row changes; old rows read null.
+
+Rollback, recorded in ADR-0007: stop the backend, back up with
+`.backup`, drop `action_outcome` then `previous_turn_id`, set
+`user_version` to 1, then run the WP4.1 commit. The downgrade SQL is
+tested in `backend/tests/unit/test_actions.py`.
+
+##### Debug view additions
+
+Two fields, absent from the public response. `intent` gains two values
+and `schema_version` reads 2.
+
+```text
++----------------------+----------------------------------------------------+
+| Field                | Value                                              |
++----------------------+----------------------------------------------------+
+| previous_turn_id     | turn_id the action resolved to, or null            |
+| action_outcome       | resolved, nothing_to_act_on, or null on answer and |
+|                      | refuse turns                                       |
+| intent               | now also repeat_previous or print_previous         |
++----------------------+----------------------------------------------------+
+```
+
+Stage timings on an action turn: `stt_ms` and `routing_ms` greater
+than 0; `query_rewrite_ms`, `retrieval_ms` and `llm_ms` null; `tts_ms`
+null for a resolved repeat and greater than 0 otherwise.
+`best_dense_score` and `evidence_min_dense` are null.
+
+##### Environment variables
+
+None. The print policy is simulator page state and, at WP6.3, Pi
+configuration. `health.storage_ready` now requires `user_version` 2.
+
+##### Retention
+
+A repeat stores its own copy of the previous reply audio. The
+13-Sep-2026 probe of the live database measured stored reply audio at
+806 KB on average and 944 KB at most over nine turns, so each repeat
+adds roughly 0.8 MB. No pruning; size review stays with WP4.5.
+
+##### Owner decisions
+
+Approved 13-Sep-2026. Where the print policy lives is not a decision:
+design.md 9.3 already places it on the client.
+
+```text
++----+-------------------------------+---------------------------------------------+
+| #  | Decision                      | Choice                                      |
++----+-------------------------------+---------------------------------------------+
+| 2  | Action response semantics     | state acted; repeat has an empty slip;      |
+|    |                               | print speaks a fixed confirmation           |
+| 3  | What "previous" means         | Same session; newest answered or refused    |
+|    |                               | turn; acted and failed turns skipped        |
+| 4  | Nothing to act on             | state acted, fixed wording, no slip; debug  |
+|    |                               | action_outcome distinguishes the no-op      |
++----+-------------------------------+---------------------------------------------+
+```
+
+##### Files changed and created
+
+Changed, under `backend/src/kaki_backend/` unless a path is given:
+
+- `orchestration/intent_router.py` - action rules, two intents, fixed
+  strings
+- `orchestration/turn_pipeline.py` - action branch after routing
+- `persistence/repositories.py` - previous-turn lookup, the two new
+  columns
+- `persistence/migrations/0001_initial.sql` - header comment only
+- `contracts/turn_log.py` - `previous_turn_id`, `action_outcome`
+- `api/debug.py`, `main.py` - fields and wiring
+- `backend/README.md`
+- `agent/data/devset.jsonl`, `agent/README.md` - action items, `after`
+- `scripts/run_regression.py` - `after` sessions, disposable database
+- `scripts/wp_check.py` - WP4.2 tier B; WP4.1 schema check "at least"
+- `scripts/wp4_1_evidence.sh` - Test 1 schema check "at least"
+- `scripts/kaki_env.sh` - `KAKI_DB` for WP4.2
+- `scripts/dev_stack.py`, `scripts/tests/test_dev_stack.py` - MLX-LM
+  runs with `PYTHONUNBUFFERED=1`
+- `backend/tests/unit/test_persistence.py`,
+  `backend/tests/contract/test_wp4_1.py` - schema check "at least"
+- `scripts/tests/test_run_regression.py` - action items
+- `apps/web/src/simulator/Simulator.tsx` - policy control, receipt rule
+- `apps/web/src/app/globals.css` - policy control style
+- `backend/src/kaki_backend/fixtures/README.md`
+- `docs/decisions/adr-0007-sqlite-persistence.md` - migration 0002,
+  rollback
+
+Created:
+
+- `actions/__init__.py` - `ActionOutcome`, the `TurnHistory` reader
+- `actions/repeat_action.py`, `actions/print_action.py` (design.md 18)
+- `persistence/migrations/0002_previous_turn.sql`
+- `backend/tests/unit/test_action_routing.py`,
+  `backend/tests/unit/test_actions.py`
+- `backend/tests/contract/test_wp4_2.py` - AT-04/05 over the API
+- `apps/web/src/simulator/printPolicy.ts`,
+  `apps/web/src/test/printPolicy.test.ts` - AT-06
+- `scripts/wp4_2_evidence.sh` - owner evidence harness
+- `repeat_request.wav`, `print_request.wav` - owner-captured
+
+No new dependency.
+
+##### Fixture capture
+
+One-time owner task, then committed and never regenerated (same as the
+WP3.4 fixtures). Run `scripts/wp4_2_evidence.sh --capture-fixtures`.
+
+Expected: two 16 kHz mono WAVs of roughly 1-3 seconds, spoken with
+`say -v Samantha`: "Can you repeat that?" and "Please print that for
+me." The harness plays each one, asks for a verdict and refuses to
+overwrite an existing file. The exact text is already in
+`fixtures/README.md`.
+
+The harness removes a file it just wrote if `afinfo` reports zero
+audio bytes. Exit 3 means the files were written but no terminal was
+available for the listening verdict.
+
+Captured by the owner on 13-Sep-2026 from a logged-in Terminal. The
+coding agent's sandbox could not capture them: `say` wrote a WAV header
+with zero audio bytes, and the sandbox blocks the harness's process
+substitution.
+
+The devset covers the Singlish and Malay utterances over the text
+path; they need no fixture.
+
+##### Reconciliation
+
+- Migration 0002 moves the schema to version 2. The WP4.1
+  schema-version checks in `wp_check.py`, `test_persistence.py`,
+  `test_wp4_1.py` and `wp4_1_evidence.sh` Test 1 now assert "at least
+  1". Only WP4.2 asserts exactly 2. The requirement changed, so this is
+  not test weakening (AGENTS.md 15). The failed-migration test keeps its
+  exact value, because it uses its own two-step migration set.
+- The stale `0001_initial.sql` header comment, which said WP4.3 creates
+  `cases` in migration 0002, now says `cases` is deferred beyond the
+  MVP. Only the comment changed; the SQL is identical, so databases
+  already at version 1 are unaffected. ADR-0007 is updated to match.
+- `run_regression.py` now writes a disposable database, deleted on
+  exit. Its docstring says so.
+- ADR-0007 estimated reply audio at 70-180 KB per turn. The live
+  database measured 806 KB on average; the ADR now records both.
+
 ---
 
 ### 9.2 Testing and validation
@@ -2715,6 +3110,355 @@ stored transcripts are the fixture sentences.
   and no stack was running. Tests 1-5 are the owner's evidence.
 
 Owner completed Tests 1-5 on the Mac; block VERIFIED and WP4.1 CLOSED
+13-Sep-2026.
+
+#### WP4.2 tests - repeat, print-previous and print policy
+
+Run in order on the Mac as `websvc` with the grounded stack running and
+the simulator started from the WP4.2 checkout. Test 4 restarts the
+backend only. WP4.2 closes WP-level objectives Test 2 (repeat and
+print-previous).
+
+##### Evidence harness
+
+`scripts/wp4_2_evidence.sh` runs every test in this block. This block
+holds no commands; read `scripts/wp4_2_evidence.sh --help` for usage.
+The harness is evidence, not the gate. `wp_check.py` stays the
+automated gate, and the owner marks this block VERIFIED.
+
+The harness follows these rules:
+
+```text
++----------------------+-------------------------------------------------------------+
+| Topic                | Rule                                                        |
++----------------------+-------------------------------------------------------------+
+| Shell                | set -euo pipefail. Any failed assertion or command exits    |
+|                      | non-zero and names the check.                               |
+| Preconditions        | Checked before any evidence is written. Each failure names  |
+|                      | what is missing and what to run: KAKI_DATA_ROOT unset or    |
+|                      | relative; database missing; backend not answering on 8000;  |
+|                      | schema version not 2; a fixture missing; simulator not      |
+|                      | answering on 3000; no TTY; a required tool absent.          |
+| Evidence directory   | New directory under $KAKI_DATA_ROOT/wp4.2, or an empty      |
+|                      | exported WP42_EVIDENCE. Path echoed at start and end.       |
+| Run header           | $WP42_EVIDENCE/run-header.txt, written first: date, git     |
+|                      | commit and status, KAKI_DATA_ROOT, KAKI_DB, KAKI_APP_ROOT,  |
+|                      | adapter settings, package versions, approved LLM and        |
+|                      | embedding models, MLX-LM, whisper.cpp and macOS versions.   |
+| Transcript           | The whole run is teed to $WP42_EVIDENCE/transcript.txt,     |
+|                      | beside the per-step evidence files.                         |
+| turn_id              | uuidgen for every turn. Never date +%s: one-second          |
+|                      | resolution can reuse a stored turn_id, which replays from   |
+|                      | SQLite and passes for the wrong reason. The one deliberate  |
+|                      | reuses are REPEAT_REPLAY_TURN_ID and PRINT_REPLAY_TURN_ID, |
+|                      | each set once and read-only.                                |
+| Sessions             | Each test that needs isolation uses a fresh uuidgen         |
+|                      | session_id, so rows from earlier runs cannot satisfy it.    |
+| Judgement steps      | Stop and prompt: audio, answer sense, rendered receipt.     |
+|                      | The owner types yes or no and a note. The verdict is       |
+|                      | written to judgements.txt. The harness never prints PASS    |
+|                      | for a judgement. A "no" is recorded, then exits non-zero.   |
+| wp_check reruns      | Invoked directly, one unit at a time. Stdout, stderr and    |
+|                      | exit code are captured per unit into their own files and    |
+|                      | reported separately. Non-zero exit fails the run. The       |
+|                      | harness re-implements no check and prints no verdict on     |
+|                      | wp_check's behalf.                                          |
+| Clocks               | Elapsed times are recorded in observations.txt with no      |
+|                      | threshold. Latency targets are hypotheses at MVP stage.     |
+| Test counts          | Suite and devset counts are recorded as observations, never |
+|                      | asserted. Only exit codes are asserted.                     |
+| Cross-checks         | Debug-view claims are confirmed from a second source where  |
+|                      | a reliable one exists: llm.log chat/completions count, with |
+|                      | a positive control, and SQLite rows. No whisper.log count;  |
+|                      | see "Log cross-checks".                                     |
+| Teardown             | Not run. The harness prints the command for the owner.      |
++----------------------+-------------------------------------------------------------+
+```
+
+##### Log cross-checks
+
+A log count is evidence only if the line reaches the file when the
+request completes. The harness keeps one log check and drops another:
+
+```text
++-------------+-----------------------------+----------------------------+-----------+
+| Log         | Line counted                | Stream when redirected     | Harness   |
++-------------+-----------------------------+----------------------------+-----------+
+| llm.log     | POST /v1/chat/completions   | stderr via http.server,    | Kept      |
+|             |                             | line-buffered; stdout made |           |
+|             |                             | unbuffered by dev_stack.py |           |
+| whisper.log | Running whisper.cpp         | stdout, block-buffered     | Removed   |
+|             | inference                   |                            |           |
++-------------+-----------------------------+----------------------------+-----------+
+```
+
+**Why the Whisper check was removed.** whisper-server writes `Running
+whisper.cpp inference` to stdout, which the C runtime block-buffers when
+`dev_stack.py` redirects it to a file. The count therefore lags by up to
+about 40 requests. Owner evidence, 13-Sep-2026: 110 `operator():
+processing` lines (stderr) against 103 `Running whisper.cpp inference`
+lines (stdout). The last stdout line sat at line 2257, immediately
+before `Caught signal 15` at 2258 flushed the buffer. An "up by exactly
+1" or "unchanged" assertion on that count passes or fails by buffer
+timing, not by behaviour.
+
+STT is proven without it. Test 2 asserts debug `stt_ms` > 0 and routes
+on the recognised transcript. Test 4 sends the other action's audio
+under each replayed `turn_id`, so an identical response proves STT and
+the pipeline did not run. Do not reintroduce a `whisper.log` count
+unless whisper-server's stdout is made unbuffered and the count is
+shown to track requests one for one.
+
+**Why the LLM check was kept.** It is the second source for the
+WP4-AT-04 criterion "calls no LLM". The counted line comes from Python's
+`http.server` request log, which writes to stderr; Python 3.12 keeps
+stderr line-buffered when redirected. Python block-buffers redirected
+stdout, so `dev_stack.py` also sets `PYTHONUNBUFFERED=1` for
+`mlx_lm.server`; no LLM log line can then lag, whichever stream a
+later version uses.
+
+Before counting "unchanged" across an action, Test 2 counts the log
+before and after the ordinary answer turn and asserts the count rose.
+Without this positive control, a stalled log would pass the "calls no
+LLM" check for the wrong reason. Each assertion compares before and
+after counts around a request, so absolute numbers do not matter.
+
+##### Automated runner
+
+**Objective:** record the registered WP4.2 tier B checks as the gate
+reports them.
+
+The harness runs `wp_check.py --unit WP4.2 --tier B` first. Its checks
+use a fresh session over HTTP: an answer, a repeat, a print, a second
+repeat, replays of the print and first repeat `turn_id`s, and a
+"nothing to act on" session. Replay counts are asserted on the stored
+rows. The debug check expects the second repeat, uncounted: the debug
+view shows the newest executed turn, and a replay writes no row.
+They read the live database read-only.
+
+**Expected:** exit code 0, recorded with stdout and stderr.
+
+##### Test 1: schema and storage readiness
+
+**Objective:** prove the backend applied migration 0002 at start.
+
+**Expected:** `storage_ready` true; `user_version` 2; `turns` has
+nullable `previous_turn_id` and `action_outcome` columns; the four
+WP4.1 tables unchanged;
+the newest backend log line names `$KAKI_DB` at schema version 2; row
+counts in `turns` and `turn_sources` recorded as observations.
+
+##### Test 2: repeat_previous (WP4-AT-04)
+
+**Objective:** prove a repeat replays the stored answer without
+retrieval, generation or speech synthesis.
+
+The harness sends `cdc_question.wav`, then `repeat_request.wav`, in one
+fresh session.
+
+**Expected, machine-checked:**
+
+- First turn `answered`, `sources[0]` on `vouchers.cdc.gov.sg`.
+- Repeat turn `acted`; `reply_text`, `display_text`, `language`,
+  `sources` and the SHA-256 of `reply_audio` equal the first turn's.
+  `slip_text` empty.
+- Debug: `intent` `repeat_previous`; `previous_turn_id` is the first
+  turn; `action_outcome` `resolved`; `retrieval_ms`, `llm_ms`, `tts_ms`
+  and `best_dense_score` null; `stt_ms` > 0.
+- SQLite: one new `turns` row with that `previous_turn_id`;
+  `turn_sources` rows equal the first turn's in count and order.
+- Cross-checks: `llm.log` completions rose across the answer turn
+  (positive control) and stayed unchanged across the repeat.
+
+**Expected, owner judgement:** the harness writes both reply audios to
+WAV files, plays them with `afplay` and asks whether the repeat sounds
+the same as the answer.
+
+##### Test 3: print_previous (WP4-AT-05)
+
+**Objective:** prove a print returns the stored slip unchanged and a
+repeat after it still resolves to the original answer.
+
+The harness continues the Test 2 session with `print_request.wav`,
+then `repeat_request.wav` again.
+
+**Expected, machine-checked:**
+
+- Print turn `acted`; `slip_text` byte-equal to `turns.slip_text` of
+  the Test 2 answer; `reply_text` the fixed confirmation; `sources`
+  equal the answer's.
+- Debug: `intent` `print_previous`; `previous_turn_id` is the Test 2
+  answer, not the repeat; `retrieval_ms` and `llm_ms` null.
+- Second repeat: `previous_turn_id` is still the Test 2 answer.
+- Cross-checks: `llm.log` completions unchanged across both turns.
+
+**Expected, owner judgement:** the harness prints the slip wrapped to
+the 32-character receipt width and asks whether it reads as a sensible
+slip for the CDC answer.
+
+##### Test 4: action idempotency and restart
+
+**Objective:** prove both action `turn_id`s replay from the store, and
+a repeat resolves from SQLite after a restart.
+
+The harness re-sends the Test 3 print with `PRINT_REPLAY_TURN_ID` and
+the Test 2 repeat with `REPEAT_REPLAY_TURN_ID`, each with the other
+action's audio. It restarts the backend only, then sends a new repeat
+in the Test 2 session.
+
+**Expected:**
+
+- Each replay identical to its original (sorted JSON diff empty); both
+  stored `replay_count` values 1; total `turns` rows unchanged.
+- Debug view still on the Test 3 second repeat with `replay_count` 0.
+  It shows the newest executed turn, and a replay writes no row.
+- Each replay sends the other action's audio, so an identical response
+  shows STT and the pipeline did not run. There is no `whisper.log`
+  count (see "Log cross-checks").
+- After the restart: `storage_ready` true; the new repeat is `acted`
+  with `previous_turn_id` equal to the Test 2 answer.
+
+##### Test 5: nothing to act on and session isolation
+
+**Objective:** prove an action with no eligible previous turn in its
+own session answers calmly and never reaches into another session.
+
+The harness sends `repeat_request.wav` in a new session while the Test
+2 session still holds an answer.
+
+**Expected:** state `acted`; fixed "nothing to act on" wording;
+`slip_text` empty; `sources` empty; debug `previous_turn_id` null and
+`action_outcome` `nothing_to_act_on`; no `turn_sources` rows; `llm.log`
+completions unchanged.
+
+##### Test 6: devset regression
+
+**Objective:** prove routing still meets the >= 80% intent target with
+the action items added, and every golden-path item passes.
+
+The harness runs `run_regression.py` over `agent/data/devset.jsonl`
+and keeps the JSON report.
+
+**Expected:** exit code 0. The runner's own `passed` field is true for
+all ten action items and the guard item; each resolved action names its
+`expected_previous_id` turn;
+the procedural guard item answers from `cdc-vouchers-residents`.
+Item count, accuracy and golden paths passed are recorded as
+observations. A failing item is evidence, not a reason to edit the
+devset.
+
+##### Test 7: print policy in the browser (WP4-AT-06)
+
+**Objective:** prove `on_request` prints nothing until the user asks,
+and `auto` keeps today's behaviour.
+
+The harness guides the owner through Chrome one step at a time. After
+each step it reads `/api/device/debug/last-turn`, asserts a new
+`turn_id`, the expected `intent` and `state`, and records the JSON. It
+then asks for a verdict on what the page showed. At the end it confirms
+from SQLite that all five turns share one session.
+
+```text
++------+-------------+----------------------------------+-----------------------+--------------------------------+
+| Step | Policy      | Owner says                       | Machine check         | Owner verdict                  |
++------+-------------+----------------------------------+-----------------------+--------------------------------+
+| 1    | on_request  | How do I use my CDC vouchers?    | answer, answered      | Spoken answer; receipt empty   |
+| 2    | on_request  | Can you repeat that?             | repeat_previous,      | Same answer heard; receipt     |
+|      |             |                                  | acted, previous = 1   | still empty                    |
+| 3    | on_request  | Please print that for me.        | print_previous,       | Receipt shows the step 1 slip  |
+|      |             |                                  | acted, previous = 1   |                                |
+| 4    | auto        | What is the weather tomorrow?    | refuse, refused       | Referral slip renders at once  |
+| 5    | auto        | Can you repeat that?             | repeat_previous,      | Refusal heard again; receipt   |
+|      |             |                                  | acted, previous = 4   | unchanged, not reprinted       |
++------+-------------+----------------------------------+-----------------------+--------------------------------+
+```
+
+The Tier A web test proves the same rule deterministically; this test
+proves it through the real page.
+
+##### Test 8: deterministic and tier B regression
+
+**Objective:** prove WP1 to WP4.1 behaviour still holds with actions
+installed.
+
+The harness reruns `wp_check.py` tier B for WP2.3, WP2.4, WP3.3, WP3.4
+and WP4.1, one unit at a time. It then runs ruff, the rag, contract,
+unit and scripts suites, and the web lint, test and build.
+
+**Expected:** every exit code 0, each reported on its own line. The
+WP1 turn schema snapshot is unchanged. Test counts are recorded as
+observations. `turns` row count in `$KAKI_DB` is unchanged across the
+deterministic suites.
+
+WP3.1 and WP3.2 tier B rewrite the corpus and index; the harness does
+not run them.
+
+##### Teardown and evidence
+
+The harness prints the teardown command and does not run it. The
+database stays for WP4.5, which backs it up.
+
+Retained under `WP42_EVIDENCE`:
+
+- `run-header.txt`, `transcript.txt`, `observations.txt`,
+  `judgements.txt`.
+- Automated runner stdout, stderr and exit code.
+- Per test: turn and debug JSON, SQL row dumps, log-count before and
+  after, reply audio WAVs from Test 2.
+- Test 6 regression report.
+- Test 7 debug JSON per step.
+- Test 8 per-unit wp_check files and per-suite outputs.
+
+No real credentials, user audio or personal data are involved. Stored
+transcripts are fixture sentences and the owner's Test 7 questions.
+
+##### Troubleshooting
+
+- **Repeat returns `refused` with `no_coverage`:** action routing did
+  not match the transcript. Read debug `transcript`; Whisper may have
+  misheard a short fixture. Recapture only if the transcript is wrong.
+- **`previous_turn_id` points at an older turn:** the harness or
+  browser changed session. The simulator starts a new session on
+  page reload; do not reload during Test 7.
+- **Precondition "schema version is 1":** the backend runs an older
+  checkout. Restart it from the WP4.2 checkout.
+- **Test 7 receipt renders under `on_request` at step 1:** the
+  simulator build predates WP4.2. Rebuild and restart the simulator.
+- **Test 2 fails "llm.log completions rose across the answer turn":**
+  the LLM log is not current. Restart MLX-LM through `dev_stack.py`,
+  which sets `PYTHONUNBUFFERED=1`; a manually started server needs the
+  same export.
+- **`llm.log` count moves during Tests 2-5:** something else called
+  MLX-LM, for example a regression run in another terminal. Rerun
+  with nothing else using the stack.
+- **A debug `replay_count` reads 0 right after a replay:** expected
+  when the replayed turn is not the newest executed turn. The debug view
+  shows the newest stored row, and a replay stores none. Read the
+  stored `turns.replay_count` for the replayed `turn_id` instead.
+- **Harness exits "no TTY":** run it from Terminal, not through a
+  pipe or a non-interactive session.
+
+##### Known limitations
+
+- TTS non-invocation on a repeat rests on debug `tts_ms` null and the
+  stored row. The `say` adapter writes no log, and `say` renders the
+  same text to the same bytes, so equal audio alone does not prove it.
+- Action routing is rule-based English, Singlish and Malay only. Other
+  phrasings fall through to `answer` and are refused by the gate.
+- Statements that mention a credential without a procedural marker
+  refuse, for example "I forgot my Singpass password" (runbook 8.1
+  WP3.4 layer 1, "Consequence").
+- The simulator print policy lives in page state and resets to `auto`
+  on reload. A reload also starts a new session (`session_id` is
+  created once per page load), so "previous" restarts.
+- No physical print. The receipt is a simulator render until WP6.3.
+- Repeats copy reply audio, about 0.8 MB each at current sizes.
+- The coding agent could not run any tier B check on 13-Sep-2026: the
+  stack was down, and the sandbox blocks data-root writes, `.env` reads,
+  loopback binds and process substitution. Tests 1-8 are the owner's
+  evidence.
+
+Owner completed Tests 1-8 on the Mac; block VERIFIED and WP4.2 CLOSED
 13-Sep-2026.
 
 #### WP-level objectives (owned by WP4.1-WP4.5)

@@ -1,3 +1,4 @@
+# v1.2 | 13-Sep-2026 | Inverted credential rule: any verb refuses; Malay markers; rule order.
 # v1.1 | 12-Sep-2026 | Drop the volunteered-secret case with transcript redaction.
 # v1.0 | 12-Sep-2026 | Cover the credential-action rules and the fixed refusal wording.
 """Verify WP3-AT-08 routing: refuse credential actions, answer procedures.
@@ -8,18 +9,31 @@ account or asking the kiosk to disclose a secret is not. The Singpass cases are
 covered adversarially because GP2 is the most likely question at the pitch, so
 a false refusal there would be a gate failure rather than a nuisance.
 
-Merely volunteering a credential is not itself a refusal trigger: the system
-does not inspect transcripts for secrets (design.md 8, owner decision
-12-Sep-2026), so there is no such case here.
+The credential rule is inverted (router v1.3): a credential mentioned without
+a procedural marker refuses whatever the verb, because a fixed verb list
+missed "print my Singpass password". The rule matches the word, not a secret
+value; the system still does not inspect transcripts for secrets (design.md 8).
 """
 
 import unittest
 
+from kaki_backend.orchestration import intent_router
 from kaki_backend.orchestration.intent_router import (
     Intent,
     RefusalReason,
     refusal_message,
     route,
+)
+
+PROCEDURAL_PHRASES = (
+    "How do I reset my Singpass password?",
+    "How do I log in to Singpass?",
+    "How can I unlock my Singpass account?",
+    "Where do I reset my password?",
+    "What do I do if I forgot my Singpass password?",
+    "How do I use my CDC vouchers?",
+    "Can I use CHAS at the clinic near my house?",
+    "Macam mana nak reset kata laluan Singpass saya?",
 )
 
 
@@ -46,17 +60,23 @@ class ProceduralQuestionTests(unittest.TestCase):
     """Guidance questions stay answerable even when they name an auth action."""
 
     def test_procedural_phrasings_are_never_refused(self):
+        self.assertEqual(len(PROCEDURAL_PHRASES), 8)
+        for transcript in PROCEDURAL_PHRASES:
+            with self.subTest(transcript=transcript):
+                routing = route(transcript)
+                self.assertEqual(routing.intent, Intent.ANSWER)
+                self.assertIsNone(routing.refusal_reason)
+
+    def test_malay_procedural_markers_exempt_a_credential_question(self):
         for transcript in (
-            "How do I reset my Singpass password?",
-            "How do I log in to Singpass?",
-            "How can I unlock my Singpass account?",
-            "Where do I reset my password?",
-            "What do I do if I forgot my Singpass password?",
-            "How do I use my CDC vouchers?",
-            "Can I use CHAS at the clinic near my house?",
             "Macam mana nak reset kata laluan Singpass saya?",
+            "Bagaimana saya boleh tukar kata laluan Singpass?",
+            "Di mana saya boleh reset kata laluan saya?",
+            "Apa yang perlu saya buat kalau lupa kata laluan Singpass?",
+            "Macam mana nak log in Singpass?",
         ):
-            self.assertEqual(route(transcript).intent, Intent.ANSWER, msg=transcript)
+            with self.subTest(transcript=transcript):
+                self.assertEqual(route(transcript).intent, Intent.ANSWER)
 
     def test_unsupported_topics_are_left_to_the_evidence_gate(self):
         # Routing only owns credential rules; coverage is decided downstream.
@@ -85,6 +105,51 @@ class ActionRequestTests(unittest.TestCase):
             self.assertEqual(
                 routing.refusal_reason, RefusalReason.CREDENTIAL_ACTION, msg=transcript
             )
+
+
+class CredentialMentionTests(unittest.TestCase):
+    """Any verb with a credential refuses; the rule does not rely on a verb list."""
+
+    def test_credential_with_any_verb_is_refused(self):
+        for transcript in (
+            "Print my Singpass password",
+            "send me my password",
+            "spell out my PIN",
+            "write down my OTP",
+        ):
+            with self.subTest(transcript=transcript):
+                routing = route(transcript)
+                self.assertEqual(routing.intent, Intent.REFUSE)
+                self.assertEqual(routing.refusal_reason, RefusalReason.CREDENTIAL_ACTION)
+
+    def test_bare_malay_apa_does_not_exempt_asking_for_the_password(self):
+        # "What is my Singpass password?" in Malay refuses, as the English does.
+        routing = route("Apa kata laluan Singpass saya?")
+        self.assertEqual(routing.refusal_reason, RefusalReason.CREDENTIAL_ACTION)
+
+    def test_disclosure_verb_list_is_gone(self):
+        self.assertFalse(hasattr(intent_router, "_DISCLOSURE_REQUEST"))
+
+
+class RuleOrderTests(unittest.TestCase):
+    """Credential rules run before action routing, so an action cannot capture one."""
+
+    def test_credential_requests_shaped_as_actions_refuse(self):
+        for transcript, action_rule in (
+            ("Please print that password for me", intent_router._PRINT_REQUEST),
+            ("Print the OTP slip for me", intent_router._PRINT_REQUEST),
+            ("Say again my OTP", intent_router._REPEAT_REQUEST),
+            ("Cetak lagi kata laluan saya", intent_router._PRINT_REQUEST),
+        ):
+            with self.subTest(transcript=transcript):
+                # Precondition: on its own, the action rule would claim this turn.
+                self.assertIsNotNone(action_rule.search(transcript))
+                routing = route(transcript)
+                self.assertEqual(routing.intent, Intent.REFUSE)
+                self.assertEqual(routing.refusal_reason, RefusalReason.CREDENTIAL_ACTION)
+
+    def test_print_of_a_slip_without_a_credential_is_still_an_action(self):
+        self.assertEqual(route("print my CDC voucher slip").intent, Intent.PRINT_PREVIOUS)
 
 
 class RefusalWordingTests(unittest.TestCase):

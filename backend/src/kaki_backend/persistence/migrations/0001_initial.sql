@@ -1,8 +1,11 @@
+-- v1.1 | 13-Sep-2026 | Comment only: cases is deferred beyond the MVP; no SQL change.
 -- v1.0 | 13-Sep-2026 | WP4.1 devices, sessions, turns and turn_sources.
 --
 -- Timestamps are ISO 8601 UTC text. The cases table is deliberately absent:
--- WP4.3 creates it in migration 0002 with cases.opened_by_turn_id referencing
--- turns, so no existing table needs a rebuild (ADR-0007).
+-- handoff and follow-up are deferred beyond the MVP (design.md v1.4, section 10), so no MVP
+-- migration creates it. If the owner revives it, it takes the next free
+-- migration number with cases.opened_by_turn_id referencing turns, so no
+-- existing table needs a rebuild (ADR-0007).
 
 CREATE TABLE devices (
     device_id      TEXT PRIMARY KEY,

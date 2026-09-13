@@ -99,3 +99,11 @@ in every mode; the backend refuses to start without it. Reusing a turn ID
 returns the stored first response without re-executing the pipeline, including
 after a restart. Migrations in `kaki_backend/persistence/migrations/` run at
 startup. Decision record: `../docs/decisions/adr-0007-sqlite-persistence.md`.
+
+"Can you repeat that?" and "Please print that for me." (English, Singlish or
+Malay) route before retrieval to `repeat_previous` and `print_previous`
+(`kaki_backend/actions/`). Both resolve the newest answered or refused turn in
+the same session from SQLite and return state `acted` without retrieval or the
+LLM. A repeat replays the stored reply and audio with an empty slip; a print
+returns the stored slip unchanged. The client applies the print policy
+(design.md 9.3). Validation: runbook 9.2 WP4.2.

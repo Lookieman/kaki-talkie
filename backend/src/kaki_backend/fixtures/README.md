@@ -23,6 +23,22 @@ check speaks `cdc_question.wav` rather than `canned_reply.wav`: the canned
 transcript scores below the WP3.4 evidence gate and is correctly refused, so
 it can no longer stand in for a supported question there.
 
+## WP4.2 spoken action fixtures
+
+Captured on the Mac Mini with `scripts/wp4_2_evidence.sh --capture-fixtures`
+(macOS `say`, voice Samantha, PCM WAV at 16 kHz, 16-bit, mono), then committed
+and never regenerated. The harness refuses to overwrite either file and removes
+one that holds no audio. Evidence of the capture, including the owner's
+listening verdicts, stays under `$KAKI_DATA_ROOT/wp4.2`.
+
+| File | Exact spoken text | Used by |
+| --- | --- | --- |
+| `repeat_request.wav` | Can you repeat that? | WP4-AT-04, WP4.2 tier B and harness |
+| `print_request.wav` | Please print that for me. | WP4-AT-05, WP4.2 tier B and harness |
+
+The Singlish and Malay action utterances are covered over the text path by the
+devset and need no fixture.
+
 ## WP1 spoken test fixtures
 
 These are prerecorded, synthetic English speech fixtures, produced on 05-Sep-2026

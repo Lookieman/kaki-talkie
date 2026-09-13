@@ -1,3 +1,4 @@
+# v1.6 | 13-Sep-2026 | Expose the action's previous turn and its outcome.
 # v1.5 | 13-Sep-2026 | Read the newest stored turn and expose its replay history.
 # v1.4 | 12-Sep-2026 | Drop transcript_redacted; redaction is no longer performed.
 # v1.3 | 12-Sep-2026 | Expose the routing intent, refusal reason, redaction and gate audit.
@@ -45,6 +46,8 @@ def last_turn(request: Request) -> dict[str, object]:
         "retrieval_evidence": [  #v1.1
             record.model_dump() for record in log.retrieval_evidence
         ],
+        "previous_turn_id": log.previous_turn_id,  #v1.6
+        "action_outcome": log.action_outcome,  #v1.6
         "timings_ms": log.timings.model_dump(),
         "replay_count": stored.replay_count,  #v1.5
         "completed_at": stored.completed_at,  #v1.5

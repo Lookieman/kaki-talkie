@@ -1,3 +1,4 @@
+// v1.4 | 13-Sep-2026 | Apply the client print policy and keep the last printed slip (WP4.2).
 // v1.3 | 05-Sep-2026 | Support identifier generation in insecure browser contexts.
 // v1.2 | 04-Sep-2026 | Stabilise the recording controller used during cleanup.
 // v1.1 | 04-Sep-2026 | Preserve release handling while microphone permission resolves.
@@ -11,6 +12,7 @@ import type { PointerEvent } from "react"; //v1.1
 import { submitTurn, TurnResponse } from "../api-client/device";
 import { createIdentifier } from "./identifiers"; //v1.3
 import { RecordingLimitController, RecordingStopReason } from "./recorder";
+import { DEFAULT_PRINT_POLICY, PRINT_POLICIES, PrintPolicy, shouldPrint } from "./printPolicy"; //v1.4
 import { wrapReceipt } from "./receipt";
 import { DeviceState, DEVICE_STATES } from "./states";
 
@@ -65,6 +67,9 @@ export function Simulator() {
   const [deviceState, setDeviceState] = useState<DeviceState>("idle");
   const [response, setResponse] = useState<TurnResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [printPolicy, setPrintPolicy] = useState<PrintPolicy>(DEFAULT_PRINT_POLICY); //v1.4
+  const [printedSlip, setPrintedSlip] = useState(""); //v1.4
+  const printPolicyRef = useRef<PrintPolicy>(DEFAULT_PRINT_POLICY); //v1.4
   const sessionId = useRef(createIdentifier("session"));
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const mediaStream = useRef<MediaStream | null>(null);
@@ -101,6 +106,12 @@ export function Simulator() {
       if (!mounted.current) {
         return;
       }
+      if (!shouldPrint(printPolicyRef.current, turnResponse)) { //v1.4
+        // A response that does not print leaves the last receipt in place.
+        setDeviceState("idle");
+        return;
+      }
+      setPrintedSlip(turnResponse.slip_text); //v1.4
       setDeviceState("printing");
       await wait(PRINT_PREVIEW_MS);
       if (mounted.current) {
@@ -183,7 +194,12 @@ export function Simulator() {
     finishRecording("release");
   }
 
-  const receiptLines = response?.slip_text ? wrapReceipt(response.slip_text) : [];
+  function handlePrintPolicyChange(policy: PrintPolicy): void { //v1.4
+    printPolicyRef.current = policy;
+    setPrintPolicy(policy);
+  }
+
+  const receiptLines = printedSlip ? wrapReceipt(printedSlip) : []; //v1.4
 
   return (
     <main className="simulator-shell">
@@ -229,6 +245,21 @@ export function Simulator() {
 
       <aside className={`receipt ${receiptLines.length ? "printed" : ""}`} aria-label="58 millimetre receipt preview">
         <p className="receipt-label">58 mm receipt</p>
+        <fieldset className="print-policy">
+          <legend>Print policy</legend>
+          {PRINT_POLICIES.map((policy) => (
+            <label key={policy}>
+              <input
+                type="radio"
+                name="print-policy"
+                value={policy}
+                checked={printPolicy === policy}
+                onChange={() => handlePrintPolicyChange(policy)}
+              />
+              {policy}
+            </label>
+          ))}
+        </fieldset>
         <div className="receipt-paper" aria-live="polite">
           {receiptLines.length ? receiptLines.map((line, index) => <div key={`${index}-${line}`}>{line || "\u00a0"}</div>) : <p>Your English slip will appear here.</p>}
         </div>

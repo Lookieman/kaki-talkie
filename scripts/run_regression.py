@@ -1,3 +1,4 @@
+# v1.2 | 13-Sep-2026 | Run WP4.2 action items in sessions on a disposable database.
 # v1.1 | 12-Sep-2026 | Drop the redaction check; redaction is no longer performed.
 # v1.0 | 12-Sep-2026 | Provide the WP3.4 devset regression over the real turn pipeline.
 """Measure routing, refusal and grounding decisions over the committed devset.
@@ -14,12 +15,20 @@ per runbook 8.2 WP3.4 Test 4. It needs no Whisper, no `say` and no FastAPI, and
 it may run while the stack is up: it loads its own copy of the embedding model,
 so expect roughly 1.2 GB of additional resident memory.
 
+WP4.2 action items (`repeat_previous`, `print_previous`) resolve from stored
+turns, so every executed item is recorded in a disposable SQLite database.
+Each item runs in its own session unless it names an earlier item in `after`,
+in which case it joins that item's session. An action item also checks which
+turn it resolved to, its outcome, and that the repeated text or printed slip
+is unchanged from that turn.
+
 Speech is deliberately not synthesised. A no-op TTS port keeps the measurement
 about decisions rather than audio, so `reply_audio` is null in every result.
 
 Side effects: sends one generation request per supported item to the local LLM
-service, plus one query rewrite where the guard calls for it. Writes nothing to
-disk. Exit status is zero only when intent accuracy meets the target and every
+service, plus one query rewrite where the guard calls for it. Writes one
+disposable SQLite database under the system temporary directory, removed on
+exit; the live database is never opened. Exit status is zero only when intent accuracy meets the target and every
 golden-path item passes; 2 indicates a usage or configuration error.
 """
 
@@ -27,17 +36,23 @@ import argparse
 import io
 import json
 import sys
+import tempfile  #v1.2
 import wave
 from pathlib import Path
 from time import perf_counter
 
 from kaki_backend.config import LlmSettings, RetrievalSettings
 from kaki_backend.contracts.ports import LanguageEvidence, Transcription
+from kaki_backend.contracts.turn_log import TurnExecution  #v1.2
+from kaki_backend.orchestration.intent_router import ACTION_INTENTS, Intent  #v1.2
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline
+from kaki_backend.persistence.database import Database  #v1.2
+from kaki_backend.persistence.repositories import TurnRepository  #v1.2
 
 DEFAULT_DEVSET = Path(__file__).resolve().parents[1] / "agent/data/devset.jsonl"
 INTENT_TARGET = 0.80
 REQUIRED_FIELDS = ("id", "utterance", "expected_intent")
+ACTION_INTENT_VALUES = frozenset(intent.value for intent in ACTION_INTENTS)  #v1.2
 
 
 class InjectedStt:
@@ -113,14 +128,24 @@ def load_devset(path: Path) -> list[dict[str, object]]:
         missing = [field for field in REQUIRED_FIELDS if not item.get(field)]
         if missing:
             raise ValueError(f"{path} line {number} is missing {', '.join(missing)}.")
+        after = item.get("after")  #v1.2
+        if after is not None and after not in {earlier["id"] for earlier in items}:
+            raise ValueError(
+                f"{path} line {number}: after {after!r} must name an earlier item."
+            )
         items.append(item)
     if not items:
         raise ValueError(f"{path} contains no devset items.")
     return items
 
 
-def build_pipeline(stt: InjectedStt) -> TurnPipeline:
-    """Assemble the pipeline from configuration, with STT and TTS replaced."""
+def open_history(directory: str) -> TurnRepository:  #v1.2
+    """Open a disposable turn store for the run; the caller owns the directory."""
+    return TurnRepository(Database.open(Path(directory) / "regression.db"))
+
+
+def build_pipeline(stt: InjectedStt, history: TurnRepository) -> TurnPipeline:  #v1.2
+    """Assemble the pipeline from configuration, with STT, TTS and the store replaced."""
     retrieval = RetrievalSettings.from_environment()
     return TurnPipeline(
         stt=stt,
@@ -130,28 +155,73 @@ def build_pipeline(stt: InjectedStt) -> TurnPipeline:
         retrieval_active=retrieval.active,
         query_normalise=retrieval.normalise,
         evidence_min_dense=retrieval.evidence_min_dense,
+        history=history,  #v1.2
     )
 
 
+def turn_id_for(item_id: object) -> str:  #v1.2
+    """Return the deterministic turn_id a devset item runs under."""
+    return f"regression-{item_id}"
+
+
+def _action_checks(item: dict[str, object], execution: TurnExecution,
+                   executed: dict[str, TurnExecution]) -> dict[str, bool]:  #v1.2
+    """Check an action item's resolution, outcome and unchanged stored content."""
+    log, response = execution.log, execution.response
+    expected_previous = item.get("expected_previous_id")
+    checks = {
+        "previous_turn": log.previous_turn_id == (
+            turn_id_for(expected_previous) if expected_previous else None
+        ),
+        "action_outcome": log.action_outcome == item.get("expected_action_outcome"),
+    }
+    previous = executed.get(str(expected_previous)) if expected_previous else None
+    if previous is None:
+        checks["content_unchanged"] = not response.slip_text and not response.sources
+    elif log.intent == Intent.REPEAT_PREVIOUS.value:
+        checks["content_unchanged"] = (
+            response.reply_text == previous.response.reply_text
+            and response.sources == previous.response.sources and not response.slip_text
+        )
+    else:
+        checks["content_unchanged"] = (
+            response.slip_text == previous.response.slip_text
+            and response.sources == previous.response.sources
+        )
+    return checks
+
+
 def evaluate(item: dict[str, object], pipeline: TurnPipeline, stt: InjectedStt,
-             audio: bytes) -> dict[str, object]:
-    """Run one devset item and compare the outcome with its expected fields."""
+             audio: bytes, session_id: str,
+             executed: dict[str, TurnExecution]) -> tuple[dict[str, object], object]:  #v1.2
+    """Run one devset item and compare the outcome with its expected fields.
+
+    Returns the result record and the execution, which the caller stores so
+    later action items can resolve to it.
+    """
     stt.speak(str(item["utterance"]), str(item.get("language") or "en"))
     started = perf_counter()
     execution = pipeline.execute(
-        device_id="run-regression", session_id="run-regression",
-        turn_id=f"regression-{item['id']}", audio=audio,
+        device_id="run-regression", session_id=session_id,  #v1.2
+        turn_id=turn_id_for(item["id"]), audio=audio,
         audio_preparation_ms=0.0, request_started_at=started,
     )
     response, log = execution.response, execution.log
     cited = log.cited_source_id
     expected_source = item.get("expected_source_id")
+    is_action = item["expected_intent"] in ACTION_INTENT_VALUES  #v1.2
     checks = {
         "intent": log.intent == item["expected_intent"],
         "state": response.state.value == item.get("expected_state", response.state.value),
         "refusal_reason": log.refusal_reason == item.get("expected_refusal_reason"),
-        "cited_source": cited == expected_source if expected_source else not response.sources,
     }
+    if is_action:  #v1.2
+        # An action cites nothing itself; it carries the resolved turn's sources.
+        checks.update(_action_checks(item, execution, executed))
+    else:
+        checks["cited_source"] = (
+            cited == expected_source if expected_source else not response.sources
+        )
     return {
         "id": item["id"],
         "golden_path": item.get("golden_path"),
@@ -166,10 +236,12 @@ def evaluate(item: dict[str, object], pipeline: TurnPipeline, stt: InjectedStt,
         "cited_source_id": cited,
         "best_dense_score": log.best_dense_score,
         "evidence_min_dense": log.evidence_min_dense,
+        "previous_turn_id": getattr(log, "previous_turn_id", None),  #v1.2
+        "action_outcome": getattr(log, "action_outcome", None),  #v1.2
         "elapsed_ms": round((perf_counter() - started) * 1000, 1),
         "checks": checks,
         "passed": all(checks.values()),
-    }
+    }, execution
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -193,17 +265,39 @@ def run_regression(args: argparse.Namespace) -> int:
     if not 0 < args.intent_target <= 1:
         print("FAIL: --intent-target must be between 0 and 1.", file=sys.stderr)
         return 2
-    try:
-        items = load_devset(args.devset)
-        stt = InjectedStt()
-        pipeline = build_pipeline(stt)
-    except ValueError as error:
-        print(f"FAIL: {error}", file=sys.stderr)
-        return 2
+    with tempfile.TemporaryDirectory(prefix="kaki-regression-") as scratch:  #v1.2
+        try:
+            items = load_devset(args.devset)
+            stt = InjectedStt()
+            history = open_history(scratch)
+            pipeline = build_pipeline(stt, history)
+        except ValueError as error:
+            print(f"FAIL: {error}", file=sys.stderr)
+            return 2
+        results = run_items(items, pipeline, stt, history)
+    return report_results(args, results)
 
+
+def run_items(items: list[dict[str, object]], pipeline: TurnPipeline, stt: InjectedStt,
+              history: TurnRepository) -> list[dict[str, object]]:  #v1.2
+    """Run items in file order, recording each so later action items can resolve."""
     audio = silent_audio()
-    results = [evaluate(item, pipeline, stt, audio) for item in items]
+    sessions: dict[str, str] = {}
+    executed: dict[str, TurnExecution] = {}
+    results = []
+    for item in items:
+        item_id = str(item["id"])
+        after = item.get("after")
+        sessions[item_id] = sessions[str(after)] if after else f"regression-session-{item_id}"
+        result, execution = evaluate(item, pipeline, stt, audio, sessions[item_id], executed)
+        history.record(execution)
+        executed[item_id] = execution
+        results.append(result)
+    return results
 
+
+def report_results(args: argparse.Namespace, results: list[dict[str, object]]) -> int:  #v1.2
+    """Print the JSON report and return the exit status for the run."""
     intent_matches = sum(1 for result in results if result["checks"]["intent"])
     golden = [result for result in results if result["golden_path"]]
     golden_passed = [result for result in golden if result["passed"]]

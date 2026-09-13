@@ -1,3 +1,4 @@
+# v1.9 | 13-Sep-2026 | Record the turn an action resolved to and whether it resolved.
 # v1.8 | 13-Sep-2026 | Record which evidence chunk stands behind each response source.
 # v1.7 | 12-Sep-2026 | Drop transcript_redacted; redaction is no longer performed.
 # v1.6 | 12-Sep-2026 | Record the routing intent, refusal reason, redaction and gate audit.
@@ -95,6 +96,10 @@ class TurnLog(BaseModel):
     llm_cited_index: int | None = None  #v1.5
     # Aligned with the response's `sources`, one link per source (WP4.1).
     source_links: list[SourceLink] = []  #v1.8
+    # WP4.2 actions: the stored turn a repeat or print resolved to, and
+    # "resolved" or "nothing_to_act_on"; both null on answer and refuse turns.
+    previous_turn_id: str | None = None  #v1.9
+    action_outcome: str | None = None  #v1.9
 
 
 class TurnExecution(BaseModel):
