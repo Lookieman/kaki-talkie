@@ -1,7 +1,11 @@
 # KaKi-Talkie WP validation runbook
 
-Version 1.16 | 13-Sep-2026 | SGLN Group 10
+Version 1.17 | 13-Sep-2026 | SGLN Group 10
 
+> v1.17 applies the within-package regression rule of `execution-plan.md`
+> 1.1: Test 6 package mode reruns WP4.1 and WP4.2 only. WP2.3, WP2.4,
+> WP3.3 and WP3.4 are dropped, because WP4.5 changes no code their checks
+> exercise.
 > v1.16 adds the "Closed block compression" rule to section 12 and applies
 > it to the WP4.1 and WP4.2 setup blocks; their test blocks are unchanged.
 > The WP4.5 setup and test blocks are rewritten, and the decision record
@@ -2159,8 +2163,8 @@ through the protected simulator, once per WP3 gate:
 
 # 9. WP4 - memory + deterministic actions
 
-Status: **WP4.1 and WP4.2 VERIFIED / CLOSED 13-Sep-2026; WP4.3 and WP4.4
-WITHDRAWN 13-Sep-2026; WP4.5 DRAFT**
+Status: **WP4.1, WP4.2 and WP4.5 VERIFIED / CLOSED 13-Sep-2026; WP4.3 and
+WP4.4 WITHDRAWN 13-Sep-2026**
 
 ### 9.1 Setup and installation
 
@@ -2338,8 +2342,7 @@ answers after a restart. It adds `replay_count`, `completed_at` and
 
 ##### Open reconciliation
 
-- Runbook 13.1 step 3 does not list `storage_ready`; `dev_stack.py
-  status` already requires it. WP4.5 closes this.
+- Runbook 13.1 step 3 lists `storage_ready` since WP4.5 (13-Sep-2026).
 
 #### WP4.2 setup - repeat_previous, print_previous, print policy
 
@@ -2495,15 +2498,16 @@ and greater than 0 otherwise. No new environment variable.
 - Schema-version checks in WP4.1 tests assert "at least 1"; only WP4.2
   asserts exactly 2.
 
-#### WP4.5 setup - presenter controls, backup and restore, WP4 gate
+#### WP4.5 setup - backup and restore, WP4 gate
 
 Owner level: **G**
-Status: **DRAFT - Prepared 13-Sep-2026. No code written.**
+Status: **VERIFIED / CLOSED 13-Sep-2026.** Gate evidence: runbook 9.2
+WP4.5 tests, kept under `$KAKI_DATA_ROOT/wp4.5/evidence.*`.
 
 Machine: Mac Mini as `websvc`, checkout `~/projects/kaki-talkie`.
 Deterministic tests run with canned ports and no model services. Tier B
-runs against the WP4.2 grounded stack and database. Browser steps use
-Chrome. ADR-0008 records the decisions behind this block.
+runs against the WP4.2 grounded stack and database. ADR-0008 records
+the decisions behind this block.
 
 ##### Prerequisites
 
@@ -2515,42 +2519,27 @@ Chrome. ADR-0008 records the decisions behind this block.
   on 13-Sep-2026.
 - One planned stop of the live backend during the restore test.
   Whisper-server and MLX-LM stay up.
-- An interactive terminal for the evidence harness.
+- `KAKI_SQLITE_PATH` unset. The harness refuses to start otherwise, and
+  `dev_stack.py` v1.5 refuses a backend whose `KAKI_SQLITE_PATH` lies
+  outside `KAKI_DATA_ROOT` (exit 2).
+- An interactive terminal when the evidence harness starts at Test 1
+  or 2.
 
 ##### Scope
 
 WP4-AT-13, 14, and the WP4 package gate over WP4-AT-01 to 06. WP4.5
-also delivers presenter controls, a backup script and a restore test.
+also delivers a backup script, a session deletion script and a restore
+test.
 The device contract, the WP1 schema snapshot and `GET
 /api/device/pending` (`[]`) are unchanged. No migration; `user_version`
 stays 2.
 
 Withdrawn: `kaki_handoff`, `calendar_create`, the `cases` table,
-pending delivery state, WP4-AT-07 to 12. Deferred: backup scheduling,
+pending delivery state, WP4-AT-07 to 12, and presenter controls (owner
+decision 1). The simulator keeps a fresh `session_id` per page load and
+starts with the `auto` print policy. Deferred: backup scheduling,
 pruning code, print de-duplication (WP6.3), device retry (WP6.4),
 canned-scenario selection (WP6-AT-11, WP6.5).
-
-##### Presenter controls
-
-Two controls on `/sim`. Both change only the `session_id` the simulator
-sends and the print policy it applies:
-
-```text
-+----------------------+-------------------------------------------------------+
-| Control              | Behaviour                                             |
-+----------------------+-------------------------------------------------------+
-| Session persistence  | session_id and print policy are kept in localStorage. |
-|                      | They survive a reload, a closed tab and a browser     |
-|                      | crash.                                                |
-| New session button   | Starts a new session_id, clears the receipt and keeps |
-|                      | the chosen policy.                                    |
-+----------------------+-------------------------------------------------------+
-```
-
-Trade-off: two tabs on one browser profile share one session. A
-rehearsal session also persists until someone presses New session, so
-press it before each run-through. `/sim` stays behind Cloudflare Access
-(design.md 15.2).
 
 ##### Backup set
 
@@ -2559,6 +2548,19 @@ press it before each run-through. `/sim` stays behind Cloudflare Access
 mode `0600`. The script follows `AGENTS.md` 11: `--help`, non-zero exit
 on failure, no delete or overwrite. It runs by hand.
 
+```sh
+scripts/backup_sqlite.sh --help
+scripts/backup_sqlite.sh
+```
+
+The script builds the set as `<timestamp>.partial` and renames it on
+success; a failed run leaves the `.partial` directory for inspection. It
+reads the backup database only through an `immutable=1` URI, because an
+ordinary open of the WAL-mode backup leaves `-wal` and `-shm` files in the
+set. `ingest_running` reads `unknown` when `pgrep` cannot list processes.
+Exit codes: 0 success, 1 copy or verification failure, 2 configuration
+error.
+
 ```text
 +----------+-------------------------+------------------------------------------------------------+
 | Item     | Source                  | Method                                                     |
@@ -2566,8 +2568,10 @@ on failure, no delete or overwrite. It runs by hand.
 | Database | $KAKI_DB                | sqlite3 ".backup" (setup.md 12.4); safe while backend runs |
 | Corpus   | $KAKI_DATA_ROOT/corpus/ | File copy                                                  |
 | Index    | $KAKI_DATA_ROOT/chroma/ | File copy; restore source of truth for retrieval (ADR-0008)|
-| Manifest | Written by the script   | Git commit, user_version, turns count, SHA-256 per file,   |
-|          |                         | ingest_running from pgrep -f index_corpus.py               |
+| Manifest | Written by the script   | created_utc, git commit, source database, user_version,    |
+|          |                         | turns count, integrity_check, SHA-256 per file,            |
+|          |                         | ingest_running and ingest_pids from pgrep -f               |
+|          |                         | index_corpus.py or ingest_corpus.py                        |
 +----------+-------------------------+------------------------------------------------------------+
 ```
 
@@ -2616,15 +2620,32 @@ Rules in force:
 - Keep every turn until after the pitch. The MVP has no pruning.
 - A repeat keeps its own copy of the reply audio.
 - Take a fresh backup set before pitch freeze (`setup.md` 26).
-- Before a person other than the owner speaks to the simulator, press
-  New session; press it again when they finish. Add the session to
+- Before a person other than the owner speaks to the simulator, reload
+  the page; reload it again when they finish. A reload starts a new
+  session, so their turns form one session. Add the session to
   `$KAKI_DATA_ROOT/retention/third-party-sessions.txt` (mode `0600`):
   date, the newest `sessions.session_id` after their first turn, a
   label, no full name.
 - On request, delete that whole session: its `turns` rows, action turns
   included, its `turn_sources` rows, its `sessions` row, every backup
   set that holds it and evidence files that name it. Then take a fresh
-  backup set. Implement WP4.5 adds the verified command.
+  backup set.
+
+Delete a session with `scripts/delete_session.py`. It runs dry by
+default and prints turns, action turns, `turn_sources` rows and byte
+totals. `--apply` refuses unless a backup set is newer than the
+session's last turn, and deletes `turn_sources`, then action turns, then
+the remaining turns, then the session row, in one transaction. It lists
+the backup sets that hold the session and never deletes them.
+
+```sh
+python scripts/delete_session.py --session-id <session_id>
+scripts/backup_sqlite.sh
+python scripts/delete_session.py --session-id <session_id> --apply
+```
+
+After `--apply`, remove the listed backup sets and evidence files that
+name the session, then run `scripts/backup_sqlite.sh` again.
 
 ##### Document cleanup
 
@@ -2639,7 +2660,7 @@ Rules in force:
 | ADR-0007 reply-audio cost        | 70-180 KB estimate points to ADR-0008      | Done 13-Sep |
 | Runbook section 9 status header  | WP4.3/WP4.4 withdrawn; WP4.5 DRAFT         | Done 13-Sep |
 | Runbook 9.2 WP-level Test 3      | Points to WP4.5 tests                      | Done 13-Sep |
-| Runbook 13.1 step 3              | Lists storage_ready                        | Implement   |
+| Runbook 13.1 step 3              | Lists storage_ready                        | Done 13-Sep |
 +----------------------------------+--------------------------------------------+-------------+
 ```
 
@@ -2649,25 +2670,28 @@ Rules in force:
 +----+---------------------------+-------------------------------------------+-----------------+
 | #  | Decision                  | Choice                                    | Status          |
 +----+---------------------------+-------------------------------------------+-----------------+
-| 1  | Presenter controls        | localStorage session; New session button  | Directed 13-Sep |
-| 2  | Backup mechanism          | Manual script; no schedule; never deletes | Open            |
-| 3  | Retention                 | Rules in "Storage and retention"          | Directed 13-Sep |
-| 4  | Retrieval restore source  | Copy chroma/; manifest ingest_running     | Directed 13-Sep |
+| 1  | Presenter controls        | Withdrawn; a reload starts a new session  | Withdrawn 13-Sep|
+| 2  | Backup mechanism          | Manual script; no schedule; never deletes | Decided 13-Sep  |
+| 3  | Retention                 | Rules in "Storage and retention"          | Decided 13-Sep  |
+| 4  | Retrieval restore source  | Copy chroma/; manifest ingest_running     | Decided 13-Sep  |
 +----+---------------------------+-------------------------------------------+-----------------+
 ```
 
 ##### Files changed and created
 
-Created: `scripts/backup_sqlite.sh`, `scripts/wp4_5_evidence.sh`,
-`scripts/tests/test_backup_sqlite.py`, `apps/web/src/simulator/session.ts`,
-`apps/web/src/test/session.test.ts`.
+Created: `scripts/backup_sqlite.sh`, `scripts/delete_session.py`,
+`scripts/wp4_5_evidence.sh`, `scripts/tests/test_backup_sqlite.py`,
+`scripts/tests/test_delete_session.py`.
 
-Changed: `apps/web/src/simulator/Simulator.tsx` (session and policy
-from localStorage, New session button), `scripts/wp_check.py` (WP4.5
-tier B: devset action result, backup readability),
-`scripts/kaki_env.sh` (`WP4.5`), runbook 13.1 step 3.
+Changed: `scripts/wp_check.py` (WP4.5
+tier B: newest backup set readability, devset action result as a count
+and a rate), `scripts/kaki_env.sh` (`WP4.5`: `KAKI_DB`, `WP45_EVIDENCE`
+at `wp4.5/evidence.XXXXXX`), runbook 13.1 step 3. `scripts/dev_stack.py`
+v1.5 (the `KAKI_SQLITE_PATH` guard) ships with this unit unchanged.
 
-No backend source change, no migration, no new dependency, no fixture.
+No simulator change: the presenter-controls code was built, then
+removed when decision 1 was withdrawn. No backend source change, no
+migration, no new dependency, no fixture.
 
 ##### Reconciliation
 
@@ -3210,6 +3234,10 @@ The harness reruns `wp_check.py` tier B for WP2.3, WP2.4, WP3.3, WP3.4
 and WP4.1, one unit at a time. It then runs ruff, the rag, contract,
 unit and scripts suites, and the web lint, test and build.
 
+This scope is the record of what WP4.2 ran on 13-Sep-2026. The
+within-package regression rule (`execution-plan.md` 1.1) arrived after
+this block closed. Do not copy this list into a new unit.
+
 **Expected:** every exit code 0, each reported on its own line. The
 WP1 turn schema snapshot is unchanged. Test counts are recorded as
 observations. `turns` row count in `$KAKI_DB` is unchanged across the
@@ -3286,26 +3314,54 @@ transcripts are fixture sentences and the owner's Test 7 questions.
 Owner completed Tests 1-8 on the Mac; block VERIFIED and WP4.2 CLOSED
 13-Sep-2026.
 
-#### WP4.5 tests - backup and restore, presenter controls, WP4 package gate
+#### WP4.5 tests - backup and restore, WP4 package gate
 
-Status: **DRAFT - procedure planned; harness not yet written.**
+Status: **VERIFIED / CLOSED 13-Sep-2026.**
 
-Run in order on the Mac as `websvc` with the grounded stack running and
-the simulator started from the WP4.5 checkout. Test 2 stops the live
-backend and starts one against a restored copy.
+Run in order on the Mac as `websvc` with the grounded stack running
+from the WP4.5 checkout. Test 2 stops the live backend and starts one
+against a restored copy.
 
 ##### Evidence harness
 
-`scripts/wp4_5_evidence.sh` runs Tests 1-6. Implement WP4.5 writes it.
-It follows the WP4.2 harness rules (runbook 9.2 WP4.2, "Evidence
-harness"): `uuidgen` identifiers, fresh sessions, owner verdicts for
+Run `scripts/wp4_5_evidence.sh` after `source scripts/kaki_env.sh
+WP4.5`; `--help` lists its side effects. It runs Tests 1-6 and follows
+the WP4.2 harness rules (runbook 9.2 WP4.2, "Evidence harness"): `uuidgen` identifiers, fresh sessions, owner verdicts for
 judgements, `wp_check.py` per unit, counts as observations, no
 teardown. Evidence goes to `$KAKI_DATA_ROOT/wp4.5/evidence.XXXXXX`
 (`WP45_EVIDENCE`).
 
 It also restarts the live backend before it exits, on success or
 failure, and prints the live `storage_ready` value. It writes to
-`$KAKI_DB` only through the backend's HTTP API. Test 7 has no script.
+`$KAKI_DB` only through the backend's HTTP API. It captures
+`KAKI_LIVE_DATA_ROOT` before the restore phase and reads `llm.log` from
+that root for the whole run: MLX-LM keeps writing where it started, so a
+`$RESTORE_ROOT/logs/llm.log` count would read 0 equals 0. It runs the
+devset twice, in Test 5 and in `wp_check.py --unit WP4.5`. Test 7 has no
+script.
+
+Two options control a run. The run header records both, so each
+evidence directory states what it covered:
+
+```sh
+scripts/wp4_5_evidence.sh                          # Tests 1-6, scoped
+scripts/wp4_5_evidence.sh --from-test 5            # resume at Test 5
+scripts/wp4_5_evidence.sh --regression package     # gate commit
+```
+
+- `--from-test N` (1-6, default 1) starts at test N and runs to the
+  end. Starting at 2 reruns restore steps 1 and 2 as setup, with a new
+  backup set, and skips the Test 1 assertions. Starting at 4 or later
+  observes the newest existing backup set in Test 4. Only a start at 1
+  or 2 needs a terminal, for the Test 2 judgement.
+- `--regression scoped|package` (default `scoped`) selects the Test 6
+  mode.
+
+`wp_check.py --unit WP4.5 --tier B` is the automated gate. It verifies
+the newest backup set through an immutable read (manifest hashes and
+file list, integrity, foreign keys, `user_version` 2, turns count,
+modes, `ingest_running` true or false) and reports the action-item
+intents as a count and a rate.
 
 ##### Test 1: backup a live database
 
@@ -3321,7 +3377,8 @@ consistent backup set while the backend runs (`setup.md` 12.4).
   backup and the live count taken just after it, inclusive.
 - Manifest SHA-256 values match the files. The manifest records
   `ingest_running`; the harness records it as an observation.
-- `corpus/` and `chroma/` are present.
+- `corpus/` and `chroma/` are present. The set holds both restore step 1
+  turns.
 - `--help` prints usage and exits 0. A second run creates a second
   directory and leaves the first unchanged.
 
@@ -3336,7 +3393,13 @@ set.
 
 **Expected, machine-checked, by step:**
 
-- Step 4: the restored backend's log names
+- Step 1: answer `answered` from `vouchers.cdc.gov.sg`; repeat `acted`
+  with `previous_turn_id` the answer.
+- Step 3: port 8000 stops answering. The restored `kaki.db` exists, is
+  non-empty, matches its manifest SHA-256 and holds both step 1 turns,
+  all before a backend starts.
+- Step 4: `dev_stack.py` prints `data root: $RESTORE_ROOT`. The restored
+  backend's log names
   `$RESTORE_ROOT/sqlite/kaki.db` at schema version 2. `storage_ready`
   and `retrieval_ready` are true.
 - Step 5: for both replays, the sorted JSON diff against step 1 is
@@ -3348,36 +3411,20 @@ set.
 - Step 7: `acted`; `previous_turn_id` is the step 1 answer; audio
   SHA-256 equals step 1; `llm.log` count unchanged from the step 6
   snapshot.
-- Step 8: live `storage_ready` true; live `turns` count equals the
+- Step 8: live `storage_ready` true; the live backend log names
+  `$KAKI_DB`; live `turns` count equals the
   after-backup count from Test 1; the step 1 answer's live
   `replay_count` is 0.
 
 **Expected, owner judgement:** the harness plays the step 1 audio and
 the step 7 audio and asks whether they sound the same.
 
-##### Test 3: presenter controls in the browser
+##### Test 3: withdrawn
 
-**Objective:** prove the session and policy survive a reload and a
-closed tab, and New session starts fresh.
-
-"Repeat" means saying "Can you repeat that?"; each repeat must route
-to `repeat_previous`. The machine check reads the debug view and the
-`sessions` table.
-
-```text
-+------+-----------------------------------+--------------------------------+------------------------------+
-| Step | Owner action                      | Machine check                  | Owner verdict                |
-+------+-----------------------------------+--------------------------------+------------------------------+
-| 1    | Set on_request; ask "How do I use | answer, answered               | Answer heard; receipt empty  |
-|      | my CDC vouchers?"                 |                                |                              |
-| 2    | Reload; repeat                    | resolved; step 1 session       | on_request kept; answer again|
-| 3    | Close tab, open /sim; repeat      | resolved; step 1 session       | on_request kept; answer again|
-| 4    | Press New session; repeat         | nothing_to_act_on; new session | Receipt cleared; no-answer   |
-|      |                                   |                                | wording heard                |
-+------+-----------------------------------+--------------------------------+------------------------------+
-```
-
-The Tier A web test covers the same rules.
+Test 3 is withdrawn under owner decision 1 (runbook 9.1 WP4.5 "Owner
+decisions"). The harness prints `Test 3: withdrawn under owner decision
+1`, records it in `observations.txt` and moves on. It runs no browser
+step and asks the owner nothing.
 
 ##### Test 4: storage observation
 
@@ -3405,17 +3452,48 @@ The harness runs `run_regression.py` over `agent/data/devset.jsonl`.
 
 A failing item is evidence. Do not edit the devset to pass.
 
-##### Test 6: deterministic and tier B regression (WP4-AT-14)
+##### Test 6: regression (WP4-AT-14)
 
-**Objective:** prove golden paths and every earlier contract hold on the
-gate commit.
+**Objective:** prove the unit's own suites hold on every run, and that
+golden paths and every earlier contract hold on the gate commit.
 
-The harness reruns `wp_check.py` tier B for WP2.3, WP2.4, WP3.3, WP3.4,
-WP4.1, WP4.2 and WP4.5, one unit at a time. It then runs ruff, the rag,
-contract, unit and scripts suites, and the web lint, test and build.
+The harness runs one of two modes, chosen with `--regression`. The run
+header and the Test 6 output name the mode.
+
+```text
++-----------+--------------------------------------------------+------------------------+
+| Mode      | What it runs                                     | When                   |
++-----------+--------------------------------------------------+------------------------+
+| scoped    | wp_check.py --unit WP4.5 --tier B; ruff; the     | Default. Any re-run    |
+| (default) | contract suite (backend/tests/contract); the     | after a code or        |
+|           | scripts suite (scripts/tests); web lint, test    | document change.       |
+|           | and build (apps/web).                            |                        |
+| package   | Everything in scoped, plus wp_check.py --tier B  | Required once, on the  |
+|           | for WP4.1 and WP4.2, one unit at a time, before  | gate commit.           |
+|           | WP4.5.                                           |                        |
++-----------+--------------------------------------------------+------------------------+
+```
+
+Package mode holds WP4.1 and WP4.2 under the within-package regression
+rule of `execution-plan.md` 1.1. WP4.5 writes and reads the tables WP4.1
+created, and `delete_session.py` removes the action turns WP4.2 writes,
+so both units qualify on the "touches" test.
+
+Neither mode reruns a unit from an earlier work package. WP4.5 changes
+no backend, rag or retrieval source, so nothing a WP2 or WP3 check
+exercises has moved. Those packages keep their cover from the
+deterministic suites, X-AT-01, X-AT-03 and the golden paths in Test 5.
+
+`wp_check.py` and `kaki_env.sh` each gained a WP4.5 branch and nothing
+else. Under the shared-file exception in `execution-plan.md` 1.1 that
+counts as an addition, not a change to a shared path.
+
+Neither mode runs the rag or unit suites: WP4.5 changes no backend or
+rag source.
 
 **Expected:** every exit code 0, each reported separately. The WP1 turn
-schema snapshot is unchanged. `git ls-files` lists no `*.db`,
+schema snapshot is unchanged: its contract test passes and `git status`
+shows no change to `turn_response.schema.json`. `git ls-files` lists no `*.db`,
 `*.db-wal`, `*.db-shm` or `chroma/` path (X-AT-03). The `$KAKI_DB`
 `turns` count is unchanged across the deterministic suites.
 
@@ -3426,8 +3504,8 @@ acceptance criteria on one commit. The coding agent never marks this
 gate passed.
 
 Record the gate commit first. Criterion wording is in
-`execution-plan.md` 5. "Rerun" means the unit's tier B check in Test 6;
-closed-block evidence counts only when that rerun passes.
+`execution-plan.md` 5. "Rerun" means the unit's tier B check in Test 6
+package mode; closed-block evidence counts only when that rerun passes.
 
 ```text
 +-----------+------------------------------------+---------------------------------------------------+-----+
@@ -3438,7 +3516,7 @@ closed-block evidence counts only when that rerun passes.
 | WP4-AT-03 | Restart replays, no re-execution   | WP4.1 Test 3; WP4.2 Test 4; WP4.5 Test 2          | [ ] |
 | WP4-AT-04 | repeat_previous calls no LLM       | WP4.2 Test 2; WP4.5 Test 2 step 7; WP4.2 rerun    | [ ] |
 | WP4-AT-05 | print_previous slip unchanged      | WP4.2 Test 3; WP4.2 rerun                         | [ ] |
-| WP4-AT-06 | on_request waits for a request     | WP4.2 Test 7; web printPolicy test; WP4.5 Test 3  | [ ] |
+| WP4-AT-06 | on_request waits for a request     | WP4.2 Test 7; web printPolicy test                | [ ] |
 | WP4-AT-07 | WITHDRAWN - handoff deferred       | None required                                     | n/a |
 | WP4-AT-08 | WITHDRAWN - handoff deferred       | None required                                     | n/a |
 | WP4-AT-09 | WITHDRAWN - calendar deferred      | None required                                     | n/a |
@@ -3446,7 +3524,7 @@ closed-block evidence counts only when that rerun passes.
 | WP4-AT-11 | WITHDRAWN - no case to act on      | None required                                     | n/a |
 | WP4-AT-12 | WITHDRAWN - no case to act on      | None required                                     | n/a |
 | WP4-AT-13 | Action regression intent >= 80%    | WP4.5 Test 5                                      | [ ] |
-| WP4-AT-14 | Golden paths + earlier contracts   | WP4.5 Tests 5 and 6                               | [ ] |
+| WP4-AT-14 | Golden paths + earlier contracts   | WP4.5 Test 5; Test 6 in package mode              | [ ] |
 +-----------+------------------------------------+---------------------------------------------------+-----+
 ```
 
@@ -3460,7 +3538,9 @@ The owner also confirms:
 [ ] X-AT-03: no runtime database or vector data tracked (Test 6).
 [ ] X-AT-04: no earlier acceptance test weakened; review the WP4 diffs
     under backend/tests, scripts/tests and apps/web/src/test.
-[ ] Presenter controls: Test 3 passed.
+[ ] Presenter controls: recorded as withdrawn under owner decision 1.
+[ ] The gate commit was validated with --regression package. A scoped
+    run cannot close WP4.
 [ ] In-place recovery (runbook 9.1 WP4.5): accepted as documented and
     not rehearsed, or rehearsed once on a disposable copy before the
     pitch. Record which.
@@ -3484,13 +3564,26 @@ evidence. Keep the backup set.
 `transcript.txt`, `observations.txt`, `judgements.txt`) and, per test:
 the Test 1 manifest, integrity output and live counts; the Test 2 JSON,
 audio hashes, row dumps, backend log lines and `llm.log` counts; the
-Test 3 debug JSON; the Test 5 report; the Test 6 outputs; and the Test 7
+Test 5 report; the Test 6 outputs with their mode; and the Test 7
 checklist with the gate commit and the owner's signature.
 
 ##### Troubleshooting
 
+- **A test failed mid-run:** fix the cause, then rerun with
+  `--from-test N` at the failed test. The new evidence directory records
+  the start test; keep both directories.
 - **Restored backend logs the live path:** `KAKI_SQLITE_PATH` is set in
   the shell. Unset it and restart step 4.
+- **`dev_stack.py up` exits 2 with "lies outside KAKI_DATA_ROOT":** the
+  v1.5 guard found an exported `KAKI_SQLITE_PATH`. Unset it and rerun.
+- **Manifest `ingest_running=unknown`:** `pgrep` could not list processes,
+  for example inside a sandbox. Run the backup from Terminal;
+  `wp_check.py --unit WP4.5` fails on `unknown`.
+- **A `.partial` directory under `backups/`:** a backup run failed. Read
+  its output, fix the cause and run again. Delete the `.partial`
+  directory yourself once you have inspected it.
+- **`delete_session.py --apply` refuses "no backup set is newer":** run
+  `scripts/backup_sqlite.sh`, then rerun `--apply`.
 - **`dev_stack.py up --only backend` fails in the restore root:** the
   live backend still holds port 8000, or its pidfile lives under the
   live root. Run `down --only backend` with the live `KAKI_DATA_ROOT`
@@ -3514,9 +3607,12 @@ checklist with the gate commit and the owner's signature.
 
 ##### Known limitations
 
-Runbook 9.1 WP4.5 owns the storage, presenter-control and in-place
-recovery limits. These remain:
+Runbook 9.1 WP4.5 owns the storage and in-place recovery limits. These
+remain:
 
+- A simulator reload starts a new session and resets the print policy to
+  `auto`, so "previous" restarts. The Pi sets its own session boundary
+  in WP6.
 - The backup sits on the same SSD as the database. It protects against
   corruption and operator error, not disk loss.
 - A retry that reuses a stored `turn_id` replays a non-empty
@@ -3524,6 +3620,9 @@ recovery limits. These remain:
   `print_previous` prints twice under either policy. The simulator never
   retries; the Pi does at WP6.4. WP6.3 owns the fix: print once per
   `turn_id`. Section 11.2 Test 3 checks it.
+
+Owner completed the WP4.5 tests on the Mac; block VERIFIED and WP4.5
+CLOSED 13-Sep-2026.
 
 #### WP-level objectives (owned by WP4.1-WP4.5)
 
@@ -3753,7 +3852,8 @@ All commands run on the Mac as `websvc`.
    curl --fail --silent http://127.0.0.1:8000/api/health | jq
    ```
 
-   Expected: `status` ok with `stt_ready`, `llm_ready` and `tts_ready` true.
+   Expected: `status` ok with `stt_ready`, `llm_ready`, `tts_ready` and
+   `storage_ready` true.
 4. Start the simulator (not managed by the helper). From `apps/web`:
 
    ```sh

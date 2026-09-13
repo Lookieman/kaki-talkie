@@ -1,3 +1,4 @@
+# v2.3 | 13-Sep-2026 | Add the WP4.5 backup readability and devset action checks.
 # v2.2 | 13-Sep-2026 | WP4.2: debug check matches the newest-turn contract; add a repeat replay.
 # v2.1 | 13-Sep-2026 | Add the WP4.2 action checks; WP4.1 accepts later schema versions.
 # v2.0 | 13-Sep-2026 | Add the WP4.1 durable-turn and restart-replay checks.
@@ -66,6 +67,12 @@ Currently registered:
   replays the print's and the first repeat's turn_ids with different audio;
   then repeats in a second fresh session with nothing to act on. Reads the live database read-only and
   asserts its exact schema version.
+- WP4.5 tier B - backup readability and devset action accuracy (WP4-AT-13).
+  Requires a backup set from `scripts/backup_sqlite.sh` and the grounded
+  configuration for `scripts/run_regression.py`. Verifies the newest set's
+  manifest hashes, integrity, foreign keys, schema version and turns count
+  through an immutable read, then reports the action-item intents as a count
+  and a rate, for example `9 of 10, 0.90`.
 
 Side effects: WP2.3 tier B sends five fixed-transcript generation requests to
 the local LLM service. WP2.4 tier B synthesises one fixed sentence locally
@@ -81,23 +88,27 @@ nothing. WP4.1 tier B writes a disposable database under the system temporary
 directory, removed on exit, and submits one fixture turn plus its replay to the
 running backend, which stores them in the live database. WP4.2 tier B submits
 six turns plus two replays to the running backend, which stores them in the
-live database. Exit status is zero only when every check passes; 2 indicates a
+live database. WP4.5 tier B writes nothing: it reads the newest backup set
+and runs the devset regression, which uses its own disposable database. Exit status is zero only when every check passes; 2 indicates a
 usage or configuration error.
 """
 
 import argparse
+import hashlib  #v2.3
 import io
 import json
 import os
 import re
 import sqlite3  #v2.0
 import stat  #v2.0
+import subprocess  #v2.3
 import sys
 import tempfile  #v2.0
 import wave
 from pathlib import Path
 from base64 import b64decode
 from contextlib import closing  #v2.0
+from functools import partial  #v2.3
 from importlib.resources import files
 from time import perf_counter
 from uuid import uuid4
@@ -1091,6 +1102,159 @@ def check_wp42_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.1
     return report, checks
 
 
+WP45_SCHEMA_VERSION = 2  #v2.3
+WP45_ACTION_INTENTS = ("repeat_previous", "print_previous")  #v2.3
+WP45_INTENT_TARGET = 0.80  #v2.3
+WP45_REGRESSION_TIMEOUT_SECONDS = 3600  #v2.3
+REGRESSION_CLI = Path(__file__).resolve().parent / "run_regression.py"  #v2.3
+BACKUP_SET_NAME = re.compile(r"^\d{8}T\d{6}Z$")  #v2.3
+
+
+def _read_backup_manifest(set_directory: Path) -> tuple[dict[str, str], dict[str, str]]:  #v2.3
+    """Split a backup manifest into its fields and its per-file SHA-256 values."""
+    fields: dict[str, str] = {}
+    hashes: dict[str, str] = {}
+    for line in (set_directory / "manifest.txt").read_text(encoding="utf-8").splitlines():
+        if line.startswith("sha256:"):
+            relative, digest = line[len("sha256:"):].rsplit("=", 1)
+            hashes[relative] = digest
+        elif "=" in line:
+            name, value = line.split("=", 1)
+            fields[name] = value
+    return fields, hashes
+
+
+def _sha256_file(path: Path) -> str:  #v2.3
+    """Return the hex SHA-256 of one file, read in blocks."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(partial(handle.read, 1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _check_backup_readability(data_root: Path) -> tuple[dict[str, object], dict[str, bool]]:  #v2.3
+    """Verify the newest backup set without changing it (runbook 9.2 WP4.5 Test 1).
+
+    Reads the database through an immutable URI, so no -wal or -shm file is
+    created inside the set.
+    """
+    backups = data_root / "backups"
+    sets = sorted(path for path in backups.glob("*")
+                  if path.is_dir() and BACKUP_SET_NAME.match(path.name)) if backups.is_dir() else []
+    if not sets:
+        print(f"FAIL: no backup set under {backups}; run scripts/backup_sqlite.sh first.",
+              file=sys.stderr)
+        return {"backups": str(backups)}, {"backup_set_exists": False}
+    newest = sets[-1]
+    fields, hashes = _read_backup_manifest(newest)
+    present = sorted(str(path.relative_to(newest)) for path in newest.rglob("*")
+                     if path.is_file() and path.name != "manifest.txt")
+    mismatched = [name for name, digest in hashes.items()
+                  if not (newest / name).is_file() or _sha256_file(newest / name) != digest]
+    database = newest / "kaki.db"
+    try:
+        with closing(sqlite3.connect(f"file:{database}?immutable=1", uri=True)) as connection:
+            integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+            foreign_key_problems = connection.execute("PRAGMA foreign_key_check").fetchall()
+            user_version = connection.execute("PRAGMA user_version").fetchone()[0]
+            turns = connection.execute("SELECT COUNT(*) FROM turns").fetchone()[0]
+            audio_turns = connection.execute(
+                "SELECT COUNT(*) FROM turns WHERE reply_audio IS NOT NULL").fetchone()[0]
+    except sqlite3.Error as error:
+        print(f"FAIL: cannot read {database}: {error}", file=sys.stderr)
+        return {"backup_set": str(newest)}, {"backup_set_exists": True,
+                                              "backup_database_readable": False}
+    modes_owner_only = stat.S_IMODE(newest.stat().st_mode) == 0o700 and all(
+        stat.S_IMODE(path.stat().st_mode) == (0o700 if path.is_dir() else 0o600)
+        for path in newest.rglob("*")
+    )
+    report = {
+        "backup_set": str(newest), "backup_sets": len(sets), "manifest": fields,
+        "files_hashed": len(hashes), "hash_mismatches": mismatched,
+        "integrity_check": integrity, "foreign_key_problems": len(foreign_key_problems),
+        "user_version": user_version, "turns": turns, "turns_with_reply_audio": audio_turns,
+    }
+    checks = {
+        "backup_set_exists": True,
+        "backup_database_readable": True,
+        "backup_integrity_ok": integrity == "ok",
+        "backup_foreign_keys_ok": not foreign_key_problems,
+        "backup_schema_version_2": user_version == WP45_SCHEMA_VERSION,
+        "manifest_user_version_matches": fields.get("user_version") == str(user_version),
+        "manifest_turns_matches": fields.get("turns") == str(turns),
+        "manifest_lists_every_file": sorted(hashes) == present,
+        "manifest_hashes_match": not mismatched,
+        "manifest_records_ingest_state": fields.get("ingest_running") in {"true", "false"},
+        "backup_holds_database_corpus_and_index": database.is_file()
+        and (newest / "corpus").is_dir() and (newest / "chroma").is_dir(),
+        "backup_modes_owner_only": modes_owner_only,
+        "backup_left_no_sidecar_files": not any(
+            path.name.endswith(("-wal", "-shm")) for path in newest.rglob("*")
+        ),
+    }
+    return report, checks
+
+
+def _check_devset_actions() -> tuple[dict[str, object], dict[str, bool]]:  #v2.3
+    """Run the devset regression and report the action-item result as a count and a rate."""
+    completed = subprocess.run(
+        [sys.executable, str(REGRESSION_CLI)], capture_output=True, text=True,
+        timeout=WP45_REGRESSION_TIMEOUT_SECONDS,
+    )
+    try:
+        regression = json.loads(completed.stdout)
+    except ValueError:
+        print(f"FAIL: run_regression.py printed no JSON report:\n{completed.stderr}",
+              file=sys.stderr)
+        return ({"regression_exit_code": completed.returncode},
+                {"regression_report_readable": False})
+    actions = [result for result in regression["results"]
+               if result["expected_intent"] in WP45_ACTION_INTENTS]
+    correct = sum(1 for result in actions if result["actual_intent"] == result["expected_intent"])
+    rate = correct / len(actions) if actions else 0.0
+    report = {
+        "regression_exit_code": completed.returncode,
+        "regression_stderr_tail": completed.stderr.strip().splitlines()[-1:],
+        "items": regression["items"],
+        "intent_accuracy": regression["intent_accuracy"],
+        "action_items_result": f"{correct} of {len(actions)}, {rate:.2f}",
+        "action_items_correct": correct,
+        "action_items_total": len(actions),
+        "golden_paths": f"{regression['golden_paths_passed']} of "
+                        f"{regression['golden_paths_total']}",
+    }
+    checks = {
+        "regression_report_readable": True,
+        "regression_exit_code_0": completed.returncode == 0,
+        "intent_accuracy_at_least_0_80": regression["intent_accuracy"] >= WP45_INTENT_TARGET,
+        "action_items_present": bool(actions),
+        "action_item_intents_at_least_0_80": bool(actions) and rate >= WP45_INTENT_TARGET,
+        "all_golden_paths_passed": regression["golden_paths_passed"]
+        == regression["golden_paths_total"],
+    }
+    return report, checks
+
+
+def check_wp45_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.3
+    """Prove WP4-AT-13 and backup readability (runbook 9.2 WP4.5 Tests 1 and 5).
+
+    Needs the grounded configuration for the devset regression and a backup
+    set written by scripts/backup_sqlite.sh. Reads the newest set read-only and
+    never opens the live database.
+    """
+    if os.environ.get("KAKI_RETRIEVAL_MODE", "canned") != "rag":
+        raise ValueError("export KAKI_RETRIEVAL_MODE=rag before running WP4.5 tier B.")
+    StorageSettings.from_environment()  # validates KAKI_DATA_ROOT and KAKI_SQLITE_PATH
+    data_root = Path(os.environ["KAKI_DATA_ROOT"])
+    backup_report, checks = _check_backup_readability(data_root)
+    devset_report, devset_checks = _check_devset_actions()
+    checks.update(devset_checks)
+    if "action_items_result" in devset_report:
+        print(f"action items: {devset_report['action_items_result']}", file=sys.stderr)
+    return {"backup": backup_report, "devset": devset_report}, checks
+
+
 REGISTRY = {
     ("WP2.3", "B"): check_wp23_tier_b,
     ("WP2.4", "B"): check_wp24_tier_b,
@@ -1100,6 +1264,7 @@ REGISTRY = {
     ("WP3.4", "B"): check_wp34_tier_b,  #v1.8
     ("WP4.1", "B"): check_wp41_tier_b,  #v2.0
     ("WP4.2", "B"): check_wp42_tier_b,  #v2.1
+    ("WP4.5", "B"): check_wp45_tier_b,  #v2.3
 }
 
 

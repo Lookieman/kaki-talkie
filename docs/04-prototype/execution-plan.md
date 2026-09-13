@@ -2,7 +2,7 @@
 
 **Six work packages, decomposed into bounded implementation units with independent test checkpoints**
 
-Version 1.8 | 13-Sep-2026 | SGLN Group 10
+Version 1.9 | 13-Sep-2026 | SGLN Group 10
 
 > v1.8 rules that any case follow-up shown at the prototype pitch is
 > scripted canned-mode illustration, never built behaviour, and never a
@@ -50,9 +50,44 @@ flowchart LR
 A package closes when:
 
 1. its acceptance criteria pass in the appropriate environment;
-2. applicable earlier deterministic regressions still pass;
+2. the deterministic suites pass, and the within-package regression rule
+   below is satisfied;
 3. the owner completes the S/G validation defined in the validation runbook;
 4. its Definition of Done is satisfied.
+
+#### Within-package regression rule
+
+Owner decision, 13-Sep-2026. An implementation unit `WPm.n` reruns the
+tier B check of an earlier unit only when both of these hold:
+
+1. the earlier unit sits in the same work package, that is `WPm.k` where
+   `k < n`; and
+2. `WPm.n` changed code that the earlier unit's check exercises.
+
+Units in earlier work packages are not rerun at tier B. Validating WP4.5
+therefore never reruns WP2.3 or WP3.4.
+
+Earlier work packages keep their cover from three things that run on
+every validation, whatever the rule above decides:
+
+- the deterministic suites: ruff, and the contract, unit, rag and
+  scripts suites the unit touches;
+- the cross-cutting criteria X-AT-01 (the WP1 turn schema snapshot is
+  unchanged) and X-AT-03 (no runtime database or vector data is
+  tracked);
+- the golden paths in `run_regression.py`, which exercise the whole
+  pipeline end to end.
+
+Tier B reruns cost owner time and need the live model services. The
+deterministic suites cost neither, and they are what catches a break in
+an earlier work package.
+
+**Shared files are the exception to watch.** `wp_check.py`,
+`kaki_env.sh`, `dev_stack.py` and `run_regression.py` serve every unit.
+Adding a branch for the current unit does not touch an earlier one.
+Changing a shared function, a shared default or a shared code path does,
+and then every earlier unit in the same package reruns. State which of
+the two a change is, in the unit's runbook block.
 
 ### 1.2 WP versus implementation unit
 
@@ -346,9 +381,12 @@ Goal: add durable memory and deterministic local actions. Prove the full softwar
 |       | HandoffPort adapter                           |       |
 | WP4.4 | DEFERRED beyond MVP - calendar +              | -     |
 |       | Google Calendar adapter                       |       |
-| WP4.5 | presenter controls + backup + WP4 gate        | G     |
+| WP4.5 | backup + restore test + WP4 gate              | G     |
 +-------+-----------------------------------------------+-------+
 ```
+
+WP4.5 no longer delivers presenter controls. The owner withdrew them on
+13-Sep-2026 (ADR-0008 decision 1).
 
 ### Deferred capabilities (owner decision, 13-Sep-2026)
 
@@ -611,6 +649,11 @@ The normal prompts are intentionally short because repository rules carry the de
 +---------+-------------+------------------------------------------------------+
 | Version | Date        | Change                                               |
 +---------+-------------+------------------------------------------------------+
+| 1.9     | 13-Sep-2026 | Added the within-package regression rule to 1.1:    |
+|         |             | tier B reruns stay inside the work package and      |
+|         |             | only when the current unit touches that unit's      |
+|         |             | code. Earlier packages rely on the deterministic    |
+|         |             | suites, X-AT-01, X-AT-03 and the golden paths.      |
 | 1.8     | 13-Sep-2026 | Ruled that any pitch demonstration of case          |
 |         |             | follow-up is scripted canned-mode illustration,     |
 |         |             | not built behaviour and not a live-pipeline branch. |

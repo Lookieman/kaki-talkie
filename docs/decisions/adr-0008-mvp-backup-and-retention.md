@@ -2,23 +2,29 @@
 
 Date: 13-Sep-2026
 
-Status: proposed for WP4.5, 13-Sep-2026. The owner directed the presenter
-controls, the retention rules and the index copy on 13-Sep-2026. The manual
-backup mechanism awaits owner acceptance. Operational steps live in runbook
-9.1 and 9.2 WP4.5; this record keeps the evidence and the reasons.
+Status: accepted for WP4.5 by owner decision, 13-Sep-2026, covering decisions
+2 and 3 and the index copy. Decision 1 was accepted, then withdrawn on
+13-Sep-2026. Operational steps live in runbook 9.1 and 9.2 WP4.5; this record
+keeps the evidence and the reasons.
 
 ## Context
 
 WP4.1 made SQLite the turn record (ADR-0007) and WP4.2 added actions that
 read it. WP4.5 must prove the backup restores (`setup.md` 20.3), take a
-position on growth before the 25-Sep-2026 pitch, and deliver the "presenter
-controls" that `execution-plan.md` 5 names without defining.
+position on growth before the 25-Sep-2026 pitch, and settle the "presenter
+controls" that `execution-plan.md` 5 named without defining.
 
-## Decision 1: presenter controls are session controls
+## Decision 1: presenter controls - Withdrawn
 
-The simulator keeps `session_id` and the print policy in `localStorage`. A
-New session button starts a new `session_id`, clears the receipt and keeps
-the policy. Nothing changes in the backend or the device contract.
+Status: withdrawn by owner decision, 13-Sep-2026. WP4.5 builds no presenter
+controls. The simulator keeps a fresh `session_id` per page load and starts
+with the `auto` print policy. The Pi sets its own session boundary in WP6.
+
+**Reason for withdrawal.** A reload starting a new session is acceptable
+behaviour for the 25-Sep-2026 pitch. The New session button only had value
+because persistence existed, so both go. Owner Test 3 step 2 failed on
+13-Sep-2026 with `previous_turn_id: null`, and the fix is not worth the owner
+time to re-validate this close to the pitch.
 
 **History.** Execution plan v1.0 (commit `8fc64e0`, 02-Sep-2026) defined
 presenter controls as: trigger a nudge, move case time to the next day, and
@@ -28,12 +34,22 @@ nothing to act on. Canned-scenario selection belongs to WP6-AT-11 at WP6.5,
 and `AGENTS.md` 6 forbids building it early. The name therefore had no
 buildable content, and the scope needed an owner decision.
 
-**Reason.** WP4.2 left "previous" tied to the page. A reload started a new
-session, so "Can you repeat that?" answered "I have not answered a question
-yet", and the policy fell back to `auto`. A closed tab or a browser crash
-does the same, and all three can happen on stage. `localStorage` survives
-all three; `sessionStorage` survives only a reload. The cost is that two
-tabs on one browser profile share one session.
+**Rejected alternative: session controls in browser storage.** The accepted
+and then withdrawn design kept `session_id` and the print policy in browser
+storage, with a New session button that started a new `session_id`, cleared
+the receipt and kept the policy. It changed nothing in the backend or the
+device contract. The analysis, kept so it need not be repeated:
+
+- WP4.2 left "previous" tied to the page. A reload started a new session, so
+  "Can you repeat that?" answered "I have not answered a question yet", and
+  the policy fell back to `auto`. A closed tab or a browser crash does the
+  same.
+- `sessionStorage` survives a reload only. `localStorage` survives a reload,
+  a closed tab and a browser crash, so it was the chosen store.
+- The cost of `localStorage`: two tabs on one browser profile share one
+  session, and a rehearsal session persists until someone presses New
+  session.
+- A blocked store needs a page-memory fallback.
 
 ## Decision 2: manual backup set, index copied
 
@@ -43,9 +59,10 @@ the database (`sqlite3 .backup`, WAL-safe while the backend runs), `corpus/`,
 
 The set copies `chroma/` instead of rebuilding it at restore. The copied
 index is the restore source of truth for retrieval. Rebuilding needs the
-embedding model and time, and `index_corpus.py` stays the fallback. A copy taken during an ingest could be inconsistent, so the
-manifest records whether `pgrep -f index_corpus.py` found a process. The
-restore test's grounded question proves the index survived.
+embedding model and time, and `index_corpus.py` stays the fallback. A copy
+taken during an ingest could be inconsistent, so the manifest records whether
+`pgrep -f` found `index_corpus.py` or `ingest_corpus.py`. The restore test's
+grounded question proves the index survived.
 
 ## Decision 3: keep every turn through the pitch
 
@@ -61,8 +78,9 @@ foreign-key ordering problem and tests, with no pitch benefit.
 **Reason for the third-party rule.** Ergonomics testing with an older adult
 happens before the pitch, and audience members may speak on 25-Sep-2026.
 Their transcripts are personal data now, so the rule cannot wait for a pilot.
-Pressing New session around their turns makes the deletion unit a whole
-session.
+Reloading the simulator page before and after their turns starts a new
+session each time, so the deletion unit is a whole session.
+`scripts/delete_session.py` performs the deletion.
 
 ## Evidence: the 13-Sep-2026 storage probe
 

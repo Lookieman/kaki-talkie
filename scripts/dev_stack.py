@@ -1,3 +1,4 @@
+# v1.5 | 13-Sep-2026 | Refuse a KAKI_SQLITE_PATH outside the data root; print the data root on up.
 # v1.4 | 13-Sep-2026 | Run MLX-LM with PYTHONUNBUFFERED=1 so llm.log is current per request.
 # v1.3 | 13-Sep-2026 | Require backend storage readiness; document the inherited data root.
 # v1.2 | 12-Sep-2026 | Retry cold readiness probes quickly; load HF_TOKEN from .env.
@@ -24,7 +25,12 @@ retrieval grounded, `retrieval_ready`, whose first probe loads the embedding
 model. `down` signals those recorded processes and removes their
 pidfiles. Requires an absolute `KAKI_DATA_ROOT`. Paths follow setup.md and
 may be overridden: `KAKI_WHISPER_SERVER`, `KAKI_WHISPER_MODEL`,
-`KAKI_LLM_PYTHON`, `HF_HOME`. MLX-LM runs with `PYTHONUNBUFFERED=1`, so its
+`KAKI_LLM_PYTHON`, `HF_HOME`. Pidfiles, logs and the backend database all
+follow `KAKI_DATA_ROOT`, so `up --only backend` under a second data root runs
+a backend against a restored copy while whisper and MLX-LM keep serving the
+live one (runbook 9.2 WP4.5 Test 2). `up` refuses to start the backend when
+`KAKI_SQLITE_PATH` points outside that root, because the backend would then
+open the live database and the restore test would prove nothing. MLX-LM runs with `PYTHONUNBUFFERED=1`, so its
 redirected log is written as each request completes; the WP4.2 evidence
 harness counts `llm.log` lines around a turn (runbook 9.2 WP4.2). Exit status is zero on success; 2 indicates a
 usage or configuration error.
@@ -299,6 +305,27 @@ def command_status(services: list[Service], run_directory: Path) -> int:
     return 0 if all_healthy else 1
 
 
+def sqlite_override_conflict(data_root: Path) -> str | None:  #v1.5
+    """Return an error when KAKI_SQLITE_PATH resolves outside the data root.
+
+    The backend prefers an explicit KAKI_SQLITE_PATH over the data root. A
+    path left exported from an earlier shell therefore sends a backend
+    started under a restored root back to the live database, and every
+    replay assertion still passes (runbook 9.2 WP4.5 Test 2).
+    """  #v1.5
+    override = os.environ.get("KAKI_SQLITE_PATH", "").strip()  #v1.5
+    if not override:  #v1.5
+        return None  #v1.5
+    database = Path(override).expanduser().resolve()  #v1.5
+    root = data_root.resolve()  #v1.5
+    if database == root or root in database.parents:  #v1.5
+        return None  #v1.5
+    return (  #v1.5
+        f"KAKI_SQLITE_PATH={database} lies outside KAKI_DATA_ROOT={root}; "  #v1.5
+        "the backend would open that database instead. Unset it, then retry."  #v1.5
+    )  #v1.5
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Describe the up/down/status actions."""
     parser = argparse.ArgumentParser(
@@ -331,6 +358,12 @@ def main() -> int:
     if args.only is not None:
         services = [service for service in services if service.name == args.only]
     if args.action == "up":
+        print(f"data root: {data_root}")  #v1.5
+        if any(service.name == "backend" for service in services):  #v1.5
+            conflict = sqlite_override_conflict(data_root)  #v1.5
+            if conflict is not None:  #v1.5
+                print(f"FAIL: {conflict}", file=sys.stderr)  #v1.5
+                return 2  #v1.5
         return command_up(services, run_directory, log_directory)
     if args.action == "down":
         return command_down(services, run_directory)

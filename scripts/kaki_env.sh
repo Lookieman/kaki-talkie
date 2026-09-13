@@ -1,3 +1,4 @@
+# v1.4 | 13-Sep-2026 | Add WP4.5: KAKI_DB and WP45_EVIDENCE at wp4.5/evidence.XXXXXX.
 # v1.3 | 13-Sep-2026 | Export KAKI_DB for WP4.2 validation too.
 # v1.2 | 13-Sep-2026 | Export KAKI_DB for WP4.1 validation.
 # v1.1 | 11-Sep-2026 | Add env-only mode: source kaki_env.sh env
@@ -66,6 +67,13 @@ case "$KAKI_UNIT" in                                             #v1.2
         # The backend's SQLite database (runbook 9.1 WP4.1, WP4.2).
         export KAKI_DB="${KAKI_SQLITE_PATH:-$KAKI_DATA_ROOT/sqlite/kaki.db}"
         ;;                                                       #v1.2
+    WP4.5)                                                       #v1.4
+        # The harness takes an empty evidence.XXXXXX directory (runbook 9.2 WP4.5).
+        export KAKI_DB="${KAKI_SQLITE_PATH:-$KAKI_DATA_ROOT/sqlite/kaki.db}"  #v1.4
+        rmdir "$KAKI_EVIDENCE" || return 1                       #v1.4
+        KAKI_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp4.5/evidence.XXXXXX")" || return 1  #v1.4
+        export KAKI_EVIDENCE WP45_EVIDENCE="$KAKI_EVIDENCE"      #v1.4
+        ;;                                                       #v1.4
 esac                                                             #v1.2
 
 printf 'Unit:     %s\n' "$KAKI_UNIT"
