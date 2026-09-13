@@ -1,18 +1,10 @@
 # KaKi-Talkie coding-agent instructions
 
-Version 1.5 | 12-Sep-2026 | SGLN Group 10
-
-> v1.5 adds the Tier A environment-hygiene rule to sections 5.2 and 15,
-> after leaked `KAKI_*` mode switches sent the backend contract tests to
-> live services and produced eight false failures.
-> v1.4 made the Mac Mini the development machine as well as the runtime
-> host, allowed agent sessions from a local terminal, a browser or the
-> Claude mobile app, and replaced named-agent wording with vendor-neutral
-> wording.
+Version 1.4 | 13-Sep-2026 | SGLN Group 10
 
 This file governs coding-agent behaviour in the `kaki-talkie` repository.
 
-The purpose of these rules is to keep the coding agent safe **without requiring the owner to write perfect prompts**. The agent should use the repository documents to infer the intended workflow, make ordinary implementation choices independently, and stop only for decisions that genuinely change the product or architecture.
+The purpose of these rules is to keep Codex safe **without requiring the owner to write perfect prompts**. The agent should use the repository documents to infer the intended workflow, make ordinary implementation choices independently, and stop only for decisions that genuinely change the product or architecture.
 
 ---
 
@@ -125,9 +117,8 @@ When asked `Prepare WPn.m`:
 4. report concisely:
    - expected files/areas to change;
    - product/architecture decisions requiring owner input, if any;
-   - development dependencies;
+   - Windows development dependencies;
    - Mac Mini/Pi runtime prerequisites documented in the runbook;
-   - read-only local probes run during preparation, with their numbers;
    - any `BLOCKED` item;
 5. do not implement application code yet.
 
@@ -163,76 +154,23 @@ Do not require the owner to repeat the safeguards from this file in every prompt
 
 ## 5. Development and runtime environments
 
-The Mac Mini is the development machine and the runtime host.
+Codex is used only on the Windows gaming desktop.
 
 ```text
-+------------------------+---------------------------------------------------+
-| Environment            | Role                                              |
-+------------------------+---------------------------------------------------+
-| Mac Mini (websvc)      | Coding agent, Git worktrees, Tier A tests,        |
-|                        | runtime, local models, Tier B commands            |
-| Raspberry Pi           | Thin client and Tier C hardware validation        |
-| Phone/laptop browser   | Owner interaction smoke and gate ceremonies       |
-+------------------------+---------------------------------------------------+
++------------------------+--------------------------------------------------+
+| Environment            | Role                                             |
++------------------------+--------------------------------------------------+
+| Windows gaming desktop | Codex, Git worktrees, coding and Tier A tests    |
+| Mac Mini               | Runtime, local models and Tier B validation      |
+| Raspberry Pi           | Thin client and Tier C hardware validation       |
++------------------------+--------------------------------------------------+
 ```
 
-### 5.1 Agent sessions
+Codex is not installed on the Mac Mini or Raspberry Pi.
 
-The owner starts an agent session in one of three ways. The rules below apply to all three:
+Do not claim to have installed, configured or tested anything on those machines.
 
-1. a terminal on the Mac Mini;
-2. Claude Code remote control in a browser;
-3. Claude Code remote control in the Claude mobile app.
-
-Remote sessions run inside `tmux` under the `websvc` account. Assume the owner may be reading the session on a phone.
-
-Therefore:
-
-- keep output short and scannable;
-- do not start long-running foreground processes inside the session;
-- do not run interactive full-screen programs that need a real terminal;
-- group related shell commands so the owner approves fewer prompts;
-- never kill, rename or detach the owner's `tmux` session.
-
-### 5.2 What the agent may do on the Mac Mini
-
-The agent shares a machine with the runtime. Sharing a machine is not permission to operate it.
-
-Proceed without asking:
-
-- read repository files, runtime logs and the contents of `KAKI_DATA_ROOT`;
-- run Tier A tests;
-- run a read-only probe against an already-running service or an already-built index, such as scoring queries to calibrate a threshold;
-- run a read-only script that the active unit owns.
-
-Ask the owner first:
-
-- installing or upgrading any package, binary, model or service;
-- starting, stopping or restarting `whisper.cpp`, `mlx_lm.server` or the backend;
-- writing to, re-seeding, re-ingesting or deleting anything under `KAKI_DATA_ROOT`;
-- running a Tier B or Tier C owner procedure from the runbook;
-- any command that changes the machine outside the worktree.
-
-Report every read-only probe in the completion report, with the command and the numbers it produced. If a probe sets a threshold, a default or an acceptance expectation, the probe must be reproducible from a committed script. A number that exists only in a session transcript is not evidence.
-
-Run Tier A tests with the `KAKI_*` mode switches cleared. A session started from the owner's `tmux` window inherits the live runtime exports (`KAKI_STT_MODE`, `KAKI_LLM_MODE`, `KAKI_TTS_MODE`, `KAKI_RETRIEVAL_MODE` and the service URLs), which sends canned tests to real services and produces failures that no code change can fix. Clear them before you conclude anything from a red Tier A run.
-
-### 5.3 Validation ownership stays with the owner
-
-The agent can now execute a Tier B command. It still does not own Tier B validation.
-
-- The owner performs S and G ceremonies from the runbook.
-- The agent never marks a runbook section `VERIFIED`.
-- The agent never records owner evidence on the owner's behalf.
-- Mac and Pi package, runtime, model and infrastructure preparation belongs in `wp-validation-runbook.md`, not in a session transcript.
-
-Do not claim to have installed, configured or tested anything on the Raspberry Pi.
-
-### 5.4 Worktrees and shared runtime data
-
-Worktrees live on the Mac Mini. One `KAKI_DATA_ROOT` serves the machine, and the running services use it.
-
-Two worktrees must not write to the same data root at the same time. If the active unit needs to write generated data, point `KAKI_DATA_ROOT` at a unit-scoped directory and document that in the runbook section.
+Mac/Pi package, runtime, model and infrastructure preparation belongs in `wp-validation-runbook.md`.
 
 ---
 
@@ -281,21 +219,20 @@ Generated corpus snapshots, processed corpus data, Chroma data and SQLite runtim
 
 ## 8. Dependency handling
 
-### Development dependencies
+### Windows development dependencies
 
-The agent may add project-local dependencies when the active unit needs them.
+Codex may add project-local dependencies when the active unit needs them.
 
-- Python dependencies belong in the repository-root `.venv` and the project dependency files.
+- Python dependencies belong in the worktree `.venv` and project dependency files.
 - npm dependencies belong in the relevant `package.json` and lock file.
 - Do not install Python packages globally.
 - Do not use `--break-system-packages`.
-- Do not run `brew` without owner approval. Homebrew changes the machine, not the worktree.
 
 Report material dependency additions in the completion summary.
 
 ### Mac Mini and Pi runtime dependencies
 
-The agent does not install them, even though it now runs on the Mac Mini.
+Codex does not install them.
 
 Before code implementation depends on a new runtime package, binary, model, cache, environment variable or service, the active runbook section must document:
 
@@ -389,7 +326,7 @@ Missing or imperfect change-history metadata must not block implementation, vali
 
 Inline `#vX.Y` markers (and equivalents in other languages) are optional and must not be enforced as a gate. Existing markers may remain; do not mass-edit untouched code to add, remove or standardise them.
 
-The agent must not create or maintain tooling whose sole purpose is enforcing change-history metadata. Do not introduce a replacement history checker, policy framework, pre-commit hook or equivalent enforcement mechanism for it.
+Codex must not create or maintain tooling whose sole purpose is enforcing change-history metadata. Do not introduce a replacement history checker, policy framework, pre-commit hook or equivalent enforcement mechanism for it.
 
 Use equivalent valid comments in TypeScript/JavaScript/CSS/shell where applicable.
 
@@ -442,11 +379,9 @@ Tests are gates, not obstacles.
 
 Do not delete, weaken, skip or rewrite an acceptance test merely to obtain a green run.
 
-A Tier A test must not depend on the shell environment, on a running service, or on the state of the live `KAKI_DATA_ROOT`. Write Tier A tests so they set their own mode switches to canned defaults and use a temporary data root. A test that passes only because a service happens to be up has stopped being a test.
-
 When an earlier test genuinely conflicts with an approved current requirement, report the mismatch and reconcile implementation + test together. This is not considered test weakening when the owner has explicitly changed the requirement.
 
-A Tier B or Tier C test that the agent did not run is not a failure. Name the tests you skipped and say why. The owner runs them from the runbook.
+Tier B/C tests unavailable on Windows are not failures. The owner runs them using the runbook.
 
 ---
 
@@ -467,8 +402,83 @@ Decisions or limitations:
 Later scope untouched: yes/no
 ```
 
-Under `Decisions or limitations`, name any read-only local probe you ran and the numbers it produced.
-
 For S/G validation, point to the exact runbook section. Do not reproduce the procedure.
 
 Report a file-plan deviation only when it is meaningful. Do not stop mid-implementation merely because one necessary helper/test file inside the approved ownership area was not predicted during preparation.
+
+---
+
+## 17. Writing and documentation style
+
+All prose this agent produces — markdown, docstrings, runbook
+sections, completion reports, and conversational replies — must
+follow these rules. They distil Zinsser's quality-writing
+principles and the Google developer documentation style guide
+into an actionable standard for this project.
+
+### Governing idea
+
+Clear writing starts with clear thinking. Before writing a
+sentence, know what it must say and whom it serves. If the
+thought is unclear, clarify the idea first — longer words will
+not hide the gap.
+
+### Sentence and word rules
+
+1. Keep sentences short. One idea per sentence.
+2. Use the active voice when the actor matters.
+3. Use present tense for normal behaviour; future tense only
+   when timing matters.
+4. Start instructions with an imperative verb.
+5. Put conditions before actions: "If X fails, run Y."
+6. Choose the simplest word that preserves the meaning.
+7. Prefer strong verbs over noun phrases: "analyse," not
+   "perform an analysis."
+8. Cut qualifiers (`very`, `quite`, `really`, `somewhat`)
+   unless they change the meaning.
+9. Cut throat-clearing: delete "It should be noted that,"
+   "In order to," and similar openers that delay the point.
+10. Use one term for one concept. Do not alternate synonyms
+    for variety.
+
+### Formatting rules
+
+1. Use sentence case for headings.
+2. Start task headings with a base-form verb:
+   "Configure authentication," not "Configuring authentication."
+3. Use numbered lists for ordered steps; bullets for unordered
+   sets.
+4. Use code formatting for literal tokens: filenames, commands,
+   variables, config keys.
+5. Do not use bold, caps, or code formatting for emphasis alone.
+6. Introduce every list, table, or code block with a sentence
+   that explains what follows.
+
+### Tone
+
+1. Write for a reader who is intelligent but busy.
+2. Sound like a person, not a template.
+3. Keep the tone direct and professional; a little warmth or
+   dry humour is fine when the context allows it.
+4. Do not use `whilst`; use `while`.
+5. Do not pad prose to sound more senior or more thorough.
+6. End when the point has landed. Do not summarise what you
+   just said.
+
+### What not to sacrifice
+
+Do not shorten prose at the cost of technical precision,
+necessary nuance, or reproducibility. Concrete numbers,
+exact identifiers, and measured results earn their space.
+"The query time fell from 18 s to 4 s" beats "performance
+improved significantly."
+
+### Quality check before returning prose
+
+Ask five questions:
+
+1. Is the main point clear in the first two sentences?
+2. Can any sentence say the same thing with fewer words?
+3. Are the verbs strong and the actors visible?
+4. Does it sound like a person wrote it?
+5. Does it stop at the right moment?
