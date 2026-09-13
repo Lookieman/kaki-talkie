@@ -1,3 +1,4 @@
+# v1.8 | 13-Sep-2026 | Record which evidence chunk stands behind each response source.
 # v1.7 | 12-Sep-2026 | Drop transcript_redacted; redaction is no longer performed.
 # v1.6 | 12-Sep-2026 | Record the routing intent, refusal reason, redaction and gate audit.
 # v1.5 | 12-Sep-2026 | Keep evidence in retrieval rank order and record the cited source.
@@ -46,6 +47,21 @@ class EvidenceScore(BaseModel):  #v1.4
     cited: bool = False  #v1.5
 
 
+class SourceLink(BaseModel):  #v1.8
+    """Tie one response source to the retrieved chunk that represents it.
+
+    The response lists sources de-duplicated by URL, cited first. A link sits
+    at the same position as its source and names the chunk behind it: the
+    cited chunk for the cited source, otherwise the best-ranked chunk from
+    that URL. WP4.1 persists these as `turn_sources` rows.
+    """
+    source_id: str
+    chunk_id: str
+    retrieval_rank: int
+    dense_score: float | None = None
+    cited: bool = False
+
+
 class TurnLog(BaseModel):
     """Store safe in-memory diagnostics; the transcript feeds the protected debug view.
 
@@ -77,6 +93,8 @@ class TurnLog(BaseModel):
     retrieval_evidence: list[EvidenceScore] = []  #v1.4
     cited_source_id: str | None = None  #v1.5
     llm_cited_index: int | None = None  #v1.5
+    # Aligned with the response's `sources`, one link per source (WP4.1).
+    source_links: list[SourceLink] = []  #v1.8
 
 
 class TurnExecution(BaseModel):

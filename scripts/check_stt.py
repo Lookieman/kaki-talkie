@@ -1,3 +1,4 @@
+# v1.1 | 13-Sep-2026 | Store check turns in a disposable database, not the live data root.
 # v1.0 | 08-Sep-2026 | Provide the WP2.2 owner CLI for STT readiness, lifecycle and retention.
 """Check the configured STT path for WP2.2 owner validation.
 
@@ -8,8 +9,11 @@ turn through the real pipeline, then reports transcript, language evidence,
 timings, audio release, idempotency and retention checks as JSON.
 
 Side effects: `--input` calls the local STT service (twice when checks pass).
-With `--retain-test-audio --consent-to-retain` it also writes exactly one copy
-of the input under `KAKI_DATA_ROOT/wp2.2/retained`; nothing else is written.
+The turns are stored in a disposable SQLite database under the system
+temporary directory, removed on exit, so the live `KAKI_DATA_ROOT` database
+gains no rows. With `--retain-test-audio --consent-to-retain` it also writes
+exactly one copy of the input under `KAKI_DATA_ROOT/wp2.2/retained`; nothing
+else is written.
 Exit status is zero only when every applicable check passes.
 """
 
@@ -19,6 +23,7 @@ import json
 import math
 import os
 import sys
+import tempfile  #v1.1
 from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
@@ -29,6 +34,8 @@ from kaki_backend.orchestration.audio_lifecycle import TestAudioRetention, TurnA
 from kaki_backend.orchestration.audio_normalisation import MAX_INPUT_BYTES
 from kaki_backend.orchestration.idempotency import TurnService
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline
+from kaki_backend.persistence.database import Database  #v1.1
+from kaki_backend.persistence.repositories import TurnRepository  #v1.1
 
 
 class RecordingStt:
@@ -167,8 +174,10 @@ def check_transcription(args: argparse.Namespace, settings: SttSettings) -> int:
         return 1
     retained_before = count_retained_files(data_root) if data_root.is_absolute() else 0
 
-    service = TurnService(TurnPipeline(stt=port))
-    turns, released = asyncio.run(run_turns(service, audio, retention))
+    with tempfile.TemporaryDirectory(prefix="kaki-check-stt-") as scratch:  #v1.1
+        store = TurnRepository(Database.open(Path(scratch) / "kaki.db"))
+        service = TurnService(TurnPipeline(stt=port), store)
+        turns, released = asyncio.run(run_turns(service, audio, retention))
 
     retained_after = count_retained_files(data_root) if data_root.is_absolute() else 0
     evidence = evidence_report(port.last)

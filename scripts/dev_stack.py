@@ -1,3 +1,4 @@
+# v1.3 | 13-Sep-2026 | Require backend storage readiness; document the inherited data root.
 # v1.2 | 12-Sep-2026 | Retry cold readiness probes quickly; load HF_TOKEN from .env.
 # v1.1 | 11-Sep-2026 | Start the grounded stack: retrieval mode export and readiness wait.
 # v1.0 | 09-Sep-2026 | Provide the WP2.4 owner helper to start, check and stop the Mac stack.
@@ -15,9 +16,11 @@ Side effects: `up` spawns three long-running local processes, writes logs
 under `$KAKI_DATA_ROOT/logs` and pidfiles under `$KAKI_DATA_ROOT/run`, and
 exports real-mode backend settings (whisper/qwen/say and grounded retrieval;
 export `KAKI_RETRIEVAL_MODE=canned` first for the WP2 configuration) unless
-already set in the environment. With retrieval grounded, backend readiness
-also requires the health `retrieval_ready` flag, whose first probe loads the
-embedding model. `down` signals those recorded processes and removes their
+already set in the environment. Every child inherits the validated
+`KAKI_DATA_ROOT`, which the backend needs for its SQLite database (runbook 9.1
+WP4.1). Backend readiness requires the health `storage_ready` flag and, with
+retrieval grounded, `retrieval_ready`, whose first probe loads the embedding
+model. `down` signals those recorded processes and removes their
 pidfiles. Requires an absolute `KAKI_DATA_ROOT`. Paths follow setup.md and
 may be overridden: `KAKI_WHISPER_SERVER`, `KAKI_WHISPER_MODEL`,
 `KAKI_LLM_PYTHON`, `HF_HOME`. Exit status is zero on success; 2 indicates a
@@ -110,7 +113,7 @@ def build_services(environment: dict[str, str]) -> list[Service]:
             marker="kaki_backend",  #v1.1
             readiness_deadline_seconds=180 if retrieval_grounded else 60,  #v1.1
             extra_environment=backend_settings,
-            required_health_flags=(  #v1.1
+            required_health_flags=("storage_ready",) + (  #v1.3
                 ("retrieval_ready",) if retrieval_grounded else ()
             ),
         ),

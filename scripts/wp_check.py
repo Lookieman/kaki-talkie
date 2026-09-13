@@ -1,3 +1,4 @@
+# v2.0 | 13-Sep-2026 | Add the WP4.1 durable-turn and restart-replay checks.
 # v1.9 | 12-Sep-2026 | Drop the credential fixture and secret checks from WP3.4.
 # v1.8 | 12-Sep-2026 | Add the WP3.4 refusal checks; speak a supported question in rag mode.
 # v1.7 | 12-Sep-2026 | Check the answer is attributed to the evidence it actually used.
@@ -50,6 +51,13 @@ Currently registered:
   without generating, with a referral slip claiming no provenance. GP4
   (credential action) is proven over the text path by
   `scripts/run_regression.py`, so it needs no fixture here.
+- WP4.1 tier B - durable turns and replay (WP4-AT-01/02/03). First proves a
+  restart replay in-process against a disposable data root under the system
+  temporary directory, with canned ports. Then, against the running stack,
+  submits one turn, reads the live database read-only to check its `turns`
+  and `turn_sources` rows, and replays the same turn_id with different audio.
+  Requires `KAKI_DATA_ROOT` (and `KAKI_SQLITE_PATH` if the backend uses it).
+  The backend restart itself stays a manual step (runbook 9.2 WP4.1 Test 3).
 
 Side effects: WP2.3 tier B sends five fixed-transcript generation requests to
 the local LLM service. WP2.4 tier B synthesises one fixed sentence locally
@@ -61,7 +69,9 @@ twice and writes snapshots and processed chunks under
 and writes the vector collection under `$KAKI_DATA_ROOT/chroma`; one fixed
 query also runs `scripts/query_corpus.py` in a subprocess. WP3.4 tier B
 submits three packaged fixture turns (fresh `turn_id`s) and writes
-nothing. Exit status is zero only when every check passes; 2 indicates a
+nothing. WP4.1 tier B writes a disposable database under the system temporary
+directory, removed on exit, and submits one fixture turn plus its replay to the
+running backend, which stores them in the live database. Exit status is zero only when every check passes; 2 indicates a
 usage or configuration error.
 """
 
@@ -70,10 +80,14 @@ import io
 import json
 import os
 import re
+import sqlite3  #v2.0
+import stat  #v2.0
 import sys
+import tempfile  #v2.0
 import wave
 from pathlib import Path
 from base64 import b64decode
+from contextlib import closing  #v2.0
 from importlib.resources import files
 from time import perf_counter
 from uuid import uuid4
@@ -82,6 +96,7 @@ import httpx
 from dotenv import load_dotenv  #v1.6
 
 from kaki_backend.config import APPROVED_QWEN_MODEL, LlmSettings, TtsSettings
+from kaki_backend.config import StorageSettings  #v2.0
 from kaki_backend.contracts.ports import LlmError, TtsError
 from kaki_backend.orchestration.canned_ports import CannedLlmPort, CannedSttPort
 
@@ -773,6 +788,137 @@ def check_wp34_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v1.8
     return report, checks
 
 
+def _restart_replay_in_process() -> tuple[dict[str, object], dict[str, bool]]:  #v2.0
+    """Store a canned turn, reopen the database with a fresh service and replay it.
+
+    Uses a disposable data root so the live database is untouched. The replay
+    sends empty audio: re-execution would return a failed turn instead.
+    """
+    import asyncio
+
+    from kaki_backend.orchestration.idempotency import TurnService
+    from kaki_backend.orchestration.turn_pipeline import TurnPipeline
+    from kaki_backend.persistence.database import Database
+    from kaki_backend.persistence.repositories import TurnRepository
+
+    fixture = files("kaki_backend").joinpath(f"fixtures/{UNGROUNDED_TURN_FIXTURE}").read_bytes()
+    fields = dict(device_id="wp41-check", session_id="wp41-check", turn_id="wp41-restart",
+                  audio_preparation_ms=0.0)
+    with tempfile.TemporaryDirectory(prefix="kaki-wp41-check-") as scratch:
+        settings = StorageSettings.from_environment({"KAKI_DATA_ROOT": scratch})
+        first_database = Database.open(settings.path)
+        first_pipeline = TurnPipeline()
+        first = asyncio.run(TurnService(first_pipeline, TurnRepository(first_database)).process(
+            audio=fixture, request_started_at=perf_counter(), **fields,
+        ))
+        restarted_pipeline = TurnPipeline()
+        restarted_database = Database.open(settings.path)
+        replay = asyncio.run(
+            TurnService(restarted_pipeline, TurnRepository(restarted_database)).process(
+                audio=b"", request_started_at=perf_counter(), **fields,
+            )
+        )
+        stored = TurnRepository(restarted_database).find("wp41-restart")
+        file_mode = stat.S_IMODE(os.stat(settings.path).st_mode)
+        schema_version = restarted_database.schema_version()
+    report = {"schema_version": schema_version, "file_mode": oct(file_mode),
+              "first_state": first.state.value, "replay_state": replay.state.value}
+    checks = {
+        "disposable_database_is_owner_only": file_mode == 0o600,
+        "disposable_database_at_schema_version_1": schema_version == 1,
+        "first_execution_ran_once": first_pipeline.execution_count == 1,
+        "restart_replay_did_not_execute": restarted_pipeline.execution_count == 0,
+        "restart_replay_identical": replay.model_dump() == first.model_dump(),
+        "restart_replay_counted": stored is not None and stored.replay_count == 1,
+    }
+    return report, checks
+
+
+def check_wp41_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.0
+    """Prove WP4-AT-01/02/03 in-process and against the running stack.
+
+    The in-process part needs no services. The stack part needs the backend
+    running with the same `KAKI_DATA_ROOT`/`KAKI_SQLITE_PATH` as this shell,
+    because it reads that database read-only to inspect the stored rows.
+    """
+    live_path = StorageSettings.from_environment().path
+    grounded = os.environ.get("KAKI_RETRIEVAL_MODE", "canned") == "rag"
+    fixture_name = GROUNDED_TURN_FIXTURE if grounded else UNGROUNDED_TURN_FIXTURE
+    replay_fixture = "unsupported_question.wav" if grounded else "empty_audio.wav"
+    report: dict[str, object] = {
+        "backend_url": BACKEND_URL, "database": live_path, "turn_fixture": fixture_name,
+        "replay_fixture": replay_fixture,
+    }
+    in_process_report, checks = _restart_replay_in_process()
+    report["in_process"] = in_process_report
+
+    turn_id = f"wp41-check-{uuid4().hex[:12]}"
+    fields = {"device_id": "wp41-check", "session_id": "wp41-check", "turn_id": turn_id}
+    audio = files("kaki_backend").joinpath(f"fixtures/{fixture_name}").read_bytes()
+    replay_audio = files("kaki_backend").joinpath(f"fixtures/{replay_fixture}").read_bytes()
+    try:
+        with httpx.Client(
+            timeout=GROUNDED_TURN_TIMEOUT_SECONDS, trust_env=False, follow_redirects=False,
+        ) as client:
+            health = client.get(BACKEND_URL + "/api/health").json()
+            started = perf_counter()
+            first = client.post(BACKEND_URL + "/api/device/turn", data=fields,
+                                files={"audio": (fixture_name, audio, "audio/wav")}).json()
+            first_ms = (perf_counter() - started) * 1000
+            started = perf_counter()
+            replay = client.post(BACKEND_URL + "/api/device/turn", data=fields,
+                                 files={"audio": (replay_fixture, replay_audio,
+                                                  "audio/wav")}).json()
+            replay_ms = (perf_counter() - started) * 1000
+            debug = client.get(BACKEND_URL + "/api/device/debug/last-turn").json()
+    except (httpx.HTTPError, ValueError):
+        print("FAIL: the backend stack is not reachable; start it first (runbook 9.2 WP4.1).",
+              file=sys.stderr)
+        checks["stack_reachable"] = False
+        return report, checks
+    checks["stack_reachable"] = True
+
+    try:
+        with closing(sqlite3.connect(f"file:{live_path}?mode=ro", uri=True)) as connection:
+            connection.row_factory = sqlite3.Row
+            turn_row = connection.execute(
+                "SELECT state, replay_count FROM turns WHERE turn_id = ?", (turn_id,)
+            ).fetchone()
+            source_rows = connection.execute(
+                "SELECT source_url, cited FROM turn_sources WHERE turn_id = ? ORDER BY position",
+                (turn_id,),
+            ).fetchall()
+    except sqlite3.Error as error:
+        raise ValueError(f"cannot read {live_path} read-only: {error}") from None
+    sources = first.get("sources") or []
+    report.update({
+        "health": health, "turn_id": turn_id, "first_state": first.get("state"),
+        "first_elapsed_ms": round(first_ms, 1), "replay_elapsed_ms": round(replay_ms, 1),
+        "stored_row": dict(turn_row) if turn_row is not None else None,
+        "stored_source_rows": [dict(row) for row in source_rows],
+        "debug_replay_count": debug.get("replay_count"),
+    })
+    checks.update({
+        "health_reports_storage_ready": health.get("storage_ready") is True,
+        "live_turn_stored": turn_row is not None and turn_row["state"] == first.get("state"),
+        "one_source_row_per_response_source": [row["source_url"] for row in source_rows]
+        == [source.get("source_url") for source in sources],
+        "cited_source_stored_first": not sources or (
+            bool(source_rows) and source_rows[0]["cited"] == 1
+        ),
+        "replay_identical_despite_different_audio": replay == first,
+        "replay_counted_once": turn_row is not None and turn_row["replay_count"] == 1,
+        "replay_faster_than_execution": replay_ms < first_ms,
+        "debug_view_reads_the_stored_turn": debug.get("turn_id") == turn_id
+        and debug.get("replay_count") == 1,
+    })
+    if grounded:
+        checks["grounded_turn_answered_with_sources"] = (
+            first.get("state") == "answered" and bool(sources)
+        )
+    return report, checks
+
+
 REGISTRY = {
     ("WP2.3", "B"): check_wp23_tier_b,
     ("WP2.4", "B"): check_wp24_tier_b,
@@ -780,6 +926,7 @@ REGISTRY = {
     ("WP3.2", "B"): check_wp32_tier_b,
     ("WP3.3", "B"): check_wp33_tier_b,  #v1.5
     ("WP3.4", "B"): check_wp34_tier_b,  #v1.8
+    ("WP4.1", "B"): check_wp41_tier_b,  #v2.0
 }
 
 

@@ -1,3 +1,4 @@
+# v1.5 | 13-Sep-2026 | Package the numbered SQL migrations.
 # v1.4 | 12-Sep-2026 | Depend on python-dotenv for project-root .env loading.
 # v1.3 | 07-Sep-2026 | Clarify the non-gating reason for allowing compact comments.
 # v1.2 | 06-Sep-2026 | Pin bundled audio decoding for WP2.1.
@@ -31,7 +32,7 @@ where = ["src"]
 include = ["kaki_backend*"]
 
 [tool.setuptools.package-data] #v1.1
-kaki_backend = ["fixtures/*.wav", "fixtures/README.md"] #v1.1
+kaki_backend = ["fixtures/*.wav", "fixtures/README.md", "persistence/migrations/*.sql"] #v1.5
 
 [tool.ruff] #v1.1
 target-version = "py311" #v1.1

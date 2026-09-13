@@ -93,7 +93,9 @@ language evidence, state and stage timings for the most recent turn. It is
 served by the loopback-only application and reached remotely only through
 the protected `/api/device/*` path.
 
-Completed responses are cached in process memory by `turn_id`. Reusing a
-turn ID returns the stored first response without re-executing the
-pipeline. The cache is lost on restart; durable SQLite idempotency arrives
-in WP4.
+Completed turns are stored in SQLite at `$KAKI_DATA_ROOT/sqlite/kaki.db`
+(override with an absolute `KAKI_SQLITE_PATH`). `KAKI_DATA_ROOT` is required
+in every mode; the backend refuses to start without it. Reusing a turn ID
+returns the stored first response without re-executing the pipeline, including
+after a restart. Migrations in `kaki_backend/persistence/migrations/` run at
+startup. Decision record: `../docs/decisions/adr-0007-sqlite-persistence.md`.

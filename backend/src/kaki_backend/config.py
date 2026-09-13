@@ -1,9 +1,10 @@
+# v1.5 | 13-Sep-2026 | Require KAKI_DATA_ROOT everywhere and locate the SQLite database.
 # v1.4 | 12-Sep-2026 | Read the WP3.4 evidence-gate threshold from the environment.
 # v1.3 | 11-Sep-2026 | Select canned or rag retrieval and the query-normalise switch.
 # v1.2 | 09-Sep-2026 | Select canned or macOS say speech alongside the STT and LLM choices.
 # v1.1 | 09-Sep-2026 | Select canned or local Qwen generation alongside the STT choice.
 # v1.0 | 07-Sep-2026 | Select canned or local Whisper STT without loading models.
-"""Read explicit STT/LLM/TTS configuration; retain mode is deliberately not an environment setting."""
+"""Read explicit STT/LLM/TTS/storage configuration; retain mode is deliberately not an environment setting."""
 
 import math
 import os
@@ -24,6 +25,9 @@ APPROVED_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"  #v1.3
 # supported questions scored 0.63-0.86 best dense cosine, unsupported ones
 # 0.24-0.43, so 0.50 sits in the gap (runbook 8.1 WP3.4).
 DEFAULT_EVIDENCE_MIN_DENSE = 0.50  #v1.4
+# The WP4.1 database lives under the runtime data root unless overridden.
+BASELINE_DATA_ROOT = "/Users/websvc/kaki-talkie-data"  #v1.5
+DEFAULT_SQLITE_RELATIVE_PATH = "sqlite/kaki.db"  #v1.5
 
 
 def _bounded_timeout(env: Mapping[str, str], name: str, default: str, upper: float) -> float:
@@ -158,6 +162,34 @@ class RetrievalSettings:  #v1.3
         from kaki_rag.adapter import KakiRagRetriever
 
         return KakiRagRetriever(self.data_root, model_id=self.embedding_model)
+
+
+@dataclass(frozen=True)
+class StorageSettings:  #v1.5
+    """Locate the SQLite database; there is no in-memory alternative.
+
+    `KAKI_DATA_ROOT` is required in every mode, canned included, because the
+    default database path derives from it. `KAKI_SQLITE_PATH` optionally
+    overrides the file location and must also be absolute.
+    """
+
+    path: str
+
+    @classmethod
+    def from_environment(cls, environment: Mapping[str, str] | None = None) -> "StorageSettings":
+        """Resolve the database path; raise ValueError naming the missing variable."""
+        env = os.environ if environment is None else environment
+        data_root = env.get("KAKI_DATA_ROOT", "")
+        if not os.path.isabs(data_root):
+            raise ValueError(
+                "KAKI_DATA_ROOT must be set to an absolute path (baseline "
+                f"{BASELINE_DATA_ROOT}); the SQLite database is expected at "
+                f"$KAKI_DATA_ROOT/{DEFAULT_SQLITE_RELATIVE_PATH} (runbook 9.1 WP4.1)."
+            )
+        override = env.get("KAKI_SQLITE_PATH", "")
+        if override and not os.path.isabs(override):
+            raise ValueError("KAKI_SQLITE_PATH must be an absolute path when set.")
+        return cls(override or os.path.join(data_root, DEFAULT_SQLITE_RELATIVE_PATH))
 
 
 @dataclass(frozen=True)

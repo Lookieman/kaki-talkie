@@ -1,3 +1,4 @@
+# v1.5 | 13-Sep-2026 | Expect the WP4.1 storage readiness flag in health.
 # v1.4 | 12-Sep-2026 | Build the application from the canned environment, not the shell's.
 # v1.3 | 09-Sep-2026 | Require health readiness reporting and the last-turn debug view.
 # v1.2 | 05-Sep-2026 | Require versioned health and playable WP1 canned audio.
@@ -63,6 +64,7 @@ class ApiContractTests(unittest.TestCase):
                 "llm_ready": True,
                 "tts_ready": True,
                 "retrieval_ready": True,  #v1.4
+                "storage_ready": True,  #v1.5
             },
         )
         self.assertTrue(result["version"])  #v1.2

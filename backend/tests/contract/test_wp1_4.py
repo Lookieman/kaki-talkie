@@ -1,3 +1,4 @@
+# v1.4 | 13-Sep-2026 | Expect the WP4.1 storage readiness flag in health.
 # v1.3 | 12-Sep-2026 | Build the application from the canned environment, not the shell's.
 # v1.2 | 09-Sep-2026 | Accept the WP2-AT-10 readiness fields in the health shape.
 # v1.1 | 06-Sep-2026 | Use valid audio for the packaged response regression.
@@ -71,6 +72,7 @@ class Wp14ContractTests(unittest.TestCase):  #v1.0
                 "llm_ready": True,
                 "tts_ready": True,
                 "retrieval_ready": True,  #v1.1
+                "storage_ready": True,  #v1.4
             },
         )
 

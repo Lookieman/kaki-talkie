@@ -1,3 +1,4 @@
+# v1.2 | 13-Sep-2026 | Prove storage readiness is required and children inherit the data root.
 # v1.1 | 12-Sep-2026 | Give spawned helpers a canned environment instead of the shell's.
 # v1.0 | 09-Sep-2026 | Verify stack helper safety rules without starting real services.
 """Deterministic dev-stack helper tests; no service processes are spawned."""
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch  #v1.2
 from pathlib import Path
 
 from kaki_test_env import canned_environment  #v1.1
@@ -54,6 +56,28 @@ class DevStackSafetyTests(unittest.TestCase):
         self.assertEqual(overrides["KAKI_STT_MODE"], "whisper")
         self.assertEqual(overrides["KAKI_LLM_MODE"], "qwen")
         self.assertEqual(overrides["KAKI_TTS_MODE"], "say")
+
+    def test_backend_requires_storage_readiness(self) -> None:  #v1.2
+        backend = dev_stack.build_services({})[2]
+        self.assertEqual(backend.required_health_flags, ("storage_ready", "retrieval_ready"))
+        canned = dev_stack.build_services({"KAKI_RETRIEVAL_MODE": "canned"})[2]
+        self.assertEqual(canned.required_health_flags, ("storage_ready",))
+
+    def test_every_child_inherits_the_data_root(self) -> None:  #v1.2
+        # `up --only backend` starts the same Service through the same path, so
+        # the runbook 9.2 WP4.1 restart cannot lose KAKI_DATA_ROOT.
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(os.environ, {"KAKI_DATA_ROOT": directory}), \
+                patch.object(dev_stack, "port_is_free", return_value=True), \
+                patch.object(dev_stack.subprocess, "Popen") as popen:
+            popen.return_value.pid = 4242
+            for service in dev_stack.build_services(dict(os.environ)):
+                with self.subTest(service=service.name):
+                    self.assertTrue(dev_stack.start_service(
+                        service, Path(directory), Path(directory)
+                    ))
+                    child_environment = popen.call_args.kwargs["env"]
+                    self.assertEqual(child_environment["KAKI_DATA_ROOT"], directory)
 
     def test_port_is_free_detects_a_bound_listener(self) -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:

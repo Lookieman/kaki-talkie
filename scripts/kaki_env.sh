@@ -1,3 +1,4 @@
+# v1.2 | 13-Sep-2026 | Export KAKI_DB for WP4.1 validation.
 # v1.1 | 11-Sep-2026 | Add env-only mode: source kaki_env.sh env
 # v1.0 | 09-Sep-2026 | Initial parameterised validation environment loader
 #
@@ -58,6 +59,17 @@ export "${_unit_tag}_EVIDENCE=$KAKI_EVIDENCE"
 export KAKI_UNIT
 unset _unit_dir _unit_tag
 
+# Unit-specific exports.                                         #v1.2
+case "$KAKI_UNIT" in                                             #v1.2
+    WP4.1)                                                       #v1.2
+        # The backend's SQLite database (runbook 9.1 WP4.1).
+        export KAKI_DB="${KAKI_SQLITE_PATH:-$KAKI_DATA_ROOT/sqlite/kaki.db}"
+        ;;                                                       #v1.2
+esac                                                             #v1.2
+
 printf 'Unit:     %s\n' "$KAKI_UNIT"
 printf 'App root: %s\n' "$KAKI_APP_ROOT"
 printf 'Evidence: %s\n' "$KAKI_EVIDENCE"
+if [ -n "$KAKI_DB" ]; then                                       #v1.2
+    printf 'Database: %s\n' "$KAKI_DB"                          #v1.2
+fi                                                               #v1.2

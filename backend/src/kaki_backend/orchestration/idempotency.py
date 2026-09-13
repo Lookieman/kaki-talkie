@@ -1,3 +1,4 @@
+# v1.2 | 13-Sep-2026 | Replace the process-memory cache with the durable SQLite turn store.
 # v1.1 | 07-Sep-2026 | Keep STT off the event loop and preserve idempotency on cancellation.
 # v1.0 | 04-Sep-2026 | Provide process-local completed-turn idempotency.
 
@@ -5,6 +6,13 @@
 
 Blocking model I/O runs in a worker. Cancellation waits for that bounded worker
 before releasing the lock, so a retry cannot execute the same turn concurrently.
+
+The durable turn store is the only idempotency record (WP4-AT-03): a turn_id
+already stored, including one completed before a backend restart, is served
+from SQLite and calls no port. A turn is stored before its response returns,
+so only a completed turn is idempotent; a crash before the commit leaves no
+row and the client's retry executes again. The lock remains because the store
+guarantees durability, not in-flight de-duplication of concurrent requests.
 """
 
 import asyncio
@@ -13,27 +21,32 @@ from kaki_backend.contracts.responses import TurnResponse
 from kaki_backend.contracts.turn_log import TurnLog
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline
 from kaki_backend.orchestration.audio_lifecycle import TestAudioRetention, TurnAudio
+from kaki_backend.persistence.repositories import StoredTurn, TurnRepository  #v1.2
 
 
 class TurnService:
-    """Execute each turn_id once and retain its first completed response in memory."""
+    """Execute each turn_id once and serve every later request for it from the turn store."""
 
-    def __init__(self, pipeline: TurnPipeline) -> None:
-        """Own a pipeline and its process-local completion cache."""
+    def __init__(self, pipeline: TurnPipeline, turns: TurnRepository) -> None:  #v1.2
+        """Own a pipeline and the durable store that records its completed turns."""
         self._pipeline = pipeline
-        self._responses: dict[str, TurnResponse] = {}
+        self._turns = turns  #v1.2
         self._logs: list[TurnLog] = []
         self._lock = asyncio.Lock()
 
     @property
     def logs(self) -> tuple[TurnLog, ...]:
-        """Expose internal diagnostics for tests; audio and transcript are excluded."""
+        """Expose this process's executed-turn diagnostics for tests; audio is excluded."""
         return tuple(self._logs)
 
     @property
     def execution_count(self) -> int:
-        """Return the number of first executions, excluding cached retries."""
+        """Return the number of first executions, excluding stored replays."""
         return self._pipeline.execution_count
+
+    def last_turn(self) -> StoredTurn | None:  #v1.2
+        """Return the most recently executed stored turn, surviving restarts."""
+        return self._turns.newest()
 
     async def process(
         self,
@@ -46,7 +59,11 @@ class TurnService:
         request_started_at: float,
         retention: TestAudioRetention | None = None,
     ) -> TurnResponse:
-        """Return the first result once; release request audio even for queued/cached turns.
+        """Return the stored result once; release request audio even for queued/replayed turns.
+
+        Side effects: a first execution writes the completed turn to SQLite
+        before returning; a replay increments its stored replay count. A
+        storage failure propagates, so the client's retry executes again.
 
         Retention is an internal capability for an explicitly consented CLI test,
         not an option exposed by the public HTTP route.
@@ -55,9 +72,9 @@ class TurnService:
         del audio
         try:
             async with self._lock:
-                stored_response = self._responses.get(turn_id)
+                stored_response = self._turns.replay(turn_id)  #v1.2
                 if stored_response is not None:
-                    return stored_response.model_copy(deep=True)
+                    return stored_response
                 job = asyncio.create_task(asyncio.to_thread(
                     self._pipeline.execute,
                     device_id=device_id, session_id=session_id, turn_id=turn_id,
@@ -71,7 +88,7 @@ class TurnService:
                     except asyncio.CancelledError:
                         cancelled = True
                 execution = job.result()
-                self._responses[turn_id] = execution.response.model_copy(deep=True)
+                self._turns.record(execution)  #v1.2
                 self._logs.append(execution.log)
                 if cancelled:
                     raise asyncio.CancelledError
@@ -80,7 +97,7 @@ class TurnService:
             owned.clear()
 
     def reset(self) -> None:
-        """Clear process-local state for deterministic test isolation."""
-        self._responses.clear()
+        """Clear stored turns and process-local state for deterministic test isolation."""
+        self._turns.clear()  #v1.2
         self._logs.clear()
         self._pipeline.execution_count = 0

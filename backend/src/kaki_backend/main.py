@@ -1,3 +1,4 @@
+# v1.9 | 13-Sep-2026 | Open and migrate the SQLite turn store at startup.
 # v1.8 | 12-Sep-2026 | Pass the configured WP3.4 evidence gate into the pipeline.
 # v1.7 | 12-Sep-2026 | Load HF_TOKEN from the project-root .env before building ports.
 # v1.6 | 11-Sep-2026 | Configure grounded retrieval while keeping canned defaults intact.
@@ -8,7 +9,13 @@
 # v1.1 | 04-Sep-2026 | Register pending and initialise WP1.2 turn semantics.
 # v1.0 | 02-Sep-2026 | Bootstrap the backend with health and canned turn routes.
 
-"""Bootstrap the local orchestrator; model processes are started independently."""
+"""Bootstrap the local orchestrator; model processes are started independently.
+
+Importing this module opens and migrates the SQLite database before any port is
+built, so a missing `KAKI_DATA_ROOT` or an unusable database stops startup.
+"""
+
+import sys  #v1.9
 
 from dotenv import load_dotenv  #v1.7
 from fastapi import FastAPI
@@ -20,6 +27,9 @@ from kaki_backend.api.turn import router as turn_router
 from kaki_backend.orchestration.idempotency import TurnService  #v1.1
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline  #v1.1
 from kaki_backend.config import LlmSettings, RetrievalSettings, SttSettings, TtsSettings  #v1.6
+from kaki_backend.config import StorageSettings  #v1.9
+from kaki_backend.persistence.database import Database  #v1.9
+from kaki_backend.persistence.repositories import TurnRepository  #v1.9
 
 # The grounded retriever embeds with a Hugging Face model, whose `HF_TOKEN`
 # lives in the untracked project-root .env. Load it before the ports are
@@ -27,6 +37,12 @@ from kaki_backend.config import LlmSettings, RetrievalSettings, SttSettings, Tts
 load_dotenv()  #v1.7
 
 app = FastAPI(title="KaKi-Talkie", version="0.1.0")
+app.state.database = Database.open(StorageSettings.from_environment().path)  #v1.9
+print(  #v1.9
+    f"kaki_backend: SQLite database {app.state.database.path} "
+    f"at schema version {app.state.database.schema_version()}",
+    file=sys.stderr, flush=True,
+)
 retrieval_settings = RetrievalSettings.from_environment()  #v1.6
 app.state.model_ports = {  #v1.5
     "stt": SttSettings.from_environment().create_port(),
@@ -42,7 +58,7 @@ app.state.turn_service = TurnService(TurnPipeline(  #v1.4
     retrieval_active=retrieval_settings.active,  #v1.6
     query_normalise=retrieval_settings.normalise,  #v1.6
     evidence_min_dense=retrieval_settings.evidence_min_dense,  #v1.8
-))
+), TurnRepository(app.state.database))  #v1.9
 app.include_router(health_router)
 app.include_router(pending_router)  #v1.1
 app.include_router(turn_router)

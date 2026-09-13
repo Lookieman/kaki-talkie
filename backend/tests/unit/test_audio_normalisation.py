@@ -1,3 +1,4 @@
+# v1.3 | 13-Sep-2026 | Give the directly built turn service a disposable turn store.
 # v1.2 | 12-Sep-2026 | Build the application from the canned environment, not the shell's.
 # v1.1 | 07-Sep-2026 | Keep audio assertions with the typed STT result.
 # v1.0 | 06-Sep-2026 | Verify browser decoding, PCM conversion, failure bounds and integration.
@@ -7,6 +8,7 @@ import asyncio
 import io
 import math
 import struct
+import tempfile  #v1.3
 import unittest
 import wave
 from pathlib import Path
@@ -22,6 +24,8 @@ from kaki_backend.orchestration.audio_normalisation import (
     normalise_audio,
 )
 from kaki_backend.orchestration.idempotency import TurnService
+from kaki_backend.persistence.database import Database  #v1.3
+from kaki_backend.persistence.repositories import TurnRepository  #v1.3
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline
 from kaki_test_env import canned_backend  #v1.2
 
@@ -89,7 +93,10 @@ class AudioNormalisationTests(unittest.TestCase):
         """Keep preparation inside idempotent execution and include its timing."""
         stt = Mock()
         stt.transcribe.return_value = Transcription(text="test")
-        service = TurnService(TurnPipeline(stt=stt))
+        scratch = tempfile.TemporaryDirectory()  #v1.3
+        self.addCleanup(scratch.cleanup)
+        store = TurnRepository(Database.open(Path(scratch.name) / "kaki.db"))
+        service = TurnService(TurnPipeline(stt=stt), store)
 
         async def run_turns() -> None:
             """Issue one original request and a retry with different bytes."""

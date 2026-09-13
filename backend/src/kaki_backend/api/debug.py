@@ -1,3 +1,4 @@
+# v1.5 | 13-Sep-2026 | Read the newest stored turn and expose its replay history.
 # v1.4 | 12-Sep-2026 | Drop transcript_redacted; redaction is no longer performed.
 # v1.3 | 12-Sep-2026 | Expose the routing intent, refusal reason, redaction and gate audit.
 # v1.2 | 12-Sep-2026 | Expose the cited source alongside the retrieval evidence.
@@ -5,9 +6,9 @@
 # v1.0 | 09-Sep-2026 | Expose the most recent turn's diagnostics for the protected debug view.
 """Serve the design section 13 debug/test view of the last completed turn.
 
-The route returns only the newest in-memory turn log: transcript, language
-evidence, state, safe stage error codes and stage timings. It never returns
-audio. FastAPI itself binds to loopback only; remote access exists solely
+The route returns only the newest stored turn: transcript, language evidence,
+state, safe stage error codes, stage timings and its replay history. It reads
+SQLite, so it answers after a backend restart. It never returns audio. FastAPI itself binds to loopback only; remote access exists solely
 through the protected `/api/device/*` path.
 """
 
@@ -19,10 +20,10 @@ router = APIRouter()
 @router.get("/api/device/debug/last-turn")
 def last_turn(request: Request) -> dict[str, object]:
     """Return the newest turn's diagnostics or a controlled 404 before any turn."""
-    logs = request.app.state.turn_service.logs
-    if not logs:
+    stored = request.app.state.turn_service.last_turn()  #v1.5
+    if stored is None:
         raise HTTPException(status_code=404, detail="No completed turns yet.")
-    log = logs[-1]
+    log = stored.log  #v1.5
     return {
         "turn_id": log.turn_id,
         "state": log.state.value,
@@ -45,4 +46,7 @@ def last_turn(request: Request) -> dict[str, object]:
             record.model_dump() for record in log.retrieval_evidence
         ],
         "timings_ms": log.timings.model_dump(),
+        "replay_count": stored.replay_count,  #v1.5
+        "completed_at": stored.completed_at,  #v1.5
+        "schema_version": request.app.state.database.schema_version(),  #v1.5
     }

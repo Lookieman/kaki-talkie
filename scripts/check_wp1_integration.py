@@ -1,3 +1,4 @@
+# v1.3 | 13-Sep-2026 | Give the canned backend a disposable KAKI_DATA_ROOT.
 # v1.2 | 12-Sep-2026 | Pin the canned adapters for this check and the backend it starts.
 # v1.1 | 09-Sep-2026 | Accept the WP2-AT-10 readiness fields in the health shape.
 # v1.0 | 05-Sep-2026 | Exercise WP1 over real loopback HTTP with optional owned servers.
@@ -6,6 +7,8 @@ import argparse  #v1.0
 import base64  #v1.0
 import io  #v1.0
 import os  #v1.2
+import shutil  #v1.3
+import atexit  #v1.3
 import socket  #v1.0
 import subprocess  #v1.0
 import sys  #v1.0
@@ -35,6 +38,12 @@ CANNED_MODES = {  #v1.2
 for _leaked in [_name for _name in os.environ if _name.startswith("KAKI_")]:  #v1.2
     del os.environ[_leaked]
 os.environ.update(CANNED_MODES)  #v1.2
+# The backend requires a data root for its SQLite database (runbook 9.1
+# WP4.1). A disposable one keeps this check's turns out of the live database;
+# the backend started below inherits it.
+_scratch_root = tempfile.mkdtemp(prefix="kaki-wp1-integration-")  #v1.3
+atexit.register(shutil.rmtree, _scratch_root, ignore_errors=True)  #v1.3
+os.environ["KAKI_DATA_ROOT"] = _scratch_root  #v1.3
 
 from kaki_backend.main import app  # noqa: E402  - canned modes must be set first  #v1.2
 

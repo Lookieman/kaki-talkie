@@ -1,3 +1,4 @@
+# v2.1 | 13-Sep-2026 | Link each response source to its evidence chunk for durable storage.
 # v2.0 | 12-Sep-2026 | Drop transcript redaction; keep credential-action and coverage refusal.
 # v1.9 | 12-Sep-2026 | Redact secrets, route credential actions and refuse without evidence.
 # v1.8 | 12-Sep-2026 | Attribute answers to the cited evidence, not the top-ranked chunk.
@@ -48,6 +49,7 @@ from kaki_backend.contracts.ports import EvidenceChunk, LanguageEvidence  #v1.7
 from kaki_backend.orchestration.audio_lifecycle import TestAudioRetention, TurnAudio
 from kaki_backend.contracts.responses import SourceRecord, TurnResponse, TurnState  #v1.7
 from kaki_backend.contracts.turn_log import EvidenceScore, TurnExecution, TurnLog, TurnTimings  #v1.7
+from kaki_backend.contracts.turn_log import SourceLink  #v2.1
 from kaki_backend.config import DEFAULT_EVIDENCE_MIN_DENSE  #v1.9
 from kaki_backend.orchestration.citation import select_cited_evidence  #v1.8
 from kaki_backend.orchestration.intent_router import (  #v1.9
@@ -93,25 +95,44 @@ def _format_evidence(evidence: tuple[EvidenceChunk, ...]) -> str:  #v1.7
     return "\n\n".join(blocks)
 
 
-def _source_records(  #v1.8
+def _source_chunks(  #v2.1
     evidence: tuple[EvidenceChunk, ...], cited: EvidenceChunk | None,
-) -> list[SourceRecord]:
-    """Return the evidence sources de-duplicated by URL, the cited one first.
+) -> list[EvidenceChunk]:
+    """Return one representative chunk per source URL, the cited source first.
 
     The answer's own source leads so that it is unambiguously the primary
     one and agrees with the printed slip; the remaining retrieved sources
-    follow in rank order as the record of what was consulted.
+    follow in rank order as the record of what was consulted. The cited
+    chunk represents its own URL; any other URL is represented by its
+    best-ranked chunk.
     """
     ordered = list(evidence)
     if cited is not None:
+        ordered.sort(key=lambda chunk: chunk.chunk_id != cited.chunk_id)  #v2.1
         ordered.sort(key=lambda chunk: chunk.source.source_url != cited.source.source_url)
-    records: list[SourceRecord] = []
+    chunks: list[EvidenceChunk] = []
     seen: set[str] = set()
     for chunk in ordered:
         if chunk.source.source_url not in seen:
             seen.add(chunk.source.source_url)
-            records.append(chunk.source)
-    return records
+            chunks.append(chunk)
+    return chunks
+
+
+def _source_links(  #v2.1
+    evidence: tuple[EvidenceChunk, ...], chunks: list[EvidenceChunk],
+    cited: EvidenceChunk | None,
+) -> list[SourceLink]:
+    """Describe each representative chunk for the `turn_sources` record."""
+    ranks = {chunk.chunk_id: rank for rank, chunk in enumerate(evidence, start=1)}
+    return [
+        SourceLink(
+            source_id=chunk.source_id, chunk_id=chunk.chunk_id,
+            retrieval_rank=ranks[chunk.chunk_id], dense_score=chunk.dense_score,
+            cited=cited is not None and chunk.chunk_id == cited.chunk_id,
+        )
+        for chunk in chunks
+    ]
 
 
 def _best_dense_score(evidence: tuple[EvidenceChunk, ...]) -> float | None:  #v1.9
@@ -196,6 +217,7 @@ class TurnPipeline:  #v1.1
         intent = None  #v1.9
         refusal_reason: RefusalReason | None = None  #v1.9
         best_dense = None  #v1.9
+        source_chunks: list[EvidenceChunk] = []  #v2.1
         if transcription is not None:
             transcript = transcription.text  #v2.0
 
@@ -283,7 +305,8 @@ class TurnPipeline:  #v1.1
                     state = TurnState.REFUSED
                 else:
                     display_text = reply_text  #v1.6
-                    sources = _source_records(evidence, cited)  #v1.8
+                    source_chunks = _source_chunks(evidence, cited)  #v2.1
+                    sources = [chunk.source for chunk in source_chunks]  #v2.1
                     state = TurnState.ANSWERED
                     if sources:  #v1.7
                         # sources[0] is the cited source, so slip and response agree.
@@ -345,6 +368,7 @@ class TurnPipeline:  #v1.1
             normalised_query=normalised_query,  #v1.7
             cited_source_id=cited.source_id if cited else None,  #v1.8
             llm_cited_index=llm_cited_index,  #v1.8
+            source_links=_source_links(evidence, source_chunks, cited),  #v2.1
             retrieval_evidence=[  #v1.7
                 EvidenceScore(
                     chunk_id=chunk.chunk_id,

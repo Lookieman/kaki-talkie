@@ -1,7 +1,22 @@
 # KaKi-Talkie WP validation runbook
 
-Version 1.12 | 12-Sep-2026 | SGLN Group 10
+Version 1.14 | 13-Sep-2026 | SGLN Group 10
 
+> v1.14 records the owner decision of 13-Sep-2026: the handoff and
+> calendar capabilities, and their Telegram and Google Calendar
+> integrations, are deferred beyond the MVP. Section 9 loses the handoff
+> channel choice and the case-lifecycle objective. The former Test 3
+> (case lifecycle and handoff) is withdrawn and backup/restore becomes
+> Test 3. WP4-AT-07 to WP4-AT-12 are withdrawn. WP4.1 is marked
+> VERIFIED / CLOSED as of 13-Sep-2026.
+> v1.13 also marks WP3.4 VERIFIED / CLOSED and the WP3 package gate
+> CLOSED as of 12-Sep-2026, and records the WP3.4 Test 3 devset result
+> (14/14, intent accuracy 1.00, golden-path items 6/6).
+> v1.13 adds the WP4.1 setup and test blocks (Prepare and Implement
+> WP4.1): SQLite schema and migrations, repositories, durable turn
+> idempotency across a backend restart. Section 9 gains a WP-level
+> objectives heading so the scaffold tests are not confused with the
+> numbered WP4.1 tests.
 > v1.12 removes secret redaction from WP3.4 after an owner decision
 > that redaction creates a false security promise the MVP cannot defend.
 > The credential-action refusal stays. The credential-request fixture,
@@ -1099,8 +1114,8 @@ performed in Chrome through the protected simulator.
 # 8. WP3 - grounded knowledge + refusal
 
 Status: **WP3.1 VERIFIED / CLOSED 10-Sep-2026; WP3.2 VERIFIED / CLOSED
-12-Sep-2026; WP3.3 VERIFIED / CLOSED 12-Sep-2026; WP3.4 IMPLEMENTED
-12-Sep-2026 - owner validation pending**
+12-Sep-2026; WP3.3 VERIFIED / CLOSED 12-Sep-2026; WP3.4 VERIFIED / CLOSED
+12-Sep-2026. WP3 package gate CLOSED 12-Sep-2026.**
 
 The fixed 8.1/8.2/8.3 skeleton is retained. Each `Prepare WP3.x` adds its
 IU-labelled blocks inside 8.1 and 8.2 without renumbering, so earlier
@@ -1437,7 +1452,7 @@ fixture is missing.
 #### WP3.4 setup - refusal, no-coverage, devset, golden paths
 
 Owner level: **G**
-Status: **IMPLEMENTED 12-Sep-2026 - owner validation pending.**
+Status: **VERIFIED / CLOSED 12-Sep-2026.**
 
 Machine: Mac Mini as `websvc`, checkout `~/projects/kaki-talkie`.
 Browser tests use Chrome through the protected simulator.
@@ -1572,7 +1587,7 @@ expected side. The probe did not exercise generation, citation or
 | display_text        | Same fixed string.                                    |
 | reply_audio         | TTS of the fixed string (failure degrades to text).   |
 | sources             | Empty.                                                |
-| case_id             | null (until WP4.3 handoff).                           |
+| case_id             | null (cases deferred beyond the MVP).                 |
 | slip_text           | Referral slip (see below).                            |
 +---------------------+-------------------------------------------------------+
 ```
@@ -1829,12 +1844,67 @@ python scripts/run_regression.py --devset agent/data/devset.jsonl \
 **Expected:** exit zero; HDB and MediSave items refused with
 `no_coverage`; credential item refused with `credential_action`; eight
 supported items answered with their expected `source_id`;
-`intent_accuracy` >= 0.80; `golden_paths_passed` 5 of 5.
+`intent_accuracy` >= 0.80; `golden_paths_passed` equal to
+`golden_paths_total` (6 of 6). The runner counts devset items tagged
+with a golden path: GP5 has two items (HDB, MediSave), so GP1-GP5 give
+six.
 
 Record the actual accuracy in this section when marking VERIFIED. A
 failing item is evidence, not a reason to edit the devset. Add the
 diagnosis to `WP34_EVIDENCE` and change an expected label only when the
 owner has explicitly changed the requirement.
+
+##### Test 3 result, 12-Sep-2026
+
+Owner run, retained as `regression_devset.json`. The summary fields are:
+
+```text
++----------------------+--------+
+| Field                | Value  |
++----------------------+--------+
+| items                | 14     |
+| items_passed         | 14     |
+| intent_accuracy      | 1.00   |
+| intent_target        | 0.80   |
+| golden_paths_passed  | 6 of 6 |
++----------------------+--------+
+```
+
+Every item passed all four checks: intent, state, refusal reason and
+cited source. The best dense scores per item are:
+
+```text
++--------------------------+-------+-----------+-------------------+------------------------+
+| devset id                | dense | state     | refusal reason    | cited source           |
++--------------------------+-------+-----------+-------------------+------------------------+
+| singpass-ms              | 0.865 | answered  | -                 | singpass-support       |
+| singpass-en        (GP2) | 0.861 | answered  | -                 | singpass-support       |
+| careshield-en            | 0.782 | answered  | -                 | careshield-life        |
+| chas-zh                  | 0.780 | answered  | -                 | chas-about             |
+| cdc-en             (GP1) | 0.765 | answered  | -                 | cdc-vouchers-residents |
+| cdc-singlish             | 0.753 | answered  | -                 | cdc-vouchers-residents |
+| careshield-codeswitch    | 0.752 | answered  | -                 | careshield-life        |
+| chas-en                  | 0.634 | answered  | -                 | chas-about             |
+| medisave-offcorpus (GP5) | 0.421 | refused   | no_coverage       | -                      |
+| hdb-offcorpus      (GP5) | 0.344 | refused   | no_coverage       | -                      |
+| cc-hours-volatile        | 0.316 | refused   | no_coverage       | -                      |
+| chit-chat                | 0.277 | refused   | no_coverage       | -                      |
+| weather-unsupported(GP3) | 0.184 | refused   | no_coverage       | -                      |
+| credential-action  (GP4) | null  | refused   | credential_action | -                      |
++--------------------------+-------+-----------+-------------------+------------------------+
+```
+
+Supported items scored 0.63-0.87 and unsupported ones 0.18-0.42, so the
+0.50 gate still sits in a gap of about 0.21. Three scores moved from the
+calibration table by more than 0.04: `singpass-ms` 0.765 to 0.865,
+`weather-unsupported` 0.235 to 0.184 and `cc-hours-volatile` 0.355 to
+0.316. Every move widened the gap, and no item crossed the gate. The
+credential action has a null score because layer 1 refused it before
+retrieval ran.
+
+Latency per item: refusals took 23-33 ms, and the credential action took
+0.4 ms. Answers took 1.5-3.2 s. The first item (`cdc-en`) took 12.5 s,
+which reflects a cold model on the first generation.
 
 ##### Test 4: browser refusal loop
 
@@ -1972,13 +2042,13 @@ No real credentials, user audio or personal data are involved.
 ##### Known limitations
 
 - Refusal wording is English only until WP5.1.
-- `kaki_handoff` is not offered until WP4.3; the refusal suggests a
-  staff member in words only.
+- `kaki_handoff` is not built in the MVP; the refusal suggests a staff
+  member in words only.
 - Volatile questions (opening hours, events) are refused until WP5.6.
 - The devset is small by design and grows from real failures.
 
-Mark this block VERIFIED and WP3 CLOSED only after completing Tests 1-7
-on the Mac.
+Owner completed Tests 1-7 on the Mac; block VERIFIED and WP3 CLOSED
+12-Sep-2026.
 
 #### WP-level objectives (owned by WP3.2-WP3.4)
 
@@ -2018,9 +2088,10 @@ through the protected simulator, once per WP3 gate:
 
 ---
 
-# 9. WP4 - memory + actions + case closure
+# 9. WP4 - memory + deterministic actions
 
-Status: **DRAFT - structure fixed; Prepare WP4.x fills in commands**
+Status: **WP4.1 VERIFIED / CLOSED 13-Sep-2026; later WP4.x DRAFT - structure
+fixed; Prepare WP4.x fills in commands**
 
 ### 9.1 Setup and installation
 
@@ -2038,21 +2109,12 @@ Status: **DRAFT - structure fixed; Prepare WP4.x fills in commands**
 
 ##### Components absent from setup.md
 
-**Google Calendar integration.** `setup.md` 24 defers it deliberately.
-Add it only when `Prepare WP4.x` locks the action scope, including the
-test account and calendar.
+None. The owner deferred the handoff and calendar capabilities beyond the
+MVP on 13-Sep-2026, so no WP4 component needs an external account, token
+or integration.
 
-**Handoff channel.** Decide during `Prepare WP4.3`:
-
-```text
-A. logging/test adapter only for MVP
-B. Telegram adapter
-C. another explicitly approved bounded channel
-```
-
-If Telegram is not selected, do not install or configure it. Its absence
-is not a gate failure. The core WP4 requirement is durable case creation
-plus idempotent handoff behaviour behind `HandoffPort`. Morning
+Install nothing for Telegram or Google Calendar. Their absence is not a
+gate failure. `setup.md` 24 continues to defer Google Calendar. Morning
 scheduler automation remains deferred unless the owner reintroduces it.
 
 ##### Scope
@@ -2070,29 +2132,612 @@ one topic per subsection, specification before rationale, tables for
 structured fields, and troubleshooting at the end. Do not write
 unbroken prose.
 
+#### WP4.1 setup - SQLite schema, migrations, repositories, durable turn idempotency
+
+Owner level: **S**
+Status: **VERIFIED / CLOSED 13-Sep-2026.**
+
+Machine: Mac Mini as `websvc`, checkout `~/projects/kaki-talkie`.
+Deterministic tests run with canned ports, no network and no model
+services. Tier B runs against the WP3.4 grounded stack.
+
+##### Prerequisites
+
+The WP3.4 grounded stack (runbook 8.1 WP3.4). No new package, model,
+service or port. `setup.md` 12 covers permissions and backup, but names
+the file `kaki-talkie.db`; the implemented default is `kaki.db` (see
+"Reconciliation").
+
+Two prerequisites are new in kind, not in installation:
+
+- `KAKI_DATA_ROOT` must be absolute in every backend configuration,
+  canned included. Until WP4.1 only `rag` mode required it. If it is
+  unset, the backend exits at import with a message naming the variable
+  and `$KAKI_DATA_ROOT/sqlite/kaki.db`. `scripts/kaki_env.sh` and
+  `dev_stack.py` already export it.
+- `$KAKI_DATA_ROOT/sqlite/` exists on the Mac (created 05-Sep-2026,
+  empty on 13-Sep-2026). The backend creates the file itself.
+
+Inspection uses the macOS built-in CLI, `/usr/bin/sqlite3` 3.51.0. The
+backend uses the Python `sqlite3` module (library 3.53.4 in the
+`.venv`, Python 3.12.14). Both read the same file.
+
+##### Scope
+
+WP4-AT-01, 02, 03. WP4.1 makes the turn record durable:
+
+- A completed turn is written to SQLite in one transaction before the
+  response is returned (AT-01).
+- A grounded turn writes one `turn_sources` row per response source
+  (AT-02).
+- After a backend restart the same `turn_id` returns the stored
+  response without running STT, retrieval, the LLM or TTS (AT-03).
+- The process-memory response cache from WP1.2 is removed; the store
+  is the only idempotency record.
+
+The public device contract does not change. The response keeps its
+nine fields, the WP1 schema snapshot stays unchanged and
+`GET /api/device/pending` still returns `[]`.
+
+Deferred to a later unit: repeat/print intents and print policy (WP4.2),
+backup automation and the restore test (WP4.5), device credentials and
+pairing columns (WP6.4). Each later unit adds its own migration.
+
+Deferred beyond the MVP: the `cases` table, handoff (WP4.3), calendar
+(WP4.4) and pending delivery state. No MVP migration creates `cases`, so
+migration 0001 creates `devices`, `sessions`, `turns` and `turn_sources`
+only.
+
+##### Storage location and lifecycle
+
+```text
++----------------------+------------------------------------------------------+
+| Item                 | Behaviour                                            |
++----------------------+------------------------------------------------------+
+| Database file        | KAKI_SQLITE_PATH, else                               |
+|                      | $KAKI_DATA_ROOT/sqlite/kaki.db.                      |
+| Creation             | At backend start if absent; parent directory         |
+|                      | created; file mode 0600 (setup.md 12.3 satisfied     |
+|                      | without a manual chmod).                             |
+| Migrations           | Applied at backend start, in order, each in its own  |
+|                      | transaction; version kept in PRAGMA user_version.    |
+|                      | A database newer than the code fails startup.        |
+| Connection pragmas   | Applied on every connection: journal_mode=WAL,       |
+|                      | foreign_keys=ON, busy_timeout=5000,                  |
+|                      | synchronous=NORMAL (ADR-0007).                       |
+| Sibling files        | WAL creates kaki.db-wal and kaki.db-shm next to the  |
+|                      | database; .gitignore already covers all three.       |
+| Startup log line     | "kaki_backend: SQLite database <path> at schema      |
+|                      | version N" on stderr, so a path mismatch between     |
+|                      | shells is visible in $KAKI_DATA_ROOT/logs/           |
+|                      | backend.log.                                         |
+| Mechanism            | Standard-library sqlite3; numbered SQL files in      |
+|                      | kaki_backend/persistence/migrations/; no ORM.        |
++----------------------+------------------------------------------------------+
+```
+
+Standard-library SQLite is enough for one writer process on one machine
+and adds no dependency. ADR-0007 records the mechanism, the pragmas and
+the reply-audio deviation from design.md 14.
+
+##### Schema (migration 0001)
+
+Four tables in `persistence/migrations/0001_initial.sql`. Timestamps
+are ISO 8601 UTC text.
+
+```text
++---------------+-------------------------------------------------------------+
+| Table         | Columns                                                     |
++---------------+-------------------------------------------------------------+
+| devices       | device_id PK, first_seen_at, last_seen_at                   |
+| sessions      | session_id PK, device_id FK, started_at, last_turn_id,     |
+|               | last_completed_at                                           |
+| turns         | turn_id PK, session_id FK, device_id FK, state, intent,     |
+|               | refusal_reason, transcript, stt_language_json, language,    |
+|               | reply_text, display_text, slip_text, reply_audio BLOB,      |
+|               | case_id,                                                    |
+|               | stt_error, llm_error, tts_error, retrieval_error,           |
+|               | normalised_query, best_dense_score, evidence_min_dense,     |
+|               | cited_source_id, llm_cited_index, timings_json,             |
+|               | retrieval_evidence_json, replay_count, completed_at         |
+| turn_sources  | turn_id FK, position, source_id, source_url, page_title,    |
+|               | captured_at, source_updated_at, content_hash, chunk_id,     |
+|               | retrieval_rank, dense_score, cited; PK (turn_id, position)  |
++---------------+-------------------------------------------------------------+
+```
+
+`turns` holds every field of the nine-field response plus every field
+of the internal `TurnLog`, so both the replayed response and the debug
+view are rebuilt from the row alone after a restart.
+
+`turn_sources` follows design.md 14 and adds `chunk_id`,
+`retrieval_rank`, `dense_score` and `cited` so the row records which
+chunk the answer was attributed to. `position` mirrors the response's
+`sources` order: position 0 is the cited source. One row per
+de-duplicated source, not per retrieved chunk; with top-3 retrieval a
+grounded turn writes one to three rows. Refused and failed turns write
+none.
+
+`cases` is not created here, and no MVP migration creates it. The handoff
+and follow-up capability it served is deferred beyond the MVP. If the
+owner reintroduces it, the new table carries `opened_by_turn_id`
+referencing `turns`, so no existing table needs a rebuild (ADR-0007).
+
+##### Turn write and replay
+
+The request path, in order:
+
+1. Under the existing process lock, look up `turns` by `turn_id`.
+2. On a hit, increment `replay_count`, rebuild the response from the
+   row and return it. No port is called.
+3. On a miss, run the pipeline once in the worker thread, as today.
+4. On completion, write in one transaction: upsert `devices`, upsert
+   `sessions` (advancing `last_turn_id`), insert `turns`, insert
+   `turn_sources`. Commit, then respond.
+5. A crash before the commit leaves no row, so the client's retry
+   re-executes. Only a completed turn is idempotent. This is the WP1.2
+   rule, now durable.
+
+Failed and refused turns are stored like answered ones: WP1-AT-03
+promises the stored first result, whatever it was.
+
+The lock stays because two concurrent requests with the same `turn_id`
+must still serialise through one execution inside the process; the
+database guarantees durability, not in-flight de-duplication.
+
+##### Response shape
+
+Unchanged. The retry response is compared field by field in Test 3:
+
+```text
++---------------------+-------------------------------------------------------+
+| Field               | First response versus replay                          |
++---------------------+-------------------------------------------------------+
+| turn_id             | Identical.                                            |
+| reply_audio         | Identical bytes (stored as a WAV BLOB, re-encoded).   |
+| reply_text          | Identical.                                            |
+| display_text        | Identical.                                            |
+| slip_text           | Identical.                                            |
+| language            | Identical.                                            |
+| state               | Identical.                                            |
+| case_id             | null in both (cases deferred beyond MVP).             |
+| sources             | Identical list, same order.                           |
++---------------------+-------------------------------------------------------+
+```
+
+##### Debug view additions
+
+`GET /api/device/debug/last-turn` reads the newest stored turn instead
+of the process-memory log, so it answers after a restart and before any
+new turn. All existing fields keep their names and meaning. Three
+fields are added; none is in the public response and the WP1 schema
+snapshot is unchanged.
+
+```text
++----------------------+----------------------------------------------------+
+| Field                | Value                                              |
++----------------------+----------------------------------------------------+
+| replay_count         | Times this turn_id was served from the store       |
+|                      | (0 after first execution).                         |
+| completed_at         | ISO 8601 UTC timestamp of the stored execution.    |
+| schema_version       | PRAGMA user_version of the open database.          |
++----------------------+----------------------------------------------------+
+```
+
+##### Health addition
+
+`GET /api/health` gains `storage_ready`: true when a `SELECT 1` on the
+database succeeds and `user_version` equals the code's latest
+migration. Additive; the four existing readiness flags are unchanged
+(WP2-AT-10).
+
+##### Environment variables
+
+```text
++--------------------------+--------------------------------------------+
+| Variable                 | Meaning                                    |
++--------------------------+--------------------------------------------+
+| KAKI_SQLITE_PATH         | Absolute path of the database file.        |
+|                          | Optional. Default                          |
+|                          | $KAKI_DATA_ROOT/sqlite/kaki.db.            |
+|                          | A relative value fails startup.            |
+| KAKI_DATA_ROOT           | Now required (absolute) in every mode,     |
+|                          | because the default database path derives  |
+|                          | from it. Previously required in rag mode   |
+|                          | only.                                      |
++--------------------------+--------------------------------------------+
+```
+
+The owner updated `.env.example`; the coding agent does not read or edit
+`.env*` files.
+
+##### Tier A hygiene
+
+`kaki_test_env.py` already gives every deterministic suite a disposable
+`KAKI_DATA_ROOT` and removes any stray `KAKI_*` export, so the suites
+create their database under the temporary root and never touch
+`/Users/websvc/kaki-talkie-data`. No change to `kaki_test_env.py` is
+expected.
+
+`backend/tests/contract/test_wp4_1.py` proves the restart twice: with
+a fresh service and database handle in-process, and across two separate
+Python processes that share only a disposable `KAKI_DATA_ROOT`. The
+second process sends different audio and must return the first
+response with an execution count of 0. `TurnService.reset()` keeps its
+name and now clears the four tables.
+
+##### Retention
+
+Each turn row stores its transcript (design.md 14, baselined) and its
+reply audio as raw WAV bytes in a BLOB. Base64 exists only in the
+response. A spoken reply is a WAV of roughly 70-180 KB (the committed
+fixtures span 70-178 KB), so the database grows by about that much per
+turn. No
+pruning exists in WP4.1. Backup and size review belong to WP4.5 and
+`setup.md` 20.
+
+##### Owner decisions
+
+Approved 13-Sep-2026 and recorded in ADR-0007:
+
+```text
++----+------------------------------------+-------------------------------------+
+| #  | Decision                           | Choice                              |
++----+------------------------------------+-------------------------------------+
+| 1  | Module path                        | kaki_backend/persistence/           |
+|    |                                    | (design.md 18).                     |
+| 2  | Reply audio on the turn row        | Raw WAV BLOB; replay makes no TTS   |
+|    |                                    | call. No pruning in WP4.1.          |
+| 3  | design.md 14 has no audio column   | Deviation recorded in ADR-0007;     |
+|    |                                    | design.md unchanged in WP4.1.       |
+| 4  | KAKI_DATA_ROOT                     | Required in every mode; default     |
+|    |                                    | database $KAKI_DATA_ROOT/sqlite/    |
+|    |                                    | kaki.db; no memory fallback.        |
+| 5  | cases table                        | Deferred beyond MVP with handoff.   |
+|    |                                    | If revived, opened_by_turn_id       |
+|    |                                    | references turns.                   |
+| 6  | Mechanism                          | stdlib sqlite3, user_version, SQL   |
+|    |                                    | files; no ORM, no dependency.       |
++----+------------------------------------+-------------------------------------+
+```
+
+##### Files changed and created
+
+Changed, under `backend/src/kaki_backend/` unless a path is given:
+
+- `config.py` - `StorageSettings`; data root required
+- `main.py` - open and migrate the database, log its path, wire the store
+- `orchestration/idempotency.py` - store-backed replay and write
+- `orchestration/turn_pipeline.py` - link each response source to its
+  evidence chunk
+- `contracts/turn_log.py` - `SourceLink`
+- `api/health.py`, `api/debug.py`
+- `backend/pyproject.toml` - package the SQL migrations
+- `backend/README.md` - replace the in-memory cache paragraph
+- `scripts/wp_check.py` - WP4.1 tier B
+- `scripts/dev_stack.py` - backend readiness requires `storage_ready`
+- `scripts/kaki_env.sh` - `KAKI_DB` for WP4.1
+- `scripts/check_stt.py`, `scripts/check_wp1_integration.py` -
+  disposable databases
+- `backend/tests/contract/test_api.py`, `test_wp1_4.py` - health shape
+- `backend/tests/unit/test_audio_normalisation.py`,
+  `scripts/tests/test_dev_stack.py`
+
+Created:
+
+- `persistence/__init__.py`
+- `persistence/database.py` - file creation, pragmas, migration runner
+- `persistence/migrations/__init__.py` - migration discovery
+- `persistence/migrations/0001_initial.sql` - four tables
+- `persistence/repositories.py` - record, replay, find, newest, clear
+- `backend/tests/unit/test_persistence.py` - 21 tests
+- `backend/tests/contract/test_wp4_1.py` - 5 tests, AT-01/02/03
+- `docs/decisions/adr-0007-sqlite-persistence.md`
+
+No new dependency.
+
+##### Fixture capture
+
+None. Tests reuse `cdc_question.wav` and `unsupported_question.wav`
+from WP3.3 and WP3.4.
+
+##### Reconciliation
+
+- `dev_stack.py` already required an absolute `KAKI_DATA_ROOT` and
+  passed it to every child, including `--only backend`; a new test
+  proves it. Backend readiness now also waits for `storage_ready`.
+- `check_stt.py` and `check_wp1_integration.py` import or start the
+  backend path, so each now uses a disposable database. Neither writes
+  turns into the live data root.
+- The WP1.2 contract tests (`test_wp1_2.py`) keep their assertions;
+  `execution_count` and `logs` stay available on the service.
+- `setup.md` 12 names the file `kaki-talkie.db` in 12, 12.2, 12.3 and
+  12.4; the implemented default is `kaki.db`. 12.4 already backs up with
+  `sqlite3 .backup`, which is WAL-safe. Reconcile the file name in
+  `setup.md` as a separate documentation change.
+- Runbook 13.1 step 3 does not yet list `storage_ready`; `dev_stack.py
+  status` already requires it.
+
+---
+
 ### 9.2 Testing and validation
+
+#### WP4.1 tests - durable storage and restart idempotency
+
+Run in order on the Mac as `websvc` with the grounded stack running
+(`scripts/dev_stack.py up`; `KAKI_RETRIEVAL_MODE=rag`). Test 3 restarts
+the backend only; whisper-server and MLX-LM stay up.
+
+##### Session setup
+
+```sh
+cd ~/projects/kaki-talkie
+export KAKI_APP_ROOT="$PWD"
+source "$KAKI_APP_ROOT/.venv/bin/activate"
+export KAKI_DATA_ROOT="/Users/websvc/kaki-talkie-data"
+export HF_HOME="$HOME/models/huggingface"
+export KAKI_RETRIEVAL_MODE=rag
+export KAKI_LLM_MODE=qwen
+export KAKI_LLM_URL=http://127.0.0.1:8082
+export KAKI_DB="${KAKI_SQLITE_PATH:-$KAKI_DATA_ROOT/sqlite/kaki.db}"
+umask 077
+mkdir -p "$KAKI_DATA_ROOT/wp4.1"
+export WP41_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp4.1/evidence.XXXXXX")"
+printf '%s\n' "$KAKI_APP_ROOT" "$KAKI_DB" "$WP41_EVIDENCE"
+```
+
+Equivalent shortcut from bash: `source scripts/kaki_env.sh WP4.1`
+exports the same variables, sets `WP41_EVIDENCE` and `KAKI_DB`, and
+prints the database path. Leave `KAKI_SQLITE_PATH` unset unless you
+deliberately test an alternative location. Use one terminal for Tests 2-4: `WP41_TURN` must
+be the same string throughout.
+
+##### Automated runner
+
+Test 2, a same-`turn_id` replay against the running backend and an
+in-process restart replay on a disposable database are registered as
+one command:
+
+```sh
+cd "$KAKI_APP_ROOT"
+python scripts/wp_check.py --unit WP4.1 --tier B | tee "$WP41_EVIDENCE/wp_check_wp41_tierB.json"
+```
+
+Expected: `PASS: all WP4.1 tier B checks succeeded.` The runner reads
+the live database read-only and restarts nothing, so Test 3 stays
+manual. Its in-process checks need no stack and passed on 13-Sep-2026.
+
+##### Test 1: schema and storage readiness
+
+**Objective:** prove the backend created and migrated the database at
+start and reports it ready (setup.md 12.1-12.3).
+
+```sh
+cd "$KAKI_APP_ROOT"
+python scripts/dev_stack.py status
+curl --fail --silent http://127.0.0.1:8000/api/health | tee "$WP41_EVIDENCE/health.json" | jq '{storage_ready, retrieval_ready}'
+ls -l "$KAKI_DB"
+sqlite3 "$KAKI_DB" ".tables" "pragma user_version;" | tee "$WP41_EVIDENCE/schema.txt"
+grep -i 'sqlite' "$KAKI_DATA_ROOT/logs/backend.log" | tail -2
+```
+
+**Expected:** `storage_ready` true; file mode `-rw-------`; tables
+`devices sessions turn_sources turns`; `user_version` 1; the backend
+log names `$KAKI_DB` and schema version 1.
+
+##### Test 2: durable grounded turn (WP4-AT-01, 02)
+
+**Objective:** prove one completed grounded turn is stored with one
+`turn_sources` row per response source.
+
+```sh
+cd "$KAKI_APP_ROOT"
+export WP41_TURN="wp41-cdc-$(date +%s)"
+curl --fail --silent --show-error --max-time 300 http://127.0.0.1:8000/api/device/turn \
+  -F device_id=wp41-smoke -F session_id=wp41-smoke -F "turn_id=$WP41_TURN" \
+  -F "audio=@$KAKI_APP_ROOT/backend/src/kaki_backend/fixtures/cdc_question.wav" \
+  | tee "$WP41_EVIDENCE/turn_first.json" \
+  | jq '{state, case_id, source_count: (.sources | length), first_source: .sources[0].source_url}'
+sqlite3 -header "$KAKI_DB" \
+  "select turn_id, state, intent, replay_count, completed_at from turns where turn_id='$WP41_TURN';" \
+  | tee "$WP41_EVIDENCE/turns_row.txt"
+sqlite3 -header "$KAKI_DB" \
+  "select position, source_id, source_url, cited, retrieval_rank, dense_score
+   from turn_sources where turn_id='$WP41_TURN' order by position;" \
+  | tee "$WP41_EVIDENCE/turn_sources_rows.txt"
+sqlite3 -header "$KAKI_DB" \
+  "select device_id, last_seen_at from devices where device_id='wp41-smoke';
+   select session_id, last_turn_id from sessions where session_id='wp41-smoke';"
+```
+
+**Expected:** state `answered`, `case_id` null, `source_count` between
+1 and 3, `first_source` on `vouchers.cdc.gov.sg`. One `turns` row with
+`replay_count` 0. `turn_sources` row count equals `source_count`;
+position 0 has `cited` 1 and the same URL as `first_source`. One
+`devices` row and one `sessions` row whose `last_turn_id` is
+`$WP41_TURN`.
+
+##### Test 3: restart and replay (WP4-AT-03)
+
+**Objective:** prove the same `turn_id` returns the stored response
+after a backend restart without re-executing any stage.
+
+The replay deliberately sends a different fixture. If the pipeline ran
+again, the response would be a refusal, not the CDC answer.
+
+```sh
+cd "$KAKI_APP_ROOT"
+python scripts/dev_stack.py down --only backend
+python scripts/dev_stack.py up --only backend
+curl --fail --silent http://127.0.0.1:8000/api/health | jq '{storage_ready, retrieval_ready}'
+curl --fail --silent http://127.0.0.1:8000/api/device/debug/last-turn \
+  | tee "$WP41_EVIDENCE/debug_after_restart.json" | jq '{turn_id, replay_count, completed_at}'
+time curl --fail --silent --show-error --max-time 60 http://127.0.0.1:8000/api/device/turn \
+  -F device_id=wp41-smoke -F session_id=wp41-smoke -F "turn_id=$WP41_TURN" \
+  -F "audio=@$KAKI_APP_ROOT/backend/src/kaki_backend/fixtures/unsupported_question.wav" \
+  -o "$WP41_EVIDENCE/turn_replay.json"
+diff <(jq -S . "$WP41_EVIDENCE/turn_first.json") <(jq -S . "$WP41_EVIDENCE/turn_replay.json") \
+  && echo IDENTICAL | tee "$WP41_EVIDENCE/replay_diff.txt"
+sqlite3 -header "$KAKI_DB" \
+  "select turn_id, replay_count from turns where turn_id='$WP41_TURN';
+   select count(*) as turn_rows from turns;
+   select count(*) as source_rows from turn_sources where turn_id='$WP41_TURN';" \
+  | tee "$WP41_EVIDENCE/replay_rows.txt"
+curl --fail --silent http://127.0.0.1:8000/api/device/debug/last-turn | jq '{turn_id, replay_count}'
+```
+
+**Expected:** `storage_ready` true after the restart. Before the
+replay, the debug view already shows `$WP41_TURN` with `replay_count`
+0. The replay returns in well under a second (a real grounded turn
+takes about 3 s); `diff` prints nothing and `IDENTICAL` follows.
+`replay_count` is 1, `turn_rows` is unchanged from Test 2 plus any
+turns you ran in between, `source_rows` is unchanged. The debug view
+shows `replay_count` 1 and the original `completed_at`.
+
+Optional cross-check: `grep -c 'chat/completions'
+"$KAKI_DATA_ROOT/logs/llm.log"` before and after the replay gives the
+same count.
+
+##### Test 4: failed and refused turns are stored
+
+**Objective:** prove the two non-answered states are stored as the
+first result (WP1-AT-03/04 retained) and write no provenance.
+
+```sh
+cd "$KAKI_APP_ROOT"
+: > "$WP41_EVIDENCE/empty.wav"
+WP41_EMPTY="wp41-empty-$(date +%s)"
+WP41_REFUSED="wp41-refused-$(date +%s)"
+curl --fail --silent --show-error http://127.0.0.1:8000/api/device/turn \
+  -F device_id=wp41-smoke -F session_id=wp41-smoke -F "turn_id=$WP41_EMPTY" \
+  -F "audio=@$WP41_EVIDENCE/empty.wav" | jq '{state}'
+curl --fail --silent --show-error --max-time 300 http://127.0.0.1:8000/api/device/turn \
+  -F device_id=wp41-smoke -F session_id=wp41-smoke -F "turn_id=$WP41_REFUSED" \
+  -F "audio=@$KAKI_APP_ROOT/backend/src/kaki_backend/fixtures/unsupported_question.wav" | jq '{state}'
+sqlite3 -header "$KAKI_DB" \
+  "select turn_id, state, intent, refusal_reason,
+          (select count(*) from turn_sources s where s.turn_id = t.turn_id) as source_rows
+   from turns t where turn_id in ('$WP41_EMPTY', '$WP41_REFUSED');" \
+  | tee "$WP41_EVIDENCE/non_answered_rows.txt"
+```
+
+**Expected:** states `failed` and `refused`; two rows; the refused row
+has `intent` `refuse` and `refusal_reason` `no_coverage`; `source_rows`
+0 for both.
+
+##### Test 5: deterministic and tier B regression
+
+**Objective:** prove WP1, WP2 and WP3 behaviour still hold with the
+store installed.
+
+Rerun the tier B runners with the stack still up:
+
+```sh
+cd "$KAKI_APP_ROOT"
+python scripts/wp_check.py --unit WP2.3 --tier B | tee "$WP41_EVIDENCE/wp_check_wp23_tierB.json"
+python scripts/wp_check.py --unit WP2.4 --tier B | tee "$WP41_EVIDENCE/wp_check_wp24_tierB.json"
+python scripts/wp_check.py --unit WP3.3 --tier B | tee "$WP41_EVIDENCE/wp_check_wp33_tierB.json"
+python scripts/wp_check.py --unit WP3.4 --tier B | tee "$WP41_EVIDENCE/wp_check_wp34_tierB.json"
+```
+
+WP3.1 and WP3.2 tier B rewrite the corpus and index; rerun them only if
+the corpus changed.
+
+Then run the deterministic suites from the checkout root with no
+`KAKI_*` dependency on the running stack:
+
+```sh
+python -m ruff check --config backend/pyproject.toml backend scripts services rag
+python -m unittest discover -s rag/tests -v
+python -m unittest discover -s backend/tests/contract -v
+python -m unittest discover -s backend/tests/unit -v
+python -m unittest discover -s scripts/tests -v
+```
+
+**Expected:** all pass. The WP1 turn schema snapshot is unchanged.
+Counts after WP4.1 (13-Sep-2026): 30 contract, 126 unit, 48 rag
+tests. Every suite creates
+its database under a disposable root; `$KAKI_DB` gains no rows from
+this step (compare `select count(*) from turns` before and after).
+
+##### Teardown and evidence
+
+Stop the stack: `python scripts/dev_stack.py down`.
+
+The database stays in place for WP4.2. Do not delete it; later units
+build on the rows this session created.
+
+Retain under `WP41_EVIDENCE`:
+
+- Application commit.
+- Health, schema and log lines from Test 1.
+- First turn JSON and the three row dumps from Test 2.
+- Debug JSON, replay JSON, `replay_diff.txt` and `replay_rows.txt`
+  from Test 3.
+- Non-answered row dump from Test 4.
+- Two tier B reruns and the Tier A suite results from Test 5.
+
+No real credentials, user audio or personal data are involved. The
+stored transcripts are the fixture sentences.
+
+##### Troubleshooting
+
+- **`storage_ready` false or the backend exits at start:** read
+  `backend.log`. "newer than this build supports" means the checkout
+  is older than the database; use current `main` or move the file
+  aside. A relative `KAKI_SQLITE_PATH` or a missing
+  `KAKI_DATA_ROOT` is reported by name.
+- **`database is locked`:** an interactive `sqlite3` shell holds a
+  write transaction. Close it; the backend waits 5 s before failing.
+- **Replay returns the refusal, not the CDC answer:** `WP41_TURN`
+  differs from Test 2 (new terminal, or `date` re-evaluated). Check
+  `echo $WP41_TURN` against `turns_row.txt`.
+- **Rows missing though the turn answered:** the backend opened a
+  different file. Compare `$KAKI_DB` with the path in `backend.log`.
+- **`dev_stack.py up --only backend` fails on the pidfile:** run
+  `down --only backend` first; it removes the record.
+
+##### Known limitations
+
+- `turn_id` alone is the idempotency key, as in WP1. Two devices
+  reusing one `turn_id` share a result. Clients generate UUIDs, so the
+  collision risk is negligible; scoping by device is not planned.
+- No retention or pruning: transcripts and reply audio accumulate.
+  Size review belongs with the WP4.5 backup work.
+- A storage write failure after execution returns HTTP 500 and the
+  client's retry re-executes. WP4.1 has no side effect beyond TTS, so
+  this is safe. No later MVP unit adds an external side effect.
+- The debug view exposes the newest stored turn only. Turn history is
+  caregiver-UI territory and out of MVP scope.
+- `cases` and pending delivery state are absent from the MVP.
+- The coding agent could not run the stack-dependent tier B checks on
+  13-Sep-2026: its sandbox blocks loopback binds and data-root writes,
+  and no stack was running. Tests 1-5 are the owner's evidence.
+
+Owner completed Tests 1-5 on the Mac; block VERIFIED and WP4.1 CLOSED
+13-Sep-2026.
+
+#### WP-level objectives (owned by WP4.1-WP4.5)
 
 ##### Test 1: durability
 
-**Objective:** prove turns, sessions and cases survive a backend
-restart, and a retried `turn_id` remains idempotent across the restart.
-This is the property that makes the kiosk trustworthy after a power
-blip.
+**Objective:** prove turns and sessions survive a backend restart, and a
+retried `turn_id` remains idempotent across the restart. This is the
+property that makes the kiosk trustworthy after a power blip.
 
 ##### Test 2: repeat and print-previous
 
 **Objective:** prove the user-facing memory behaviours work against
 persisted state.
 
-##### Test 3: case lifecycle and handoff
-
-**Objective:** prove a pending case is created once, handed off once,
-and closed, with no duplicate side effects.
-
-##### Test 4: backup and restore
+##### Test 3: backup and restore
 
 **Objective:** prove the `setup.md` 12.4 backup restores to a working
 database (`setup.md` 20.3).
+
+Withdrawn: the former Test 3, case lifecycle and handoff. The MVP creates
+no case and hands nothing off, so WP4-AT-07 to WP4-AT-12 are withdrawn
+with it.
 
 ---
 

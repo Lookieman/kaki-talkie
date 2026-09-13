@@ -2,8 +2,14 @@
 
 **Final locked design for the voice pipeline, grounded retrieval, web simulator, and deployment architecture**
 
-Version 1.3 | 12-Sep-2026 | SGLN Group 10
+Version 1.4 | 13-Sep-2026 | SGLN Group 10
 
+> v1.4 defers the human handoff and calendar capabilities, and their
+> Telegram and Google Calendar integrations, beyond the MVP. The
+> `kaki_handoff` and `calendar_create` intents, the `cases` table and the
+> handoff and calendar adapters leave MVP scope. A question that needs a
+> person still returns the section 8 refusal, which names a staff member
+> in words.
 > v1.3 revises section 8: the MVP does not build or promise secret
 > redaction for volunteered credentials. Raw audio deletion after
 > transcription is unchanged.
@@ -66,7 +72,7 @@ The simulator validates the backend and interaction contract. It does not claim 
 | Dynamic information      | Separate allowlisted live lookup path, not stale RAG.    |
 | Prompting                | Start simple; DSPy modules introduced without blocking   |
 |                          | the first working build.                                  |
-| State                    | SQLite for devices, turns, cases and provenance.         |
+| State                    | SQLite for devices, turns and provenance.                |
 | Printed language         | English only for MVP.                                    |
 | Raw audio retention      | Deleted after transcription by default.                  |
 | Evaluation               | Evaluation-light: instrument from day one; grow a small  |
@@ -108,8 +114,8 @@ flowchart LR
         LIVE["Allowlisted live lookup"]
         LLM["LLM port/service\nQwen | SEA-LION"]
         TTS["TTS port/service\nEnglish | OmniVoice"]
-        ACTION["Action adapters\nprint | repeat | handoff | calendar"]
-        DB[("SQLite\nturns, cases, devices, provenance")]
+        ACTION["Action adapters\nprint | repeat"]
+        DB[("SQLite\nturns, devices, provenance")]
         VDB[("Chroma\nchunks + metadata")]
     end
 
@@ -582,17 +588,19 @@ Suggested MVP intent vocabulary:
 | live_lookup       | Retrieve current allowlisted information.             |
 | print_previous    | Print the last slip.                                  |
 | repeat_previous   | Replay the previous spoken answer.                    |
-| kaki_handoff      | Open or update a human follow-up case.                 |
-| calendar_create   | Create the permitted calendar action when confirmed.  |
 | refuse            | Out of scope or unsupported.                          |
 +-------------------+------------------------------------------------------+
 ```
 
-Side-effecting actions must use the request `turn_id` for idempotency so retries cannot create duplicate calendar events or duplicate handoffs.
+Side-effecting actions must use the request `turn_id` for idempotency so that a retry cannot repeat the effect.
 
 Where an action requires confirmation, confirmation state lives in SQLite rather than in an LLM's hidden conversation state.
 
-For the MVP, the human handoff channel is **Telegram** and the permitted calendar action uses **Google Calendar**. Both integrations sit behind ports/adapters, use `turn_id` idempotency, and must be proven through the simulator before physical-device integration. Logging/test adapters may remain selectable by configuration.
+The human handoff and calendar capabilities are **deferred beyond the MVP**, together with their Telegram and Google Calendar integrations. The MVP builds no `HandoffPort`, no calendar adapter and no `cases` table.
+
+A question that needs a person returns the section 8 refusal. KaKi names a staff member in words and prints a slip. Nothing is sent anywhere.
+
+Reintroduce either capability only by an explicit owner decision that also names the channel, the test account and the acceptance criteria.
 
 ---
 
@@ -777,14 +785,11 @@ Recommended logical tables:
 - source update date where known;
 - content hash/chunk identifier.
 
-### cases
+### cases (deferred beyond the MVP)
 
-- case_id;
-- device/session relationship;
-- case type;
-- open/closed state;
-- follow-up due time;
-- action metadata.
+The `cases` table served the handoff and follow-up capability, which v1.4
+defers. No MVP migration creates it. Reintroduce the table with the
+capability, not before.
 
 Raw audio is deleted after transcription unless a test session has explicit consent to retain recordings for the STT bake-off.
 
@@ -956,9 +961,7 @@ kaki-talkie/
 |   |   |   +-- ports.py              # STT/LLM/TTS/Retriever interfaces
 |   |   |-- actions/
 |   |   |   |-- print_action.py
-|   |   |   |-- repeat_action.py
-|   |   |   |-- kaki_handoff.py
-|   |   |   +-- calendar_action.py
+|   |   |   +-- repeat_action.py
 |   |   |-- persistence/
 |   |   |   |-- database.py
 |   |   |   |-- repositories.py
@@ -1223,6 +1226,10 @@ Add the growing regression set once it is useful and stable enough. Do not make 
 | Full production evaluation  | Out of scope for the MVP.                       |
 | Always-on microphone        | Out of scope. Explicit activation only.         |
 | Open-web autonomous agent   | Out of scope. Official allowlisted sources.     |
+| Human handoff channel       | Deferred beyond the MVP. No Telegram or other   |
+|                             | messaging integration is built.                 |
+| Calendar actions            | Deferred beyond the MVP. No Google Calendar     |
+|                             | integration is built.                           |
 | Caregiver application       | Out of scope for the MVP. Device configuration  |
 |                             | is seeded; cases/evidence use protected test     |
 |                             | surfaces only.                                   |
@@ -1271,6 +1278,11 @@ That is the software core of KaKi-Talkie. Hardware then becomes an alternative c
 +---------+-------------+--------------------------------------------------+
 | Version | Date        | Change                                           |
 +---------+-------------+--------------------------------------------------+
+| 1.4     | 13-Sep-2026 | Deferred the handoff and calendar capabilities   |
+|         |             | and their Telegram and Google Calendar           |
+|         |             | integrations beyond the MVP. Removed the cases   |
+|         |             | table, the kaki_handoff and calendar_create      |
+|         |             | intents and both action adapters from scope.     |
 | 1.1     | 02-Sep-2026 | Baseline clarification: design.md is the single source |
 |         |             | of truth; caregiver application removed from MVP;       |
 |         |             | generated RAG snapshots moved to KAKI_DATA_ROOT; MLX-LM |

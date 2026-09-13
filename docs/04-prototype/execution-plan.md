@@ -2,8 +2,17 @@
 
 **Six work packages, decomposed into bounded implementation units with independent test checkpoints**
 
-Version 1.6 | 12-Sep-2026 | SGLN Group 10
+Version 1.8 | 13-Sep-2026 | SGLN Group 10
 
+> v1.8 rules that any case follow-up shown at the prototype pitch is
+> scripted canned-mode illustration, never built behaviour, and never a
+> second path inside the live pipeline.
+> v1.7 defers the human handoff and calendar capabilities, and their
+> Telegram and Google Calendar integrations, beyond the MVP. WP4.3 and
+> WP4.4 are withdrawn from the build sequence. WP4.5 keeps presenter
+> controls, backup and the package gate. WP4-AT-07 to WP4-AT-12 and
+> WP6-AT-06 and WP6-AT-07 are withdrawn. Acceptance identifiers are not
+> renumbered, so earlier evidence stays readable.
 > v1.6 removes WP3-AT-09 (secret redaction) and the secret-handling scope
 > from WP3.4 after an owner decision that redaction creates a false
 > security promise the MVP cannot defend. GP4 stays as a credential-action
@@ -320,9 +329,9 @@ Runbook: section 8, expanded by `Prepare WP3.x`.
 
 ---
 
-## 5. WP4 - memory + actions + case closure
+## 5. WP4 - memory + deterministic actions
 
-Goal: add durable memory, deterministic actions and follow-up behaviour. Prove the full software case/action flow through the simulator before Pi integration.
+Goal: add durable memory and deterministic local actions. Prove the full software memory and action flow through the simulator before Pi integration.
 
 ### Implementation units
 
@@ -330,40 +339,57 @@ Goal: add durable memory, deterministic actions and follow-up behaviour. Prove t
 +-------+-----------------------------------------------+-------+
 | IU    | Build together                                | Owner |
 +-------+-----------------------------------------------+-------+
-| WP4.1 | SQLite schema/migrations/repositories/durable| S     |
-|       | turn idempotency                              |       |
-| WP4.2 | repeat_previous/print_previous/print policy  | S     |
-| WP4.3 | durable kaki handoff + HandoffPort adapter + | S     |
-|       | side-effect idempotency                       |       |
-| WP4.4 | calendar confirmation + Google Calendar      | S     |
-|       | adapter/idempotency                           |       |
-| WP4.5 | pending/case follow-up/presenter controls/   | G     |
-|       | backup + WP4 gate                             |       |
+| WP4.1 | SQLite schema/migrations/repositories +       | S     |
+|       | durable turn idempotency                      |       |
+| WP4.2 | repeat_previous/print_previous/print policy   | S     |
+| WP4.3 | DEFERRED beyond MVP - kaki handoff +          | -     |
+|       | HandoffPort adapter                           |       |
+| WP4.4 | DEFERRED beyond MVP - calendar +              | -     |
+|       | Google Calendar adapter                       |       |
+| WP4.5 | presenter controls + backup + WP4 gate        | G     |
 +-------+-----------------------------------------------+-------+
 ```
 
-### WP4.3 handoff-channel decision
+### Deferred capabilities (owner decision, 13-Sep-2026)
 
-The **handoff capability is in scope; Telegram is not pre-committed**.
+The **handoff and calendar capabilities are deferred beyond the MVP**, together with their Telegram and Google Calendar integrations. They are not part of the prototype presentation.
 
-At `Prepare WP4.3`, the owner chooses the MVP channel:
+What this removes from the build:
 
 ```text
-- logging/test adapter only;
-- Telegram;
-- another explicitly approved bounded channel.
+- WP4.3 and WP4.4 in full;
+- the HandoffPort and calendar adapters;
+- the cases table and every migration that would create it;
+- the kaki_handoff and calendar_create intents;
+- pending delivery and follow-up state.
 ```
 
-Do not install or require Telegram before that choice. The acceptance criteria apply to the selected adapter/channel.
+What stays true: a question that needs a person returns the WP3.4 refusal, which names a staff member in words and prints a slip. `GET /api/device/pending` returns an empty list for the whole MVP. No Telegram account, bot token, Google account or test calendar is needed at any point.
+
+Reintroduce either capability only by an explicit owner decision that also names the channel, the test account and the acceptance criteria.
+
+#### Demonstrating a follow-up at the pitch
+
+The owner may still want to show what a follow-up would feel like. If so, script it in the existing canned mode (WP6-AT-08 and WP6-AT-11), which is already a declared scripted surface.
+
+```text
+- allowed:  a scripted follow-up scenario in canned mode, labelled as
+            illustration when presented;
+- refused:  a hardcoded follow-up branch inside the live pipeline;
+- refused:  a cases table, a pending row or any stored follow-up state
+            created to support the demonstration.
+```
+
+A hardcoded branch in the live pipeline would contradict the withdrawn acceptance criteria above and leave a second code path for somebody to find and remove later. Canned mode costs nothing to remove because it is already understood to be scripted.
 
 Acceptance ownership:
 
 ```text
 WP4.1 -> WP4-AT-01, 02, 03
 WP4.2 -> WP4-AT-04, 05, 06
-WP4.3 -> WP4-AT-07, 08
-WP4.4 -> WP4-AT-09
-WP4.5 -> WP4-AT-10, 11, 12, 13, 14
+WP4.3 -> deferred; WP4-AT-07 and 08 withdrawn
+WP4.4 -> deferred; WP4-AT-09 withdrawn
+WP4.5 -> WP4-AT-13, 14; WP4-AT-10, 11 and 12 withdrawn
 ```
 
 Acceptance criteria:
@@ -375,12 +401,12 @@ WP4-AT-03 restart + same turn_id returns stored response without re-execution
 WP4-AT-04 repeat_previous calls no LLM; stored text unchanged
 WP4-AT-05 print_previous returns stored slip unchanged
 WP4-AT-06 on_request policy does not print until requested
-WP4-AT-07 handoff opens one case and invokes selected HandoffPort exactly once
-WP4-AT-08 repeated handoff turn_id produces no duplicate side effect
-WP4-AT-09 calendar: no event before confirmation; yes creates exactly one event
-WP4-AT-10 due follow-up produces one pending prompt and awaiting-response state
-WP4-AT-11 repeated polling does not replay delivered prompt
-WP4-AT-12 follow-up response deterministically closes/keeps case
+WP4-AT-07 WITHDRAWN - handoff deferred beyond MVP
+WP4-AT-08 WITHDRAWN - handoff deferred beyond MVP
+WP4-AT-09 WITHDRAWN - calendar deferred beyond MVP
+WP4-AT-10 WITHDRAWN - follow-up has no case to act on
+WP4-AT-11 WITHDRAWN - follow-up has no case to act on
+WP4-AT-12 WITHDRAWN - follow-up has no case to act on
 WP4-AT-13 action regression intent target >=80%
 WP4-AT-14 golden paths + earlier contract tests pass
 ```
@@ -480,8 +506,8 @@ WP6-AT-02 recording stops at 15 seconds
 WP6-AT-03 optional double-press repeat does not interfere with hold-to-talk
 WP6-AT-04 timed-out retry reuses same turn_id
 WP6-AT-05 unauthenticated device request denied before turn processing
-WP6-AT-06 selected handoff/calendar flows continue from Pi without backend redesign
-WP6-AT-07 pending follow-up delivered once and accepts response
+WP6-AT-06 WITHDRAWN - handoff and calendar deferred beyond MVP
+WP6-AT-07 WITHDRAWN - pending follow-up deferred beyond MVP
 WP6-AT-08 network-down canned mode advances five scripted responses
 WP6-AT-09 printer failure does not suppress spoken answer
 WP6-AT-10 systemd recovers after process kill/power cycle
@@ -516,8 +542,8 @@ X-AT-04 earlier acceptance tests are not weakened merely to obtain green
 +----+--------------------------------------+-----------------------------------------+
 | 1  | Live lookup placement                | WP5 after static grounded WP3           |
 | 2  | Browser/device Cloudflare auth       | human Access / physical service auth    |
-| 3  | Handoff channel                      | choose at WP4.3; Telegram is candidate  |
-| 4  | Calendar channel                     | Google Calendar baseline in WP4         |
+| 3  | Handoff capability + channel         | deferred beyond MVP (13-Sep-2026)       |
+| 4  | Calendar capability + channel        | deferred beyond MVP (13-Sep-2026)       |
 | 5  | LLM runtime baseline                 | MLX-LM                                  |
 | 6  | English TTS baseline                 | macOS say                               |
 | 7  | Pi print policy                      | auto for demo baseline                  |
@@ -542,7 +568,7 @@ The owner's latest explicit direction may change items that are baselined-but-ch
 | WP1 | 2-5 Sep        | CLOSED 05-Sep-2026                      |
 | WP2 | 6-9 Sep        | local model/runtime integration         |
 | WP3 | 10-14 Sep      | source cleaning/retrieval quality       |
-| WP4 | 15-17 Sep      | persistence/external action integration |
+| WP4 | 15-17 Sep      | persistence and deterministic actions   |
 | WP5 | 18-22 Sep      | challenger work becoming unbounded      |
 | WP6 | 23-27 Sep      | hardware/integration surprises          |
 +-----+----------------+------------------------------------------+
@@ -552,7 +578,7 @@ Protect the date:
 
 - working baselines ship when challengers do not justify themselves;
 - optional Safari compatibility does not block the MVP;
-- optional Telegram does not block WP4 if another approved handoff adapter satisfies the selected scope;
+- deferring handoff and calendar removes the two external integrations that carried the most schedule risk;
 - optional Tailscale Serve does not block freeze;
 - optional Hokkien does not block the baseline;
 - caregiver UI does not exist in this MVP schedule.
@@ -585,6 +611,14 @@ The normal prompts are intentionally short because repository rules carry the de
 +---------+-------------+------------------------------------------------------+
 | Version | Date        | Change                                               |
 +---------+-------------+------------------------------------------------------+
+| 1.8     | 13-Sep-2026 | Ruled that any pitch demonstration of case          |
+|         |             | follow-up is scripted canned-mode illustration,     |
+|         |             | not built behaviour and not a live-pipeline branch. |
+| 1.7     | 13-Sep-2026 | Deferred the handoff and calendar capabilities and  |
+|         |             | their Telegram and Google Calendar integrations     |
+|         |             | beyond the MVP. Withdrew WP4.3, WP4.4, WP4-AT-07    |
+|         |             | to 12, WP6-AT-06 and WP6-AT-07. WP4.5 keeps         |
+|         |             | presenter controls, backup and the package gate.    |
 | 1.6     | 12-Sep-2026 | Removed WP3-AT-09 (secret redaction) and secret-    |
 |         |             | handling scope from WP3.4. GP4 stays as credential- |
 |         |             | action refusal.                                     |
