@@ -771,6 +771,9 @@ Recommended logical tables:
 - reply text;
 - display text;
 - slip text;
+- reply audio (raw WAV bytes; the largest column, about 95% of the
+  database on 13-Sep-2026; deviation recorded in ADR-0007, retention in
+  ADR-0008);
 - state;
 - latency fields;
 - timestamps.

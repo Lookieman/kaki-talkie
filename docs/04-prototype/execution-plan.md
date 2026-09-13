@@ -583,7 +583,7 @@ Protect the date:
 - optional Hokkien does not block the baseline;
 - caregiver UI does not exist in this MVP schedule.
 
-Current execution point: **WP2.1**.
+Current execution point: **WP4.5**.
 
 ---
 

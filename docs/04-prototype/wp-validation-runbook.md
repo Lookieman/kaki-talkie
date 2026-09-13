@@ -1,7 +1,20 @@
 # KaKi-Talkie WP validation runbook
 
-Version 1.15 | 13-Sep-2026 | SGLN Group 10
+Version 1.16 | 13-Sep-2026 | SGLN Group 10
 
+> v1.16 adds the "Closed block compression" rule to section 12 and applies
+> it to the WP4.1 and WP4.2 setup blocks; their test blocks are unchanged.
+> The WP4.5 setup and test blocks are rewritten, and the decision record
+> moves to ADR-0008. Corrections: Test 1 bounds the backup row count
+> between before and after counts; the restore test sends the grounded
+> question before the repeat; `setup.md` 12 names `kaki.db`; design.md 14
+> lists reply audio; the execution point reads WP4.5 and the gate checks
+> it; the backup manifest records `ingest_running`; presenter controls
+> use `localStorage`; in-place recovery is marked not rehearsed with a
+> gate line; the action result is a count and a rate; third-party
+> sessions are tagged and deleted on request. Section 9 marks WP4.3 and
+> WP4.4 withdrawn. A stray code fence in section 12 is removed. WP4.5
+> stays DRAFT.
 > v1.15 also corrects the WP3.4 credential rule (runbook 8.1 WP3.4 layer
 > 1): "Print my Singpass password" routed to `answer` because disclosure
 > matched a fixed verb list. The rule is now inverted, with Malay
@@ -2146,8 +2159,8 @@ through the protected simulator, once per WP3 gate:
 
 # 9. WP4 - memory + deterministic actions
 
-Status: **WP4.1 and WP4.2 VERIFIED / CLOSED 13-Sep-2026; later WP4.x DRAFT -
-structure fixed; Prepare WP4.x fills in commands**
+Status: **WP4.1 and WP4.2 VERIFIED / CLOSED 13-Sep-2026; WP4.3 and WP4.4
+WITHDRAWN 13-Sep-2026; WP4.5 DRAFT**
 
 ### 9.1 Setup and installation
 
@@ -2191,58 +2204,31 @@ unbroken prose.
 #### WP4.1 setup - SQLite schema, migrations, repositories, durable turn idempotency
 
 Owner level: **S**
-Status: **VERIFIED / CLOSED 13-Sep-2026.**
+Status: **VERIFIED / CLOSED 13-Sep-2026.** Compressed under section 12
+"Closed block compression". Gate evidence: runbook 9.2 WP4.1 tests,
+kept under `$KAKI_DATA_ROOT/wp4.1/evidence.*`.
 
 Machine: Mac Mini as `websvc`, checkout `~/projects/kaki-talkie`.
-Deterministic tests run with canned ports, no network and no model
-services. Tier B runs against the WP3.4 grounded stack.
 
-##### Prerequisites
+##### Delivered
 
-The WP3.4 grounded stack (runbook 8.1 WP3.4). No new package, model,
-service or port. `setup.md` 12 covers permissions and backup, but names
-the file `kaki-talkie.db`; the implemented default is `kaki.db` (see
-"Reconciliation").
+WP4-AT-01, 02, 03. The backend writes every completed turn to SQLite in
+one transaction before it responds. A grounded turn writes one
+`turn_sources` row per response source. After a restart, the same
+`turn_id` returns the stored response and calls no port. The store is
+the only idempotency record; the WP1.2 memory cache is gone. The device
+contract, the WP1 schema snapshot and `GET /api/device/pending` (`[]`)
+are unchanged. ADR-0007 records the mechanism and owner decisions 1-6.
 
-Two prerequisites are new in kind, not in installation:
+##### Prerequisites still in force
 
-- `KAKI_DATA_ROOT` must be absolute in every backend configuration,
-  canned included. Until WP4.1 only `rag` mode required it. If it is
-  unset, the backend exits at import with a message naming the variable
-  and `$KAKI_DATA_ROOT/sqlite/kaki.db`. `scripts/kaki_env.sh` and
-  `dev_stack.py` already export it.
-- `$KAKI_DATA_ROOT/sqlite/` exists on the Mac (created 05-Sep-2026,
-  empty on 13-Sep-2026). The backend creates the file itself.
-
-Inspection uses the macOS built-in CLI, `/usr/bin/sqlite3` 3.51.0. The
-backend uses the Python `sqlite3` module (library 3.53.4 in the
-`.venv`, Python 3.12.14). Both read the same file.
-
-##### Scope
-
-WP4-AT-01, 02, 03. WP4.1 makes the turn record durable:
-
-- A completed turn is written to SQLite in one transaction before the
-  response is returned (AT-01).
-- A grounded turn writes one `turn_sources` row per response source
-  (AT-02).
-- After a backend restart the same `turn_id` returns the stored
-  response without running STT, retrieval, the LLM or TTS (AT-03).
-- The process-memory response cache from WP1.2 is removed; the store
-  is the only idempotency record.
-
-The public device contract does not change. The response keeps its
-nine fields, the WP1 schema snapshot stays unchanged and
-`GET /api/device/pending` still returns `[]`.
-
-Deferred to a later unit: repeat/print intents and print policy (WP4.2),
-backup automation and the restore test (WP4.5), device credentials and
-pairing columns (WP6.4). Each later unit adds its own migration.
-
-Deferred beyond the MVP: the `cases` table, handoff (WP4.3), calendar
-(WP4.4) and pending delivery state. No MVP migration creates `cases`, so
-migration 0001 creates `devices`, `sessions`, `turns` and `turn_sources`
-only.
+- `KAKI_DATA_ROOT` is absolute in every mode, canned included. If it is
+  unset, the backend exits at import and names the variable and
+  `$KAKI_DATA_ROOT/sqlite/kaki.db`. `scripts/kaki_env.sh` and
+  `dev_stack.py` export it.
+- Inspect with the macOS CLI `/usr/bin/sqlite3` 3.51.0. The backend uses
+  the `.venv` Python 3.12.14 `sqlite3` library 3.53.4. Both read the
+  same file.
 
 ##### Storage location and lifecycle
 
@@ -2253,383 +2239,177 @@ only.
 | Database file        | KAKI_SQLITE_PATH, else                               |
 |                      | $KAKI_DATA_ROOT/sqlite/kaki.db.                      |
 | Creation             | At backend start if absent; parent directory         |
-|                      | created; file mode 0600 (setup.md 12.3 satisfied     |
-|                      | without a manual chmod).                             |
-| Migrations           | Applied at backend start, in order, each in its own  |
-|                      | transaction; version kept in PRAGMA user_version.    |
-|                      | A database newer than the code fails startup.        |
-| Connection pragmas   | Applied on every connection: journal_mode=WAL,       |
-|                      | foreign_keys=ON, busy_timeout=5000,                  |
-|                      | synchronous=NORMAL (ADR-0007).                       |
-| Sibling files        | WAL creates kaki.db-wal and kaki.db-shm next to the  |
-|                      | database; .gitignore already covers all three.       |
+|                      | created; file mode 0600 (setup.md 12.3).             |
+| Migrations           | Applied at start, in order, one transaction each;    |
+|                      | version in PRAGMA user_version. A database newer     |
+|                      | than the code fails startup.                         |
+| Connection pragmas   | Every connection: journal_mode=WAL, foreign_keys=ON, |
+|                      | busy_timeout=5000, synchronous=NORMAL.               |
+| Sibling files        | kaki.db-wal and kaki.db-shm; .gitignore covers all   |
+|                      | three.                                               |
 | Startup log line     | "kaki_backend: SQLite database <path> at schema      |
-|                      | version N" on stderr, so a path mismatch between     |
-|                      | shells is visible in $KAKI_DATA_ROOT/logs/           |
+|                      | version N" on stderr, in $KAKI_DATA_ROOT/logs/       |
 |                      | backend.log.                                         |
 | Mechanism            | Standard-library sqlite3; numbered SQL files in      |
 |                      | kaki_backend/persistence/migrations/; no ORM.        |
 +----------------------+------------------------------------------------------+
 ```
 
-Standard-library SQLite is enough for one writer process on one machine
-and adds no dependency. ADR-0007 records the mechanism, the pragmas and
-the reply-audio deviation from design.md 14.
-
 ##### Schema (migration 0001)
 
-Four tables in `persistence/migrations/0001_initial.sql`. Timestamps
-are ISO 8601 UTC text.
+`persistence/migrations/0001_initial.sql` creates four tables.
+Timestamps are ISO 8601 UTC text. Migration 0002 (WP4.2) adds two
+columns to `turns`.
 
 ```text
 +---------------+-------------------------------------------------------------+
 | Table         | Columns                                                     |
 +---------------+-------------------------------------------------------------+
 | devices       | device_id PK, first_seen_at, last_seen_at                   |
-| sessions      | session_id PK, device_id FK, started_at, last_turn_id,     |
+| sessions      | session_id PK, device_id FK, started_at, last_turn_id,      |
 |               | last_completed_at                                           |
 | turns         | turn_id PK, session_id FK, device_id FK, state, intent,     |
 |               | refusal_reason, transcript, stt_language_json, language,    |
 |               | reply_text, display_text, slip_text, reply_audio BLOB,      |
-|               | case_id,                                                    |
-|               | stt_error, llm_error, tts_error, retrieval_error,           |
+|               | case_id, stt_error, llm_error, tts_error, retrieval_error,  |
 |               | normalised_query, best_dense_score, evidence_min_dense,     |
 |               | cited_source_id, llm_cited_index, timings_json,             |
 |               | retrieval_evidence_json, replay_count, completed_at         |
-| turn_sources  | turn_id FK, position, source_id, source_url, page_title,    |
-|               | captured_at, source_updated_at, content_hash, chunk_id,     |
-|               | retrieval_rank, dense_score, cited; PK (turn_id, position)  |
+| turn_sources  | turn_id FK (ON DELETE CASCADE), position, source_id,        |
+|               | source_url, page_title, captured_at, source_updated_at,     |
+|               | content_hash, chunk_id, retrieval_rank, dense_score, cited; |
+|               | PK (turn_id, position)                                      |
 +---------------+-------------------------------------------------------------+
 ```
 
-`turns` holds every field of the nine-field response plus every field
-of the internal `TurnLog`, so both the replayed response and the debug
-view are rebuilt from the row alone after a restart.
-
-`turn_sources` follows design.md 14 and adds `chunk_id`,
-`retrieval_rank`, `dense_score` and `cited` so the row records which
-chunk the answer was attributed to. `position` mirrors the response's
-`sources` order: position 0 is the cited source. One row per
-de-duplicated source, not per retrieved chunk; with top-3 retrieval a
-grounded turn writes one to three rows. Refused and failed turns write
-none.
-
-`cases` is not created here, and no MVP migration creates it. The handoff
-and follow-up capability it served is deferred beyond the MVP. If the
-owner reintroduces it, the new table carries `opened_by_turn_id`
-referencing `turns`, so no existing table needs a rebuild (ADR-0007).
+A `turns` row holds the nine response fields and the whole `TurnLog`,
+so a replay and the debug view rebuild from the row alone. `reply_audio`
+is raw WAV bytes; base64 exists only in the response. `turn_sources`
+position 0 is the cited source. A grounded turn writes one to three
+rows; refused and failed turns write none. No MVP migration creates
+`cases`.
 
 ##### Turn write and replay
 
-The request path, in order:
-
-1. Under the existing process lock, look up `turns` by `turn_id`.
-2. On a hit, increment `replay_count`, rebuild the response from the
-   row and return it. No port is called.
-3. On a miss, run the pipeline once in the worker thread, as today.
-4. On completion, write in one transaction: upsert `devices`, upsert
-   `sessions` (advancing `last_turn_id`), insert `turns`, insert
+1. Under the process lock, look up `turns` by `turn_id`.
+2. On a hit, increment `replay_count` and return the stored response.
+   All nine fields are identical, `reply_audio` bytes included.
+3. On a miss, run the pipeline once.
+4. On completion, in one transaction: upsert `devices`, upsert
+   `sessions` (advance `last_turn_id`), insert `turns` and
    `turn_sources`. Commit, then respond.
-5. A crash before the commit leaves no row, so the client's retry
-   re-executes. Only a completed turn is idempotent. This is the WP1.2
-   rule, now durable.
+5. A crash before the commit leaves no row, so a retry re-executes.
 
-Failed and refused turns are stored like answered ones: WP1-AT-03
-promises the stored first result, whatever it was.
+Failed and refused turns are stored like answered ones (WP1-AT-03). The
+lock serialises concurrent requests with the same `turn_id` inside one
+process.
 
-The lock stays because two concurrent requests with the same `turn_id`
-must still serialise through one execution inside the process; the
-database guarantees durability, not in-flight de-duplication.
+##### Debug view, health and environment
 
-##### Response shape
-
-Unchanged. The retry response is compared field by field in Test 3:
-
-```text
-+---------------------+-------------------------------------------------------+
-| Field               | First response versus replay                          |
-+---------------------+-------------------------------------------------------+
-| turn_id             | Identical.                                            |
-| reply_audio         | Identical bytes (stored as a WAV BLOB, re-encoded).   |
-| reply_text          | Identical.                                            |
-| display_text        | Identical.                                            |
-| slip_text           | Identical.                                            |
-| language            | Identical.                                            |
-| state               | Identical.                                            |
-| case_id             | null in both (cases deferred beyond MVP).             |
-| sources             | Identical list, same order.                           |
-+---------------------+-------------------------------------------------------+
-```
-
-##### Debug view additions
-
-`GET /api/device/debug/last-turn` reads the newest stored turn instead
-of the process-memory log, so it answers after a restart and before any
-new turn. All existing fields keep their names and meaning. Three
-fields are added; none is in the public response and the WP1 schema
-snapshot is unchanged.
-
-```text
-+----------------------+----------------------------------------------------+
-| Field                | Value                                              |
-+----------------------+----------------------------------------------------+
-| replay_count         | Times this turn_id was served from the store       |
-|                      | (0 after first execution).                         |
-| completed_at         | ISO 8601 UTC timestamp of the stored execution.    |
-| schema_version       | PRAGMA user_version of the open database.          |
-+----------------------+----------------------------------------------------+
-```
-
-##### Health addition
-
-`GET /api/health` gains `storage_ready`: true when a `SELECT 1` on the
-database succeeds and `user_version` equals the code's latest
-migration. Additive; the four existing readiness flags are unchanged
-(WP2-AT-10).
-
-##### Environment variables
+`GET /api/device/debug/last-turn` reads the newest stored turn, so it
+answers after a restart. It adds `replay_count`, `completed_at` and
+`schema_version`. `GET /api/health` adds `storage_ready`: true when
+`SELECT 1` succeeds and `user_version` equals the latest migration.
 
 ```text
 +--------------------------+--------------------------------------------+
 | Variable                 | Meaning                                    |
 +--------------------------+--------------------------------------------+
-| KAKI_SQLITE_PATH         | Absolute path of the database file.        |
-|                          | Optional. Default                          |
-|                          | $KAKI_DATA_ROOT/sqlite/kaki.db.            |
-|                          | A relative value fails startup.            |
-| KAKI_DATA_ROOT           | Now required (absolute) in every mode,     |
-|                          | because the default database path derives  |
-|                          | from it. Previously required in rag mode   |
-|                          | only.                                      |
+| KAKI_SQLITE_PATH         | Optional absolute database path. Default   |
+|                          | $KAKI_DATA_ROOT/sqlite/kaki.db. A relative |
+|                          | value fails startup.                       |
+| KAKI_DATA_ROOT           | Required and absolute in every mode.       |
 +--------------------------+--------------------------------------------+
 ```
 
-The owner updated `.env.example`; the coding agent does not read or edit
-`.env*` files.
+##### Files that still bind later units
 
-##### Tier A hygiene
+- `backend/src/kaki_backend/persistence/` - `database.py` (file,
+  pragmas, migration runner), `repositories.py`, `migrations/`.
+- `scripts/wp_check.py --unit WP4.1 --tier B`; `scripts/wp4_1_evidence.sh`.
+- `scripts/dev_stack.py` - backend readiness waits for `storage_ready`.
+- `scripts/kaki_env.sh` - exports `KAKI_DB`.
+- `scripts/check_stt.py`, `scripts/check_wp1_integration.py` - use a
+  disposable database.
+- `kaki_test_env.py` gives every Tier A suite a disposable
+  `KAKI_DATA_ROOT`. `TurnService.reset()` clears the four tables.
+- `backend/tests/contract/test_wp4_1.py` proves the restart in-process
+  and across two Python processes.
 
-`kaki_test_env.py` already gives every deterministic suite a disposable
-`KAKI_DATA_ROOT` and removes any stray `KAKI_*` export, so the suites
-create their database under the temporary root and never touch
-`/Users/websvc/kaki-talkie-data`. No change to `kaki_test_env.py` is
-expected.
+##### Open reconciliation
 
-`backend/tests/contract/test_wp4_1.py` proves the restart twice: with
-a fresh service and database handle in-process, and across two separate
-Python processes that share only a disposable `KAKI_DATA_ROOT`. The
-second process sends different audio and must return the first
-response with an execution count of 0. `TurnService.reset()` keeps its
-name and now clears the four tables.
-
-##### Retention
-
-Each turn row stores its transcript (design.md 14, baselined) and its
-reply audio as raw WAV bytes in a BLOB. Base64 exists only in the
-response. A spoken reply is a WAV of roughly 70-180 KB (the committed
-fixtures span 70-178 KB), so the database grows by about that much per
-turn. No
-pruning exists in WP4.1. Backup and size review belong to WP4.5 and
-`setup.md` 20.
-
-##### Owner decisions
-
-Approved 13-Sep-2026 and recorded in ADR-0007:
-
-```text
-+----+------------------------------------+-------------------------------------+
-| #  | Decision                           | Choice                              |
-+----+------------------------------------+-------------------------------------+
-| 1  | Module path                        | kaki_backend/persistence/           |
-|    |                                    | (design.md 18).                     |
-| 2  | Reply audio on the turn row        | Raw WAV BLOB; replay makes no TTS   |
-|    |                                    | call. No pruning in WP4.1.          |
-| 3  | design.md 14 has no audio column   | Deviation recorded in ADR-0007;     |
-|    |                                    | design.md unchanged in WP4.1.       |
-| 4  | KAKI_DATA_ROOT                     | Required in every mode; default     |
-|    |                                    | database $KAKI_DATA_ROOT/sqlite/    |
-|    |                                    | kaki.db; no memory fallback.        |
-| 5  | cases table                        | Deferred beyond MVP with handoff.   |
-|    |                                    | If revived, opened_by_turn_id       |
-|    |                                    | references turns.                   |
-| 6  | Mechanism                          | stdlib sqlite3, user_version, SQL   |
-|    |                                    | files; no ORM, no dependency.       |
-+----+------------------------------------+-------------------------------------+
-```
-
-##### Files changed and created
-
-Changed, under `backend/src/kaki_backend/` unless a path is given:
-
-- `config.py` - `StorageSettings`; data root required
-- `main.py` - open and migrate the database, log its path, wire the store
-- `orchestration/idempotency.py` - store-backed replay and write
-- `orchestration/turn_pipeline.py` - link each response source to its
-  evidence chunk
-- `contracts/turn_log.py` - `SourceLink`
-- `api/health.py`, `api/debug.py`
-- `backend/pyproject.toml` - package the SQL migrations
-- `backend/README.md` - replace the in-memory cache paragraph
-- `scripts/wp_check.py` - WP4.1 tier B
-- `scripts/dev_stack.py` - backend readiness requires `storage_ready`
-- `scripts/kaki_env.sh` - `KAKI_DB` for WP4.1
-- `scripts/check_stt.py`, `scripts/check_wp1_integration.py` -
-  disposable databases
-- `backend/tests/contract/test_api.py`, `test_wp1_4.py` - health shape
-- `backend/tests/unit/test_audio_normalisation.py`,
-  `scripts/tests/test_dev_stack.py`
-
-Created:
-
-- `persistence/__init__.py`
-- `persistence/database.py` - file creation, pragmas, migration runner
-- `persistence/migrations/__init__.py` - migration discovery
-- `persistence/migrations/0001_initial.sql` - four tables
-- `persistence/repositories.py` - record, replay, find, newest, clear
-- `backend/tests/unit/test_persistence.py` - 21 tests
-- `backend/tests/contract/test_wp4_1.py` - 5 tests, AT-01/02/03
-- `docs/decisions/adr-0007-sqlite-persistence.md`
-
-No new dependency.
-
-##### Fixture capture
-
-None. Tests reuse `cdc_question.wav` and `unsupported_question.wav`
-from WP3.3 and WP3.4.
-
-##### Reconciliation
-
-- `dev_stack.py` already required an absolute `KAKI_DATA_ROOT` and
-  passed it to every child, including `--only backend`; a new test
-  proves it. Backend readiness now also waits for `storage_ready`.
-- `check_stt.py` and `check_wp1_integration.py` import or start the
-  backend path, so each now uses a disposable database. Neither writes
-  turns into the live data root.
-- The WP1.2 contract tests (`test_wp1_2.py`) keep their assertions;
-  `execution_count` and `logs` stay available on the service.
-- `setup.md` 12 names the file `kaki-talkie.db` in 12, 12.2, 12.3 and
-  12.4; the implemented default is `kaki.db`. 12.4 already backs up with
-  `sqlite3 .backup`, which is WAL-safe. Reconcile the file name in
-  `setup.md` as a separate documentation change.
-- Runbook 13.1 step 3 does not yet list `storage_ready`; `dev_stack.py
-  status` already requires it.
+- Runbook 13.1 step 3 does not list `storage_ready`; `dev_stack.py
+  status` already requires it. WP4.5 closes this.
 
 #### WP4.2 setup - repeat_previous, print_previous, print policy
 
 Owner level: **S**
-Status: **VERIFIED / CLOSED 13-Sep-2026.**
+Status: **VERIFIED / CLOSED 13-Sep-2026.** Compressed under section 12
+"Closed block compression". Gate evidence: runbook 9.2 WP4.2 tests,
+kept under `$KAKI_DATA_ROOT/wp4.2/evidence.*`.
 
 Machine: Mac Mini as `websvc`, checkout `~/projects/kaki-talkie`.
-Deterministic tests run with canned ports, no network and no model
-services. Tier B runs against the WP4.1 grounded stack and database.
-Browser tests use Chrome through the simulator.
 
-##### Prerequisites
+##### Delivered
 
-The WP4.1 grounded stack and its database (runbook 9.1 WP4.1). No new
-package, model, service or port.
+WP4-AT-04, 05, 06. `repeat_previous` replays the previous spoken answer
+with no retrieval, LLM or TTS call. `print_previous` returns the
+previous slip unchanged with no retrieval or LLM call. Under
+`on_request` nothing prints until the user asks. Ten action items and
+one guard item joined the devset. The response keeps nine fields
+(`acted` has been in the state enum since WP1.1), the WP1 schema
+snapshot is unchanged and `GET /api/device/pending` returns `[]`. Owner
+decisions 2-4 (13-Sep-2026) are the rules in "Previous-turn
+resolution" and "Action turn shape".
 
-New in kind, not in installation:
+##### Prerequisites still in force
 
-- Two spoken fixtures, `repeat_request.wav` and `print_request.wav`
-  (see "Fixture capture").
-- The simulator built from the WP4.2 checkout, because the print
-  policy rule lives in the client.
-- An interactive terminal. The evidence harness stops for owner
-  verdicts and refuses to run without a TTY.
-- macOS built-ins `say`, `afplay` and `afinfo`, plus `jq`, `sqlite3`,
-  `uuidgen` and `npm`, already used by earlier units.
-
-##### Scope
-
-WP4-AT-04, 05, 06. WP4.2 answers two deterministic requests from stored
-state:
-
-- `repeat_previous` replays the previous turn's spoken answer. No
-  retrieval, LLM or TTS call (AT-04).
-- `print_previous` returns the previous turn's slip unchanged. No
-  retrieval or LLM call (AT-05).
-- Under the `on_request` print policy nothing prints until the user
-  asks (AT-06).
-- Devset action items join the regression runner. WP4-AT-13 measures
-  them at WP4.5.
-
-The public device contract does not change. `acted` has been in the
-WP1 state enum since WP1.1, the response keeps its nine fields, and the
-WP1 schema snapshot stays unchanged. `GET /api/device/pending` still
-returns `[]`.
-
-Deferred: backup and the WP4 gate (WP4.5), the physical printer and
-its failure handling (WP6.3), Malay action wording (WP5.1).
-
-Deferred beyond the MVP: `kaki_handoff`, `calendar_create`, the
-`cases` table and pending delivery state. WP4.2 adds none of them.
+- Fixtures `repeat_request.wav` ("Can you repeat that?") and
+  `print_request.wav` ("Please print that for me."): 16 kHz mono,
+  `say -v Samantha`, committed and never regenerated. Capture with
+  `scripts/wp4_2_evidence.sh --capture-fixtures`, which refuses to
+  overwrite, removes a zero-byte file and exits 3 when no terminal is
+  available for the verdict.
+- A simulator built from a WP4.2 or later checkout; the print policy
+  lives in the client.
+- An interactive terminal for the evidence harness.
+- `say`, `afplay`, `afinfo`, `jq`, `sqlite3`, `uuidgen`, `npm`.
 
 ##### Routing
 
-Action routing adds a rule layer to `orchestration/intent_router.py`.
-Rules run in this order, all deterministic and model-free:
+`orchestration/intent_router.py` applies these rules in order. All are
+deterministic and model-free:
 
-1. Credential action (WP3.4 layer 1, unchanged). Safety first.
-2. Procedural guard. A procedural question is never an action: "How
-   do I print my CDC vouchers?" routes to `answer`.
+1. Credential action (WP3.4 layer 1). "Print my Singpass password"
+   refuses with `credential_action`.
+2. Procedural guard. A procedural question is never an action. The
+   Malay procedural markers of WP3.4 layer 1 apply here too.
 3. `repeat_previous` or `print_previous`: an action verb aimed at the
-   previous reply ("that", "it", "again", "the slip"), in English,
+   previous reply ("that", "it", "again", "the slip") in English,
    Singlish or Malay.
-4. Otherwise `answer`, which continues to the WP3.4 evidence gate and
-   `SOURCE: 0` layers.
+4. Otherwise `answer`, which continues to the WP3.4 evidence gate.
 
-The rule is keyword-and-anaphora based. A bare topic noun never
-triggers an action: "Can I use CHAS for repeat visits?", "Hari ulang
-tahun saya" and "I lost my CDC voucher slip" route to `answer`. "Print
-my CDC voucher slip" is a print request. Credential rules run first, so
-"Print my Singpass password" refuses with `credential_action` and no
-action can capture a credential request. The Malay procedural markers
-of runbook 8.1 WP3.4 layer 1 guard both credential and action rules.
-The ten action items and the guard item below are in the devset:
-
-```text
-+------------------------------------+-----------------+---------------------------+
-| Utterance                          | Intent          | Why it is in the set      |
-+------------------------------------+-----------------+---------------------------+
-| Can you repeat that?               | repeat_previous | English baseline          |
-| Say again lah, I didn't catch that.| repeat_previous | Singlish                  |
-| Boleh ulang sekali lagi?           | repeat_previous | Malay                     |
-| Sorry, can you say that again?     | repeat_previous | Repeat of a refusal       |
-| Please repeat that.                | repeat_previous | Nothing to act on         |
-| Please print that for me.          | print_previous  | English baseline          |
-| Can print the slip for me ah?      | print_previous  | Singlish                  |
-| Tolong cetak slip itu.             | print_previous  | Malay                     |
-| Print it again please.             | print_previous  | Print after a repeat      |
-| Can I have the receipt?            | print_previous  | Nothing to act on         |
-| How do I print my CDC vouchers?    | answer          | Procedural guard          |
-+------------------------------------+-----------------+---------------------------+
-```
-
-Action routing precedes retrieval because retrieval cannot catch it.
-The 13-Sep-2026 probe scored the five action utterances at best dense
-0.26-0.34, below the 0.50 gate, so today they are refused as
-`no_coverage`. The guard question scored 0.725 and answers from
-`cdc-vouchers-residents`.
+A bare topic noun never triggers an action: "Can I use CHAS for repeat
+visits?", "Hari ulang tahun saya" and "I lost my CDC voucher slip" route
+to `answer`. "Print my CDC voucher slip" is a print request.
+`agent/data/devset.jsonl` holds ten action items (English, Singlish,
+Malay, a repeat of a refusal, a print after a repeat, and one "nothing
+to act on" item per action) and the procedural guard "How do I print my
+CDC vouchers?", which routes to `answer`.
 
 ##### Previous-turn resolution
 
-An action resolves its target from SQLite at execution time:
-
 - Same `session_id` as the action turn.
-- The most recent stored turn in state `answered` or `refused`.
-- `acted` and `failed` turns are skipped. A repeat after a print, or a
-  second repeat, resolves to the same original answer.
-- The lookup reads the store, not process memory, so it works after a
-  backend restart.
+- The newest stored turn in state `answered` or `refused`.
+- `acted` and `failed` turns are skipped, so a second repeat or a print
+  after a repeat resolves to the original answer.
+- The lookup reads SQLite, so it works after a restart.
 
-If no turn qualifies, the action returns the "nothing to act on"
-response below.
+If no turn qualifies, the action returns "nothing to act on".
 
 ##### Action turn shape
 
-The action turn is a new turn with its own `turn_id`, stored like any
-other. The fields depend on the outcome:
+An action turn has its own `turn_id` and is stored like any turn:
 
 ```text
 +--------------+-----------------------------+-----------------------------+---------------------------+
@@ -2638,220 +2418,265 @@ other. The fields depend on the outcome:
 | state        | acted                       | acted                       | acted                     |
 | reply_text   | Previous reply_text         | Fixed confirmation string   | Fixed string              |
 | display_text | Previous display_text       | Fixed confirmation string   | Fixed string              |
-| reply_audio  | Previous stored WAV bytes;  | TTS of the confirmation     | TTS of the fixed string   |
+| reply_audio  | Copy of previous WAV bytes; | TTS of the confirmation     | TTS of the fixed string   |
 |              | no TTS call                 | (failure degrades to text)  | (failure degrades to text)|
-| slip_text    | Empty                       | Previous slip_text,         | Empty                     |
-|              |                             | unchanged                   |                           |
+| slip_text    | Empty                       | Previous slip_text          | Empty                     |
 | sources      | Previous sources, same order| Previous sources, same order| Empty                     |
 | language     | Previous language           | en                          | en                        |
 | case_id      | null                        | null                        | null                      |
 +--------------+-----------------------------+-----------------------------+---------------------------+
 ```
 
-The fixed strings are application strings in the router's catalogue,
-never model text:
-
-- print confirmation: "Here is your slip.";
-- nothing to act on: "I have not answered a question yet. Please ask
-  me first."
-
-`slip_text` carries the print signal. Only `print_previous` returns a
-non-empty slip on an `acted` turn, so a repeat never reprints.
-
-The public response of a "nothing to act on" turn looks like any other
-`acted` turn with an empty slip. The debug field `action_outcome`
-separates it: `resolved` for a real action, `nothing_to_act_on` for the
-no-op.
-
-An action turn copies the previous turn's `turn_sources` rows, so a
-replay of the action `turn_id` rebuilds the same response from its own
-rows.
+Fixed strings from the router catalogue: print confirmation "Here is
+your slip."; nothing to act on "I have not answered a question yet.
+Please ask me first." Only `print_previous` returns a slip on an
+`acted` turn, so a repeat never reprints. An action turn copies the
+previous turn's `turn_sources` rows, so its own replay rebuilds from its
+own rows.
 
 ##### Print policy
 
-design.md 9.3 fixes this: the backend always produces `slip_text`, and
-the device applies its configured print policy, `auto` or `on_request`.
-WP4.2 implements the client rule below; the backend response is the
-same whatever the policy.
+The backend response is the same under both policies (design.md 9.3):
 
 ```text
 +------------+-------------------------------------------------------------+
 | Policy     | Client prints (simulator renders the receipt) when          |
 +------------+-------------------------------------------------------------+
-| auto       | slip_text is non-empty. Today's simulator behaviour.        |
+| auto       | slip_text is non-empty.                                     |
 | on_request | state is acted and slip_text is non-empty.                  |
 +------------+-------------------------------------------------------------+
 ```
 
-A response that does not print leaves the last receipt in place, as a
-real printer would.
-
-The simulator gains a print-policy control on the page, default
-`auto`, held in page state only. The Pi applies the same rule at WP6.3
-from its own configuration; `auto` stays the demo baseline (execution
-plan 9, item 7). The rule is presentation logic on two fields, so the
-thin-client boundary holds.
+A response that does not print leaves the last receipt in place. The
+simulator control defaults to `auto`. The Pi applies the same rule at
+WP6.3; `auto` is the demo baseline (execution plan 9, item 7).
 
 ##### Schema (migration 0002)
 
-Two additive columns in `persistence/migrations/0002_previous_turn.sql`:
+`persistence/migrations/0002_previous_turn.sql` sets `user_version` 2
+and adds:
 
 ```text
-+-----------+-------------------+------------------------------------------------+
-| Table     | Column            | Meaning                                        |
-+-----------+-------------------+------------------------------------------------+
-| turns     | previous_turn_id  | TEXT, nullable, REFERENCES turns (turn_id).    |
-|           |                   | The turn an action resolved to; null for       |
-|           |                   | answer and refuse turns and for "nothing to    |
-|           |                   | act on".                                       |
-| turns     | action_outcome    | TEXT, nullable, CHECK resolved or              |
-|           |                   | nothing_to_act_on. Null on answer and refuse   |
-|           |                   | turns.                                         |
-+-----------+-------------------+------------------------------------------------+
++-------------------+---------------------------------------------------------+
+| Column on turns   | Meaning                                                 |
++-------------------+---------------------------------------------------------+
+| previous_turn_id  | TEXT, nullable, REFERENCES turns (turn_id), no ON       |
+|                   | DELETE rule. The turn an action resolved to; null on    |
+|                   | answer, refuse and "nothing to act on" turns.           |
+| action_outcome    | TEXT, nullable, CHECK resolved or nothing_to_act_on.    |
+|                   | Null on answer and refuse turns.                        |
++-------------------+---------------------------------------------------------+
 ```
 
-`PRAGMA user_version` becomes 2. The existing `turns_by_session` index
-serves the lookup. No existing row changes; old rows read null.
+Old rows read null. The `turns_by_session` index serves the lookup.
+Rollback steps are in ADR-0007; `backend/tests/unit/test_actions.py`
+tests the downgrade SQL.
 
-Rollback, recorded in ADR-0007: stop the backend, back up with
-`.backup`, drop `action_outcome` then `previous_turn_id`, set
-`user_version` to 1, then run the WP4.1 commit. The downgrade SQL is
-tested in `backend/tests/unit/test_actions.py`.
+##### Debug view
 
-##### Debug view additions
+`intent` adds `repeat_previous` and `print_previous`; `schema_version`
+reads 2; `previous_turn_id` and `action_outcome` are added. On an
+action turn `stt_ms` and `routing_ms` are greater than 0;
+`query_rewrite_ms`, `retrieval_ms`, `llm_ms`, `best_dense_score` and
+`evidence_min_dense` are null; `tts_ms` is null for a resolved repeat
+and greater than 0 otherwise. No new environment variable.
 
-Two fields, absent from the public response. `intent` gains two values
-and `schema_version` reads 2.
+##### Files that still bind later units
+
+- `backend/src/kaki_backend/actions/` - `__init__.py`
+  (`ActionOutcome`, `TurnHistory`), `repeat_action.py`,
+  `print_action.py`.
+- `apps/web/src/simulator/printPolicy.ts` and its Tier A test (AT-06).
+- `agent/data/devset.jsonl` - action items with `after`.
+- `scripts/run_regression.py` - writes a disposable database, deleted
+  on exit.
+- `scripts/wp_check.py --unit WP4.2 --tier B`; `scripts/wp4_2_evidence.sh`.
+- `scripts/dev_stack.py` - MLX-LM runs with `PYTHONUNBUFFERED=1`.
+- Schema-version checks in WP4.1 tests assert "at least 1"; only WP4.2
+  asserts exactly 2.
+
+#### WP4.5 setup - presenter controls, backup and restore, WP4 gate
+
+Owner level: **G**
+Status: **DRAFT - Prepared 13-Sep-2026. No code written.**
+
+Machine: Mac Mini as `websvc`, checkout `~/projects/kaki-talkie`.
+Deterministic tests run with canned ports and no model services. Tier B
+runs against the WP4.2 grounded stack and database. Browser steps use
+Chrome. ADR-0008 records the decisions behind this block.
+
+##### Prerequisites
+
+- The WP4.2 grounded stack and database (runbook 9.1 WP4.2). No new
+  package, model, service or port.
+- `/usr/bin/sqlite3` 3.51.0 and `$KAKI_DATA_ROOT/backups/` (`setup.md`
+  6, 12.4).
+- Free disk for one backup set and one restore copy, about 33 MB each
+  on 13-Sep-2026.
+- One planned stop of the live backend during the restore test.
+  Whisper-server and MLX-LM stay up.
+- An interactive terminal for the evidence harness.
+
+##### Scope
+
+WP4-AT-13, 14, and the WP4 package gate over WP4-AT-01 to 06. WP4.5
+also delivers presenter controls, a backup script and a restore test.
+The device contract, the WP1 schema snapshot and `GET
+/api/device/pending` (`[]`) are unchanged. No migration; `user_version`
+stays 2.
+
+Withdrawn: `kaki_handoff`, `calendar_create`, the `cases` table,
+pending delivery state, WP4-AT-07 to 12. Deferred: backup scheduling,
+pruning code, print de-duplication (WP6.3), device retry (WP6.4),
+canned-scenario selection (WP6-AT-11, WP6.5).
+
+##### Presenter controls
+
+Two controls on `/sim`. Both change only the `session_id` the simulator
+sends and the print policy it applies:
 
 ```text
-+----------------------+----------------------------------------------------+
-| Field                | Value                                              |
-+----------------------+----------------------------------------------------+
-| previous_turn_id     | turn_id the action resolved to, or null            |
-| action_outcome       | resolved, nothing_to_act_on, or null on answer and |
-|                      | refuse turns                                       |
-| intent               | now also repeat_previous or print_previous         |
-+----------------------+----------------------------------------------------+
++----------------------+-------------------------------------------------------+
+| Control              | Behaviour                                             |
++----------------------+-------------------------------------------------------+
+| Session persistence  | session_id and print policy are kept in localStorage. |
+|                      | They survive a reload, a closed tab and a browser     |
+|                      | crash.                                                |
+| New session button   | Starts a new session_id, clears the receipt and keeps |
+|                      | the chosen policy.                                    |
++----------------------+-------------------------------------------------------+
 ```
 
-Stage timings on an action turn: `stt_ms` and `routing_ms` greater
-than 0; `query_rewrite_ms`, `retrieval_ms` and `llm_ms` null; `tts_ms`
-null for a resolved repeat and greater than 0 otherwise.
-`best_dense_score` and `evidence_min_dense` are null.
+Trade-off: two tabs on one browser profile share one session. A
+rehearsal session also persists until someone presses New session, so
+press it before each run-through. `/sim` stays behind Cloudflare Access
+(design.md 15.2).
 
-##### Environment variables
+##### Backup set
 
-None. The print policy is simulator page state and, at WP6.3, Pi
-configuration. `health.storage_ready` now requires `user_version` 2.
+`scripts/backup_sqlite.sh` writes one set per run to
+`$KAKI_DATA_ROOT/backups/<UTC timestamp>/`. Directory mode `0700`, file
+mode `0600`. The script follows `AGENTS.md` 11: `--help`, non-zero exit
+on failure, no delete or overwrite. It runs by hand.
 
-##### Retention
+```text
++----------+-------------------------+------------------------------------------------------------+
+| Item     | Source                  | Method                                                     |
++----------+-------------------------+------------------------------------------------------------+
+| Database | $KAKI_DB                | sqlite3 ".backup" (setup.md 12.4); safe while backend runs |
+| Corpus   | $KAKI_DATA_ROOT/corpus/ | File copy                                                  |
+| Index    | $KAKI_DATA_ROOT/chroma/ | File copy; restore source of truth for retrieval (ADR-0008)|
+| Manifest | Written by the script   | Git commit, user_version, turns count, SHA-256 per file,   |
+|          |                         | ingest_running from pgrep -f index_corpus.py               |
++----------+-------------------------+------------------------------------------------------------+
+```
 
-A repeat stores its own copy of the previous reply audio. The
-13-Sep-2026 probe of the live database measured stored reply audio at
-806 KB on average and 944 KB at most over nine turns, so each repeat
-adds roughly 0.8 MB. No pruning; size review stays with WP4.5.
+Excluded: models, caches, virtual environments and build output
+(`setup.md` 20.2), `.env`, and the `wp*/` evidence directories. The
+owner copies evidence off the machine at pitch freeze.
+
+##### Restore test
+
+The restore goes into a clean temporary data root (`setup.md` 20.3).
+Test 2 holds the expected results for each step.
+
+1. In a fresh session, send `cdc_question.wav`, then
+   `repeat_request.wav`. Keep both responses and each `reply_audio`
+   SHA-256.
+2. Run `scripts/backup_sqlite.sh` with the backend running. This is
+   Test 1.
+3. Stop the live backend only. Copy the backup set into a new
+   `RESTORE_ROOT` under `$KAKI_DATA_ROOT/wp4.5/`.
+4. Start the backend only, with `KAKI_DATA_ROOT=$RESTORE_ROOT` and
+   `KAKI_SQLITE_PATH` unset.
+5. Replay both step 1 `turn_id`s, each with the other fixture's audio.
+6. In a separate new session, send `cdc_question.wav`. Record the
+   `llm.log` completion count after it.
+7. In the step 1 session, send `repeat_request.wav`.
+8. Stop the restored backend. Start the live backend.
+
+##### In-place recovery
+
+Status: documented, not rehearsed. Use it only to replace a damaged
+live database:
+
+1. Stop the backend: `python scripts/dev_stack.py down --only backend`.
+2. Move `kaki.db`, `kaki.db-wal` and `kaki.db-shm` into a dated folder.
+3. Copy the backup set's `kaki.db` to `$KAKI_DB`; `chmod 600 "$KAKI_DB"`.
+4. Start the backend and check `storage_ready` is true.
+
+##### Storage and retention
+
+Baseline, 13-Sep-2026: `kaki.db` 31.4 MB for 44 turns; reply audio is
+95% of the file; about 0.9 MB per grounded answer and per repeat. The
+gate records the current figures (Test 4). ADR-0008 holds the probe.
+
+Rules in force:
+
+- Keep every turn until after the pitch. The MVP has no pruning.
+- A repeat keeps its own copy of the reply audio.
+- Take a fresh backup set before pitch freeze (`setup.md` 26).
+- Before a person other than the owner speaks to the simulator, press
+  New session; press it again when they finish. Add the session to
+  `$KAKI_DATA_ROOT/retention/third-party-sessions.txt` (mode `0600`):
+  date, the newest `sessions.session_id` after their first turn, a
+  label, no full name.
+- On request, delete that whole session: its `turns` rows, action turns
+  included, its `turn_sources` rows, its `sessions` row, every backup
+  set that holds it and evidence files that name it. Then take a fresh
+  backup set. Implement WP4.5 adds the verified command.
+
+##### Document cleanup
+
+```text
++----------------------------------+--------------------------------------------+-------------+
+| Location                         | Edit                                       | Status      |
++----------------------------------+--------------------------------------------+-------------+
+| setup.md 12-12.4                 | Database file kaki-talkie.db -> kaki.db    | Done 13-Sep |
+| design.md 14                     | reply audio listed on turns; ADR-0007      | Done 13-Sep |
+| execution-plan.md 10             | Current execution point WP2.1 -> WP4.5     | Done 13-Sep |
+| ADR-0007 Consequences            | WP4.3/WP4.4 side-effect bullet replaced    | Done 13-Sep |
+| ADR-0007 reply-audio cost        | 70-180 KB estimate points to ADR-0008      | Done 13-Sep |
+| Runbook section 9 status header  | WP4.3/WP4.4 withdrawn; WP4.5 DRAFT         | Done 13-Sep |
+| Runbook 9.2 WP-level Test 3      | Points to WP4.5 tests                      | Done 13-Sep |
+| Runbook 13.1 step 3              | Lists storage_ready                        | Implement   |
++----------------------------------+--------------------------------------------+-------------+
+```
 
 ##### Owner decisions
 
-Approved 13-Sep-2026. Where the print policy lives is not a decision:
-design.md 9.3 already places it on the client.
-
 ```text
-+----+-------------------------------+---------------------------------------------+
-| #  | Decision                      | Choice                                      |
-+----+-------------------------------+---------------------------------------------+
-| 2  | Action response semantics     | state acted; repeat has an empty slip;      |
-|    |                               | print speaks a fixed confirmation           |
-| 3  | What "previous" means         | Same session; newest answered or refused    |
-|    |                               | turn; acted and failed turns skipped        |
-| 4  | Nothing to act on             | state acted, fixed wording, no slip; debug  |
-|    |                               | action_outcome distinguishes the no-op      |
-+----+-------------------------------+---------------------------------------------+
++----+---------------------------+-------------------------------------------+-----------------+
+| #  | Decision                  | Choice                                    | Status          |
++----+---------------------------+-------------------------------------------+-----------------+
+| 1  | Presenter controls        | localStorage session; New session button  | Directed 13-Sep |
+| 2  | Backup mechanism          | Manual script; no schedule; never deletes | Open            |
+| 3  | Retention                 | Rules in "Storage and retention"          | Directed 13-Sep |
+| 4  | Retrieval restore source  | Copy chroma/; manifest ingest_running     | Directed 13-Sep |
++----+---------------------------+-------------------------------------------+-----------------+
 ```
 
 ##### Files changed and created
 
-Changed, under `backend/src/kaki_backend/` unless a path is given:
+Created: `scripts/backup_sqlite.sh`, `scripts/wp4_5_evidence.sh`,
+`scripts/tests/test_backup_sqlite.py`, `apps/web/src/simulator/session.ts`,
+`apps/web/src/test/session.test.ts`.
 
-- `orchestration/intent_router.py` - action rules, two intents, fixed
-  strings
-- `orchestration/turn_pipeline.py` - action branch after routing
-- `persistence/repositories.py` - previous-turn lookup, the two new
-  columns
-- `persistence/migrations/0001_initial.sql` - header comment only
-- `contracts/turn_log.py` - `previous_turn_id`, `action_outcome`
-- `api/debug.py`, `main.py` - fields and wiring
-- `backend/README.md`
-- `agent/data/devset.jsonl`, `agent/README.md` - action items, `after`
-- `scripts/run_regression.py` - `after` sessions, disposable database
-- `scripts/wp_check.py` - WP4.2 tier B; WP4.1 schema check "at least"
-- `scripts/wp4_1_evidence.sh` - Test 1 schema check "at least"
-- `scripts/kaki_env.sh` - `KAKI_DB` for WP4.2
-- `scripts/dev_stack.py`, `scripts/tests/test_dev_stack.py` - MLX-LM
-  runs with `PYTHONUNBUFFERED=1`
-- `backend/tests/unit/test_persistence.py`,
-  `backend/tests/contract/test_wp4_1.py` - schema check "at least"
-- `scripts/tests/test_run_regression.py` - action items
-- `apps/web/src/simulator/Simulator.tsx` - policy control, receipt rule
-- `apps/web/src/app/globals.css` - policy control style
-- `backend/src/kaki_backend/fixtures/README.md`
-- `docs/decisions/adr-0007-sqlite-persistence.md` - migration 0002,
-  rollback
+Changed: `apps/web/src/simulator/Simulator.tsx` (session and policy
+from localStorage, New session button), `scripts/wp_check.py` (WP4.5
+tier B: devset action result, backup readability),
+`scripts/kaki_env.sh` (`WP4.5`), runbook 13.1 step 3.
 
-Created:
-
-- `actions/__init__.py` - `ActionOutcome`, the `TurnHistory` reader
-- `actions/repeat_action.py`, `actions/print_action.py` (design.md 18)
-- `persistence/migrations/0002_previous_turn.sql`
-- `backend/tests/unit/test_action_routing.py`,
-  `backend/tests/unit/test_actions.py`
-- `backend/tests/contract/test_wp4_2.py` - AT-04/05 over the API
-- `apps/web/src/simulator/printPolicy.ts`,
-  `apps/web/src/test/printPolicy.test.ts` - AT-06
-- `scripts/wp4_2_evidence.sh` - owner evidence harness
-- `repeat_request.wav`, `print_request.wav` - owner-captured
-
-No new dependency.
-
-##### Fixture capture
-
-One-time owner task, then committed and never regenerated (same as the
-WP3.4 fixtures). Run `scripts/wp4_2_evidence.sh --capture-fixtures`.
-
-Expected: two 16 kHz mono WAVs of roughly 1-3 seconds, spoken with
-`say -v Samantha`: "Can you repeat that?" and "Please print that for
-me." The harness plays each one, asks for a verdict and refuses to
-overwrite an existing file. The exact text is already in
-`fixtures/README.md`.
-
-The harness removes a file it just wrote if `afinfo` reports zero
-audio bytes. Exit 3 means the files were written but no terminal was
-available for the listening verdict.
-
-Captured by the owner on 13-Sep-2026 from a logged-in Terminal. The
-coding agent's sandbox could not capture them: `say` wrote a WAV header
-with zero audio bytes, and the sandbox blocks the harness's process
-substitution.
-
-The devset covers the Singlish and Malay utterances over the text
-path; they need no fixture.
+No backend source change, no migration, no new dependency, no fixture.
 
 ##### Reconciliation
 
-- Migration 0002 moves the schema to version 2. The WP4.1
-  schema-version checks in `wp_check.py`, `test_persistence.py`,
-  `test_wp4_1.py` and `wp4_1_evidence.sh` Test 1 now assert "at least
-  1". Only WP4.2 asserts exactly 2. The requirement changed, so this is
-  not test weakening (AGENTS.md 15). The failed-migration test keeps its
-  exact value, because it uses its own two-step migration set.
-- The stale `0001_initial.sql` header comment, which said WP4.3 creates
-  `cases` in migration 0002, now says `cases` is deferred beyond the
-  MVP. Only the comment changed; the SQL is identical, so databases
-  already at version 1 are unaffected. ADR-0007 is updated to match.
-- `run_regression.py` now writes a disposable database, deleted on
-  exit. Its docstring says so.
-- ADR-0007 estimated reply audio at 70-180 KB per turn. The live
-  database measured 806 KB on average; the ADR now records both.
+- `setup.md` 12.4 shows one backup file; WP4.5 writes a timestamped set
+  in the same directory with the same `.backup` command.
+- `setup.md` 20 says WP4 installs "backup automation"; a manual script
+  meets it under decision 2.
+- `$KAKI_DATA_ROOT/backups/` is mode `0755` (05-Sep-2026) under the
+  `0700` data root. The script creates each set as `0700`.
 
 ---
 
@@ -3461,6 +3286,245 @@ transcripts are fixture sentences and the owner's Test 7 questions.
 Owner completed Tests 1-8 on the Mac; block VERIFIED and WP4.2 CLOSED
 13-Sep-2026.
 
+#### WP4.5 tests - backup and restore, presenter controls, WP4 package gate
+
+Status: **DRAFT - procedure planned; harness not yet written.**
+
+Run in order on the Mac as `websvc` with the grounded stack running and
+the simulator started from the WP4.5 checkout. Test 2 stops the live
+backend and starts one against a restored copy.
+
+##### Evidence harness
+
+`scripts/wp4_5_evidence.sh` runs Tests 1-6. Implement WP4.5 writes it.
+It follows the WP4.2 harness rules (runbook 9.2 WP4.2, "Evidence
+harness"): `uuidgen` identifiers, fresh sessions, owner verdicts for
+judgements, `wp_check.py` per unit, counts as observations, no
+teardown. Evidence goes to `$KAKI_DATA_ROOT/wp4.5/evidence.XXXXXX`
+(`WP45_EVIDENCE`).
+
+It also restarts the live backend before it exits, on success or
+failure, and prints the live `storage_ready` value. It writes to
+`$KAKI_DB` only through the backend's HTTP API. Test 7 has no script.
+
+##### Test 1: backup a live database
+
+**Objective:** prove `scripts/backup_sqlite.sh` makes a complete,
+consistent backup set while the backend runs (`setup.md` 12.4).
+
+**Expected:**
+
+- Exit code 0. A new timestamped directory, mode `0700`; files `0600`.
+- `pragma integrity_check` is `ok`. `pragma foreign_key_check` is
+  empty. `user_version` is 2.
+- Backup `turns` count is between the live count taken just before the
+  backup and the live count taken just after it, inclusive.
+- Manifest SHA-256 values match the files. The manifest records
+  `ingest_running`; the harness records it as an observation.
+- `corpus/` and `chroma/` are present.
+- `--help` prints usage and exits 0. A second run creates a second
+  directory and leaves the first unchanged.
+
+##### Test 2: restore into a clean root and replay (WP4-AT-03)
+
+**Objective:** prove the backup restores to a working database that
+carries stored reply audio and replays a stored turn (`setup.md` 20.3).
+
+The harness runs the eight steps in runbook 9.1 WP4.5 "Restore test".
+Test 1 is step 2 of the same run; the restore uses its first backup
+set.
+
+**Expected, machine-checked, by step:**
+
+- Step 4: the restored backend's log names
+  `$RESTORE_ROOT/sqlite/kaki.db` at schema version 2. `storage_ready`
+  and `retrieval_ready` are true.
+- Step 5: for both replays, the sorted JSON diff against step 1 is
+  empty, the `reply_audio` SHA-256 equals step 1, and the restored
+  `replay_count` is 1.
+- Step 6: `answered`, `sources[0]` on `vouchers.cdc.gov.sg`. The
+  `llm.log` completion count rose across the turn. This is the positive
+  control, and it proves the restored corpus and index are readable.
+- Step 7: `acted`; `previous_turn_id` is the step 1 answer; audio
+  SHA-256 equals step 1; `llm.log` count unchanged from the step 6
+  snapshot.
+- Step 8: live `storage_ready` true; live `turns` count equals the
+  after-backup count from Test 1; the step 1 answer's live
+  `replay_count` is 0.
+
+**Expected, owner judgement:** the harness plays the step 1 audio and
+the step 7 audio and asks whether they sound the same.
+
+##### Test 3: presenter controls in the browser
+
+**Objective:** prove the session and policy survive a reload and a
+closed tab, and New session starts fresh.
+
+"Repeat" means saying "Can you repeat that?"; each repeat must route
+to `repeat_previous`. The machine check reads the debug view and the
+`sessions` table.
+
+```text
++------+-----------------------------------+--------------------------------+------------------------------+
+| Step | Owner action                      | Machine check                  | Owner verdict                |
++------+-----------------------------------+--------------------------------+------------------------------+
+| 1    | Set on_request; ask "How do I use | answer, answered               | Answer heard; receipt empty  |
+|      | my CDC vouchers?"                 |                                |                              |
+| 2    | Reload; repeat                    | resolved; step 1 session       | on_request kept; answer again|
+| 3    | Close tab, open /sim; repeat      | resolved; step 1 session       | on_request kept; answer again|
+| 4    | Press New session; repeat         | nothing_to_act_on; new session | Receipt cleared; no-answer   |
+|      |                                   |                                | wording heard                |
++------+-----------------------------------+--------------------------------+------------------------------+
+```
+
+The Tier A web test covers the same rules.
+
+##### Test 4: storage observation
+
+**Objective:** record the figures the retention rules rest on.
+
+**Expected:** the harness records, with no threshold: `kaki.db` size,
+`turns` count, total and mean `reply_audio` bytes by `intent`, backup
+set size, and `df -h /` free space.
+
+##### Test 5: action regression (WP4-AT-13)
+
+**Objective:** prove intent accuracy meets the 80% target overall and
+on the action items.
+
+The harness runs `run_regression.py` over `agent/data/devset.jsonl`.
+
+**Expected:**
+
+- Exit code 0.
+- Report `intent_accuracy` >= 0.80.
+- Action items (`expected_intent` `repeat_previous` or
+  `print_previous`): correct intents >= 0.80, reported as a count and a
+  rate, for example "9 of 10, 0.90".
+- `golden_paths_passed` equals `golden_paths_total`.
+
+A failing item is evidence. Do not edit the devset to pass.
+
+##### Test 6: deterministic and tier B regression (WP4-AT-14)
+
+**Objective:** prove golden paths and every earlier contract hold on the
+gate commit.
+
+The harness reruns `wp_check.py` tier B for WP2.3, WP2.4, WP3.3, WP3.4,
+WP4.1, WP4.2 and WP4.5, one unit at a time. It then runs ruff, the rag,
+contract, unit and scripts suites, and the web lint, test and build.
+
+**Expected:** every exit code 0, each reported separately. The WP1 turn
+schema snapshot is unchanged. `git ls-files` lists no `*.db`,
+`*.db-wal`, `*.db-shm` or `chroma/` path (X-AT-03). The `$KAKI_DB`
+`turns` count is unchanged across the deterministic suites.
+
+##### Test 7: WP4 package gate
+
+**Objective:** the owner confirms, at level G, that WP4 meets its
+acceptance criteria on one commit. The coding agent never marks this
+gate passed.
+
+Record the gate commit first. Criterion wording is in
+`execution-plan.md` 5. "Rerun" means the unit's tier B check in Test 6;
+closed-block evidence counts only when that rerun passes.
+
+```text
++-----------+------------------------------------+---------------------------------------------------+-----+
+| Criterion | Requirement                        | Evidence                                          | [ ] |
++-----------+------------------------------------+---------------------------------------------------+-----+
+| WP4-AT-01 | Completed turn durably stored      | WP4.1 Tests 2 and 4; WP4.1 rerun                  | [ ] |
+| WP4-AT-02 | One turn_sources row per source    | WP4.1 Test 2; WP4.1 rerun                         | [ ] |
+| WP4-AT-03 | Restart replays, no re-execution   | WP4.1 Test 3; WP4.2 Test 4; WP4.5 Test 2          | [ ] |
+| WP4-AT-04 | repeat_previous calls no LLM       | WP4.2 Test 2; WP4.5 Test 2 step 7; WP4.2 rerun    | [ ] |
+| WP4-AT-05 | print_previous slip unchanged      | WP4.2 Test 3; WP4.2 rerun                         | [ ] |
+| WP4-AT-06 | on_request waits for a request     | WP4.2 Test 7; web printPolicy test; WP4.5 Test 3  | [ ] |
+| WP4-AT-07 | WITHDRAWN - handoff deferred       | None required                                     | n/a |
+| WP4-AT-08 | WITHDRAWN - handoff deferred       | None required                                     | n/a |
+| WP4-AT-09 | WITHDRAWN - calendar deferred      | None required                                     | n/a |
+| WP4-AT-10 | WITHDRAWN - no case to act on      | None required                                     | n/a |
+| WP4-AT-11 | WITHDRAWN - no case to act on      | None required                                     | n/a |
+| WP4-AT-12 | WITHDRAWN - no case to act on      | None required                                     | n/a |
+| WP4-AT-13 | Action regression intent >= 80%    | WP4.5 Test 5                                      | [ ] |
+| WP4-AT-14 | Golden paths + earlier contracts   | WP4.5 Tests 5 and 6                               | [ ] |
++-----------+------------------------------------+---------------------------------------------------+-----+
+```
+
+The owner also confirms:
+
+```text
+[ ] WP-level Test 1, durability: AT-01 to 03.
+[ ] WP-level Test 2, repeat and print-previous: AT-04 to 06.
+[ ] WP-level Test 3, backup and restore: WP4.5 Tests 1 and 2.
+[ ] X-AT-01: WP1 turn schema snapshot unchanged (Test 6).
+[ ] X-AT-03: no runtime database or vector data tracked (Test 6).
+[ ] X-AT-04: no earlier acceptance test weakened; review the WP4 diffs
+    under backend/tests, scripts/tests and apps/web/src/test.
+[ ] Presenter controls: Test 3 passed.
+[ ] In-place recovery (runbook 9.1 WP4.5): accepted as documented and
+    not rehearsed, or rehearsed once on a disposable copy before the
+    pitch. Record which.
+[ ] Document cleanup rows in runbook 9.1 WP4.5 all Done.
+[ ] Known limitations below accepted.
+[ ] Fresh backup set taken on the gate commit (Test 1).
+[ ] execution-plan.md 10 "Current execution point" set to the next
+    unit. Update it at every gate close.
+```
+
+When every box is ticked, the owner marks this block VERIFIED, WP4.5
+CLOSED and the WP4 package gate CLOSED, with the date and gate commit.
+
+##### Teardown and evidence
+
+The harness leaves the live stack running and prints `python
+scripts/dev_stack.py down`. Delete `RESTORE_ROOT` after you review the
+evidence. Keep the backup set.
+
+`WP45_EVIDENCE` keeps the WP4.2 harness files (`run-header.txt`,
+`transcript.txt`, `observations.txt`, `judgements.txt`) and, per test:
+the Test 1 manifest, integrity output and live counts; the Test 2 JSON,
+audio hashes, row dumps, backend log lines and `llm.log` counts; the
+Test 3 debug JSON; the Test 5 report; the Test 6 outputs; and the Test 7
+checklist with the gate commit and the owner's signature.
+
+##### Troubleshooting
+
+- **Restored backend logs the live path:** `KAKI_SQLITE_PATH` is set in
+  the shell. Unset it and restart step 4.
+- **`dev_stack.py up --only backend` fails in the restore root:** the
+  live backend still holds port 8000, or its pidfile lives under the
+  live root. Run `down --only backend` with the live `KAKI_DATA_ROOT`
+  first.
+- **Restored `retrieval_ready` false, or step 6 refuses:** read
+  `ingest_running` in the manifest. If it is true, take a new backup
+  with no ingest running. Otherwise rebuild the index in the restore
+  root with `index_corpus.py`.
+- **Step 5 returns a new answer or a refusal:** the restored copy lacks
+  the step 1 turns, so the backend re-executed. The backup ran before
+  step 1, or a different set was restored. Check the manifest `turns`
+  count and the set path.
+- **Backup `turns` count outside the before-and-after range:** the
+  script backed up a different file. Compare `$KAKI_DB` with the path
+  in `backend.log`.
+- **`integrity_check` fails on the backup:** the file came from a plain
+  copy, not `.backup`. Use the script.
+- **Live backend down after a failed run:** `python scripts/dev_stack.py
+  up --only backend` with the live `KAKI_DATA_ROOT`, then check
+  `storage_ready`.
+
+##### Known limitations
+
+Runbook 9.1 WP4.5 owns the storage, presenter-control and in-place
+recovery limits. These remain:
+
+- The backup sits on the same SSD as the database. It protects against
+  corruption and operator error, not disk loss.
+- A retry that reuses a stored `turn_id` replays a non-empty
+  `slip_text`. An `auto` client prints the answer twice. A replayed
+  `print_previous` prints twice under either policy. The simulator never
+  retries; the Pi does at WP6.4. WP6.3 owns the fix: print once per
+  `turn_id`. Section 11.2 Test 3 checks it.
+
 #### WP-level objectives (owned by WP4.1-WP4.5)
 
 ##### Test 1: durability
@@ -3478,6 +3542,8 @@ persisted state.
 
 **Objective:** prove the `setup.md` 12.4 backup restores to a working
 database (`setup.md` 20.3).
+
+Procedure and assertions: runbook 9.2 WP4.5 tests, Tests 1 and 2.
 
 Withdrawn: the former Test 3, case lifecycle and handoff. The MVP creates
 no case and hands nothing off, so WP4-AT-07 to WP4-AT-12 are withdrawn
@@ -3633,7 +3699,20 @@ Prepare or Implement, follow this structure:
 - Troubleshooting and known limitations as titled subsections at the
   end.
 - No unbroken prose longer than one short paragraph.
-```
+
+##### Closed block compression
+
+When the owner marks a unit VERIFIED / CLOSED, compress its setup block
+to the parts that still bind later units:
+
+- status, with a pointer to the gate evidence;
+- what the unit delivered;
+- prerequisites still in force;
+- environment variables and files that still exist.
+
+Move measurements, rationale and superseded estimates to the relevant
+ADR, or leave them in the evidence archive. The full text stays in Git
+history. Leave the unit's test block unchanged.
 
 Installation and configuration changes go to `setup.md`. Validation changes go
 to this runbook. Do not create a third operational guide. If a `Prepare WPn.m`

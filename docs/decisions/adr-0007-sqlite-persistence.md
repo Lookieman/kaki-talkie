@@ -61,11 +61,11 @@ This is needed for WP4-AT-03: a replay after restart must return the
 identical response and make no TTS call. Re-synthesis would call the TTS port
 and could return different bytes.
 
-Cost: a spoken reply is about 70-180 KB, so each stored turn adds roughly that
-much. WP4.1 does no pruning. Size review belongs with the WP4.5 backup work.
+Cost: WP4.1 estimated 70-180 KB per turn from the canned fixtures. Real `say`
+replies measure about 0.9 MB, and reply audio is about 95% of the database.
+ADR-0008 holds the measurement, the growth rate and the retention rules.
 
-design.md is not edited in WP4.1. Reconcile section 14 at the next baseline
-update.
+design.md section 14 lists the reply-audio column since 13-Sep-2026.
 
 ## Direction if the cases table is revived
 
@@ -103,9 +103,8 @@ table rebuild, and the existing `turns_by_session` index serves the lookup.
 
 An action turn copies the resolved turn's `turn_sources` rows and, for a
 repeat, its reply audio, so the action's own replay rebuilds from its own
-rows. Each repeat therefore adds another copy of the reply audio. The WP4.2
-probe of the live database measured 806 KB on average and 944 KB at most over
-nine stored turns, larger than the 70-180 KB fixture range estimated above.
+rows. Each repeat therefore adds another copy of the reply audio. ADR-0008
+records the size and why the copy stays.
 
 **Rollback.** A WP4.1 build refuses a version 2 database, so rolling back the
 code needs a schema downgrade:
@@ -131,5 +130,5 @@ re-applies 0002.
   file copy taken during a write can be inconsistent. Back up with
   `sqlite3 kaki.db ".backup 'target'"` or `VACUUM INTO 'target'`.
 - A storage failure after execution returns HTTP 500, and the client's retry
-  re-executes. WP4.1 has no side effect beyond speech synthesis. WP4.3 and
-  WP4.4 must record action idempotency before performing a side effect.
+  re-executes. No MVP unit adds an external side effect. A revived handoff or
+  calendar capability must record idempotency before its side effect.

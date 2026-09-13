@@ -2,7 +2,7 @@
 
 **Detailed installation and operational procedure**
 
-Version 1.1 | 09-Sep-2026 | SGLN Group 10
+Version 1.2 | 13-Sep-2026 | SGLN Group 10
 
 Suggested repository location: `infra/macos/setup.md`
 
@@ -427,16 +427,33 @@ Deactivate:
 deactivate
 ```
 
-### 7.3 Later challenger environments
+### 7.3 Challenger environments
 
-Create these only when the bake-off reaches them:
+**Applies to: WP5.2, WP5.3, WP5.4.**
+
+Each challenger keeps its own environment. MERaLiON-3 pins an older
+`transformers` release, and OmniVoice brings its own audio stack. Installing
+either into the application `.venv` or into `kaki-llm` would break the
+baseline you already validated.
 
 ```text
-~/.venvs/kaki-meralion
-~/.venvs/kaki-omnivoice
+~/.venvs/kaki-meralion    MERaLiON-3 STT challenger (8.7)
+~/.venvs/kaki-omnivoice   OmniVoice TTS target path (10.2)
 ```
 
-Do not mix challenger dependencies into the application `.venv` or the `kaki-llm` environment merely for convenience.
+The SEA-LION challenger runs under the existing `kaki-llm` environment,
+because it is served by MLX-LM like the baseline. It needs no new environment,
+only a second port.
+
+[WEBSVC]
+
+```bash
+python3.12 -m venv ~/.venvs/kaki-meralion
+python3.12 -m venv ~/.venvs/kaki-omnivoice
+```
+
+Do not mix challenger dependencies into the application `.venv` or the
+`kaki-llm` environment merely for convenience.
 
 ---
 
@@ -547,6 +564,100 @@ Do not proceed to model bake-offs until all of these are true:
 
 ---
 
+### 8.7 MERaLiON-3 STT challenger
+
+**Applies to: WP5.2. Installed ahead of the bake-off by owner decision,
+13-Sep-2026.**
+
+MERaLiON-3-3B-ASR is the Singapore-specific STT challenger. It is a
+Transformers model with custom code, served by PyTorch on MPS. It does not run
+under whisper.cpp and it does not run under MLX, so it needs its own
+environment (7.3), its own process and its own port.
+
+```text
++---------------------+-------------------------------------------------+
+| Property            | Value                                           |
++---------------------+-------------------------------------------------+
+| Repository          | MERaLiON/MERaLiON-3-3B-ASR                      |
+| Download size       | About 6.65 GB                                   |
+| Developed by        | I2R, A*STAR, Singapore                          |
+| Audio input         | Mono, 16000 Hz, 30 seconds maximum for ASR      |
+| Runtime             | PyTorch on MPS, transformers 4.50.1, librosa    |
+| Loading             | Requires trust_remote_code=True                 |
+| Suggested port      | 8083                                            |
++---------------------+-------------------------------------------------+
+```
+
+The audio contract matches the baseline. WP2.1 already normalises browser audio
+to 16 kHz mono, and the recorder caps at 15 seconds, which is inside the
+30-second limit.
+
+#### Install
+
+Check free disk first (section 21). Set `HF_HOME` first (9.3), so the weights
+land in the shared cache.
+
+[WEBSVC]
+
+```bash
+source ~/.venvs/kaki-meralion/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install torch torchaudio
+python -m pip install "transformers==4.50.1" librosa soundfile accelerate
+python -m pip install "huggingface_hub[cli]"
+```
+
+#### Download the weights
+
+```bash
+export HF_HOME="/Users/websvc/models/huggingface"
+hf download MERaLiON/MERaLiON-3-3B-ASR
+```
+
+#### Verify the runtime
+
+Confirm MPS is available and the model loads before writing any adapter:
+
+```bash
+python -c "import torch; print('mps available:', torch.backends.mps.is_available())"
+```
+
+```bash
+python - <<'PY'
+from transformers import pipeline
+pipe = pipeline(
+    "automatic-speech-recognition",
+    model="MERaLiON/MERaLiON-3-3B-ASR",
+    trust_remote_code=True,
+)
+print(pipe("/Users/websvc/kaki-talkie-data/fixtures/cdc-question.wav"))
+PY
+```
+
+Use any 16 kHz mono WAV you already hold. The WP1 or WP5.1 fixtures are
+suitable.
+
+#### Timebox
+
+`Prepare WP5.2` allows 30 minutes for this runtime. If the model has not
+transcribed one file by then, record "not viable on the M4 Pro within the MVP
+window", keep Whisper as the baseline, and close the unit. A documented
+keep-baseline result is a complete WP5-AT-08 outcome.
+
+#### Serving
+
+The HTTP service wrapper and its start command are decided during
+`Prepare WP5.2` and recorded here afterwards. Do not guess them in advance.
+The service binds 127.0.0.1 only, like every other model service (15.5).
+
+Deactivate:
+
+```bash
+deactivate
+```
+
+---
+
 ## 9. Stage 5 - baseline local LLM with MLX-LM
 
 The baseline is a small 4 bit quantised 8B Qwen-class instruct model.
@@ -621,6 +732,108 @@ If the project's own `services/llm/` adapter later replaces the generic MLX-LM s
 
 ---
 
+### 9.6 SEA-LION LLM challenger
+
+**Applies to: WP5.3. Installed ahead of the bake-off by owner decision,
+13-Sep-2026.**
+
+SEA-LION is the Southeast Asian LLM challenger from AI Singapore. Use the MLX
+conversion, so the challenger runs under the same runtime and the same adapter
+as the Qwen baseline. That keeps the bake-off a model comparison rather than a
+runtime comparison.
+
+```text
++---------------------+-------------------------------------------------+
+| Property            | Value                                           |
++---------------------+-------------------------------------------------+
+| Repository          | mlx-community/Gemma-SEA-LION-v4-27B-IT-mlx-4bit |
+| Parameters          | 27B, 4-bit quantised                            |
+| Base architecture   | Gemma 3 27B                                     |
+| Context length      | 128K tokens                                     |
+| Languages           | English, Malay, Tamil, Thai, Indonesian,        |
+|                     | Mandarin, Burmese, Khmer, Lao, Tagalog,         |
+|                     | Vietnamese                                      |
+| Download size       | About 15 GB. Confirm before downloading.        |
+| Environment         | ~/.venvs/kaki-llm (no new environment)          |
+| Suggested port      | 8084                                            |
++---------------------+-------------------------------------------------+
+```
+
+#### Why this repository
+
+`design.md` names `Qwen-SEA-LION-v4.5-27B-IT` or another SEA-LION model. The
+Qwen line has no MLX conversion published by `mlx-community`, so running it
+would mean converting the weights yourself or introducing a second runtime.
+The Gemma line is published in MLX 4-bit and is ready to serve. This stays
+inside the design, which treats model names as deployment candidates behind a
+port.
+
+The `mlx-community` SEA-LION collection also holds
+`Gemma-SEA-LION-v3-9B-IT-mlx-4bit` and `Llama-SEA-LION-v3-8B-IT-mlx-4bit`.
+The 9B is a useful fallback if the 27B proves too slow on the M4 Pro.
+
+#### Install
+
+Check free disk first (section 21). 15 GB is a large fraction of what remains
+after the baseline models, the corpus and the stored turn audio.
+
+[WEBSVC]
+
+```bash
+df -h /
+du -sh ~/models/huggingface
+```
+
+```bash
+source ~/.venvs/kaki-llm/bin/activate
+export HF_HOME="/Users/websvc/models/huggingface"
+hf download mlx-community/Gemma-SEA-LION-v4-27B-IT-mlx-4bit
+```
+
+The repository carries the Gemma Terms of Use. If the download returns an
+authorisation error, run `hf auth login` and accept the licence on the model
+page first.
+
+#### Verify
+
+```bash
+python -m mlx_lm.generate \
+    --model mlx-community/Gemma-SEA-LION-v4-27B-IT-mlx-4bit \
+    --prompt "Terangkan cara menggunakan baucar CDC dalam dua ayat." \
+    --max-tokens 80
+```
+
+Expect a Malay reply. Record the generation rate that MLX-LM reports.
+
+#### Serving alongside the baseline
+
+Do not replace the baseline service. Start the challenger on its own port so
+both models answer the same questions in one session:
+
+```bash
+python -m mlx_lm.server \
+    --model mlx-community/Gemma-SEA-LION-v4-27B-IT-mlx-4bit \
+    --host 127.0.0.1 --port 8084
+```
+
+Two 27B-class models do not sit in memory comfortably together on 48 GB. Stop
+the baseline service before loading the challenger unless you have measured
+otherwise.
+
+#### Timebox
+
+`Prepare WP5.3` allows 30 minutes after the download completes. If the model
+has not answered one grounded question by then, record "not viable within the
+MVP window", keep Qwen as the baseline, and close the unit.
+
+Deactivate:
+
+```bash
+deactivate
+```
+
+---
+
 ## 10. Stage 6 - baseline English TTS
 
 Do not block the vertical slice on multilingual TTS.
@@ -660,14 +873,63 @@ Acceptance criteria:
 - the process is fully local;
 - FastAPI can invoke the adapter without requiring a GUI session.
 
-### 10.2 Later multilingual TTS
+### 10.2 OmniVoice multilingual TTS target path
 
-Only after the English vertical slice works should the team create the target TTS environments and evaluate:
+**Applies to: WP5.4. Installed ahead of the bake-off by owner decision,
+13-Sep-2026.**
 
-- OmniVoice family for English/Malay;
-- MERaLiON OmniVoice Hokkien where practical.
+`say` stays the baseline. OmniVoice is the target path for conversational
+English and Malay. It is published in MLX, so it runs natively on Apple
+Silicon.
 
-Native-speaker review remains required before claiming Hokkien demo quality.
+```text
++---------------------+-------------------------------------------------+
+| Property            | Value                                           |
++---------------------+-------------------------------------------------+
+| Repository          | mlx-community/OmniVoice-8bit                    |
+| Alternatives        | mlx-community/OmniVoice (fp32 default),         |
+|                     | OmniVoice-4bit, OmniVoice-bfloat16              |
+| Parameters          | 0.6B                                            |
+| Upstream            | k2-fsa, converted to MLX                        |
+| Download size       | Small. Confirm on the model page.               |
++---------------------+-------------------------------------------------+
+```
+
+Start with the 8-bit variant. It balances quality against load time, and the
+model is small enough that trying a second variant costs minutes.
+
+#### Install
+
+[WEBSVC]
+
+```bash
+source ~/.venvs/kaki-omnivoice/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install mlx soundfile "huggingface_hub[cli]"
+export HF_HOME="/Users/websvc/models/huggingface"
+hf download mlx-community/OmniVoice-8bit
+```
+
+The package that drives OmniVoice under MLX, and its synthesis call, are
+confirmed during `Prepare WP5.4` and recorded here afterwards. Read the model
+card before writing the adapter. Do not guess the API.
+
+#### Acceptance
+
+The same bar as 10.1: a file is created, the speech is understandable, the
+process is fully local, and FastAPI can invoke the adapter without a GUI
+session. Add one more: a Malay sentence must be understandable to a Malay
+speaker.
+
+Hokkien remains out of scope until a native speaker reviews the output.
+Printing stays English-only for the MVP (`design.md` 9.3), so Hokkien affects
+speech alone.
+
+Deactivate:
+
+```bash
+deactivate
+```
 
 ---
 
@@ -758,7 +1020,7 @@ SQLite is the system of record for MVP application state. Perform this stage whe
 Database location:
 
 ```text
-/Users/websvc/kaki-talkie-data/sqlite/kaki-talkie.db
+/Users/websvc/kaki-talkie-data/sqlite/kaki.db
 ```
 
 ### 12.1 Schema ownership
@@ -770,13 +1032,13 @@ The repository's migration mechanism creates the schema; do not type SQL on the 
 [WEBSVC]
 
 ```bash
-sqlite3 ~/kaki-talkie-data/sqlite/kaki-talkie.db ".tables"
+sqlite3 ~/kaki-talkie-data/sqlite/kaki.db ".tables"
 ```
 
 ### 12.3 SQLite permissions
 
 ```bash
-chmod 600 ~/kaki-talkie-data/sqlite/kaki-talkie.db
+chmod 600 ~/kaki-talkie-data/sqlite/kaki.db
 ```
 
 The containing directory is already restricted to `websvc`.
@@ -788,8 +1050,8 @@ Use SQLite's backup mechanism rather than copying a database file during an acti
 Example manual backup:
 
 ```bash
-sqlite3 ~/kaki-talkie-data/sqlite/kaki-talkie.db \
-  ".backup '/Users/websvc/kaki-talkie-data/backups/kaki-talkie.db.backup'"
+sqlite3 ~/kaki-talkie-data/sqlite/kaki.db \
+  ".backup '/Users/websvc/kaki-talkie-data/backups/kaki.db.backup'"
 ```
 
 Automate this later through `scripts/backup_sqlite.sh` or `launchd` only after the database is in use.
@@ -1339,9 +1601,6 @@ PostgreSQL
 Elasticsearch/OpenSearch
 Kafka or another message queue
 Prometheus/Grafana
-MERaLiON-3
-SEA-LION 27B
-OmniVoice/Hokkien TTS
 reranking service
 cloud LLM fallback
 caregiver application dependencies
@@ -1351,6 +1610,10 @@ open-web autonomous browsing
 ```
 
 Add a component only when a locked requirement or measured limitation requires it.
+
+The WP5 challengers moved out of this list on 13-Sep-2026 by owner decision.
+Their installation now lives with the stage that owns them: MERaLiON-3 in 8.7,
+SEA-LION in 9.6 and OmniVoice in 10.2.
 
 ---
 
@@ -1454,5 +1717,12 @@ These references were checked on 01-Sep-2026 to confirm current installation beh
 |         |             | the shipped runtime and WP2.4 health readiness. Stages    |
 |         |             | from section 11 tagged with their owning work package.    |
 |         |             | Acceptance checklists moved to the validation runbook.    |
+| 1.2     | 13-Sep-2026 | Added the WP5 challenger installations by owner decision  |
+|         |             | to install ahead of the bake-off: MERaLiON-3 STT (8.7),  |
+|         |             | SEA-LION LLM (9.6) and OmniVoice TTS (10.2). Section 7.3 |
+|         |             | gains the challenger environment commands. The three     |
+|         |             | components were removed from section 24. SEA-LION uses   |
+|         |             | the Gemma MLX conversion, since the Qwen line has no MLX |
+|         |             | build published.                                          |
 +---------+-------------+-----------------------------------------------------------+
 ```
