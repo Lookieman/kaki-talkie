@@ -1,3 +1,5 @@
+# v1.2 | 14-Sep-2026 | Count packaged migration files for the expected version, as the WP4.5 harness does.
+# v1.1 | 13-Sep-2026 | Expect the packaged schema version; WP5.1 added migration 0003.
 # v1.0 | 13-Sep-2026 | Verify the WP4.5 backup set against a disposable database.
 """Deterministic tests for `scripts/backup_sqlite.sh` (runbook 9.2 WP4.5 Test 1).
 
@@ -21,10 +23,14 @@ from pathlib import Path
 from kaki_test_env import canned_environment
 
 from kaki_backend.persistence.database import Database
+from kaki_backend.persistence import migrations as migrations_package  #v1.2
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/backup_sqlite.sh"
-EXPECTED_SCHEMA_VERSION = 2
+# The backup must carry whatever version the packaged migrations produce.
+EXPECTED_SCHEMA_VERSION = len(list(  #v1.2
+    Path(migrations_package.__file__).parent.glob("[0-9][0-9][0-9][0-9]_*.sql")
+))
 NOW = "2026-09-13T05:00:00.000+00:00"
 TIMINGS = '{"overall_ms": 1.0}'
 

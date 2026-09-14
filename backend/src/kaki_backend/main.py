@@ -1,3 +1,4 @@
+# v2.1 | 13-Sep-2026 | WP5.1: pass the language settings and log them at startup.
 # v2.0 | 13-Sep-2026 | Give the pipeline the turn store so WP4.2 actions resolve from it.
 # v1.9 | 13-Sep-2026 | Open and migrate the SQLite turn store at startup.
 # v1.8 | 12-Sep-2026 | Pass the configured WP3.4 evidence gate into the pipeline.
@@ -29,6 +30,7 @@ from kaki_backend.orchestration.idempotency import TurnService  #v1.1
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline  #v1.1
 from kaki_backend.config import LlmSettings, RetrievalSettings, SttSettings, TtsSettings  #v1.6
 from kaki_backend.config import StorageSettings  #v1.9
+from kaki_backend.config import LanguageSettings  #v2.1
 from kaki_backend.persistence.database import Database  #v1.9
 from kaki_backend.persistence.repositories import TurnRepository  #v1.9
 
@@ -46,10 +48,20 @@ print(  #v1.9
 )
 turn_repository = TurnRepository(app.state.database)  #v2.0
 retrieval_settings = RetrievalSettings.from_environment()  #v1.6
+language_settings = LanguageSettings.from_environment()  #v2.1
+tts_settings = TtsSettings.from_environment()  #v2.1
+# The evidence harness reads the active Malay reply mode from this line
+# (runbook 10.2 WP5.1).
+print(  #v2.1
+    f"kaki_backend: reply language preference {language_settings.preference}, "
+    f"Malay reply mode {language_settings.malay_reply_mode}, "
+    f"Malay voice {tts_settings.malay_voice}",
+    file=sys.stderr, flush=True,
+)
 app.state.model_ports = {  #v1.5
     "stt": SttSettings.from_environment().create_port(),
     "llm": LlmSettings.from_environment().create_port(),  #v1.4
-    "tts": TtsSettings.from_environment().create_port(),  #v1.5
+    "tts": tts_settings.create_port(),  #v2.1
     "retriever": retrieval_settings.create_port(),  #v1.6
 }
 app.state.turn_service = TurnService(TurnPipeline(  #v1.4
@@ -61,6 +73,8 @@ app.state.turn_service = TurnService(TurnPipeline(  #v1.4
     query_normalise=retrieval_settings.normalise,  #v1.6
     evidence_min_dense=retrieval_settings.evidence_min_dense,  #v1.8
     history=turn_repository,  #v2.0
+    language_preference=language_settings.preference,  #v2.1
+    malay_reply_mode=language_settings.malay_reply_mode,  #v2.1
 ), turn_repository)  #v2.0
 app.include_router(health_router)
 app.include_router(pending_router)  #v1.1

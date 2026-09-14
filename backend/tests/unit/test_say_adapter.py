@@ -1,3 +1,4 @@
+# v1.1 | 13-Sep-2026 | WP5.1: Malay speech uses the configured voice; English stays unchanged.
 # v1.0 | 09-Sep-2026 | Cover say synthesis bounds, sanitised failures and TTS settings.
 
 """Deterministic say-adapter and TTS-settings tests; the real binary is never invoked."""
@@ -64,6 +65,27 @@ class SayAdapterTests(unittest.TestCase):
         self.assertEqual(runner.command[0], "say")
         self.assertEqual(runner.command[-2:], ["-f", "-"])
 
+    def test_english_runs_without_a_voice_flag(self) -> None:  #v1.1
+        for call in (lambda adapter: adapter.synthesize("Hello."),
+                     lambda adapter: adapter.synthesize("Hello.", language="en")):
+            runner = FakeRunner(output=pcm_wav())
+            call(SayTts(runner=runner))
+            self.assertNotIn("-v", runner.command)
+
+    def test_malay_uses_the_configured_voice(self) -> None:  #v1.1
+        runner = FakeRunner(output=pcm_wav())
+        SayTts(runner=runner).synthesize("Baucar CDC.", language="ms")
+        self.assertEqual(runner.command[runner.command.index("-v") + 1], "Amira")
+        self.assertEqual(runner.command[-2:], ["-f", "-"])
+        runner = FakeRunner(output=pcm_wav())
+        SayTts(runner=runner, malay_voice="Damayanti").synthesize("Baucar CDC.", language="ms")
+        self.assertEqual(runner.command[runner.command.index("-v") + 1], "Damayanti")
+
+    def test_blank_or_flag_like_voice_names_are_rejected(self) -> None:  #v1.1
+        for voice in ("", "   ", "-o", "x" * 65):
+            with self.subTest(voice=voice), self.assertRaises(ValueError):
+                SayTts(malay_voice=voice)
+
     def test_blank_and_oversized_text_are_rejected_before_running(self) -> None:
         runner = FakeRunner(output=pcm_wav())
         adapter = SayTts(runner=runner)
@@ -123,6 +145,12 @@ class TtsSettingsTests(unittest.TestCase):
         )
         self.assertEqual(settings.timeout_seconds, 5.0)
         self.assertIsInstance(settings.create_port(), SayTts)
+
+    def test_say_mode_passes_the_malay_voice(self) -> None:  #v1.1
+        port = TtsSettings.from_environment(
+            {"KAKI_TTS_MODE": "say", "KAKI_TTS_VOICE_MS": "Damayanti"}
+        ).create_port()
+        self.assertEqual(port._voices, {"ms": "Damayanti"})
 
     def test_invalid_mode_and_timeout_fail_startup(self) -> None:
         for environment in (

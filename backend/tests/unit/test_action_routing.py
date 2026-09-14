@@ -1,3 +1,4 @@
+# v1.2 | 13-Sep-2026 | WP5.1 added Malay wording, so the unknown-language case uses zh.
 # v1.1 | 13-Sep-2026 | Credential requests refuse before actions; print my CDC voucher slip is a print.
 # v1.0 | 13-Sep-2026 | Cover WP4.2 repeat and print routing, the procedural guard and near misses.
 """Verify WP4.2 action routing: rule-based, before retrieval, no model call.
@@ -107,7 +108,7 @@ class ActionWordingTests(unittest.TestCase):
         )
 
     def test_unknown_language_falls_back_to_english(self):
-        self.assertEqual(action_message(ActionMessageKind.PRINT_CONFIRMATION, "ms"),
+        self.assertEqual(action_message(ActionMessageKind.PRINT_CONFIRMATION, "zh"),  #v1.2
                          action_message(ActionMessageKind.PRINT_CONFIRMATION))
 
 

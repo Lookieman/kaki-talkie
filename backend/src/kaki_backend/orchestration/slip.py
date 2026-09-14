@@ -1,3 +1,5 @@
+# v1.6 | 14-Sep-2026 | Drop the referral question when the Latin-1 cut removes more than a quarter of it.
+# v1.5 | 13-Sep-2026 | WP5.1: keep every slip within Latin-1 for the thermal printer.
 # v1.4 | 12-Sep-2026 | Drop the redaction precondition from the referral slip.
 # v1.3 | 12-Sep-2026 | Add the refusal referral slip, which carries no source or date.
 # v1.2 | 12-Sep-2026 | Identify the source by domain alone; drop page titles from the slip.
@@ -26,9 +28,17 @@ record), not from raw `reply_text`: WP5-AT-01 pairs a Malay spoken reply with
 an English slip, so the spoken text and the slip content must be separable.
 Nothing here calls a model; slip wording is deterministic until the DSPy unit
 revisits it.
+
+Every slip leaves here as Latin-1 text (WP5.1, owner decision 13-Sep-2026).
+The referral slip prints the question as captured, so a Malay question prints
+in its own words; Malay is plain Latin script. Typographic punctuation folds
+to its ASCII form and anything else outside Latin-1, such as CJK, is dropped
+before the text can reach the printer. WP6.3 confirms the code page on the
+real printer.
 """
 
 import re
+import unicodedata  #v1.5
 from urllib.parse import urlsplit
 
 from kaki_backend.contracts.responses import SourceRecord
@@ -42,9 +52,50 @@ REFERRAL_HEADING = "KAKI-TALKIE REFERRAL"  #v1.3
 REFERRAL_LINE = "Please ask a community centre staff member for help."  #v1.3
 QUESTION_PREFIX = "You asked:"  #v1.3
 
+# Typographic characters outside Latin-1 that have a faithful ASCII form.
+_ASCII_FOLDS = str.maketrans({  #v1.5
+    "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
+    "\u201c": '"', "\u201d": '"', "\u201e": '"',
+    "\u2013": "-", "\u2014": "-", "\u2212": "-", "\u2022": "-",
+    "\u2026": "...", "\u00a0": " ", "\u202f": " ",
+})
+_LATIN_1_LIMIT = 0xFF  #v1.5
+# A referral question that loses more than this share of its visible
+# characters to the Latin-1 cut is omitted: what survives would be fragments
+# such as "CHAS." under "You asked:", not the question.
+MAX_QUESTION_CHARACTERS_REMOVED = 0.25  #v1.6
+
 _NUMBERED_ITEM = re.compile(r"(?:(?<=^)|(?<=\s))\d+[.)]\s+")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 _TERMINAL_PUNCTUATION = (".", "!", "?")
+
+
+def _fold(text: str) -> str:  #v1.6
+    """Compose accents and fold typographic punctuation to ASCII; drop nothing."""
+    return unicodedata.normalize("NFC", text).translate(_ASCII_FOLDS)
+
+
+def to_printable(text: str) -> str:  #v1.5
+    """Return `text` reduced to Latin-1 with whitespace collapsed.
+
+    Composes accents first (NFC), folds typographic punctuation to ASCII,
+    then drops every remaining character above U+00FF.
+    """
+    kept = "".join(character for character in _fold(text) if ord(character) <= _LATIN_1_LIMIT)
+    return " ".join(kept.split())
+
+
+def removed_share(text: str) -> float:  #v1.6
+    """Return the share of visible characters `to_printable` would drop from `text`.
+
+    Measured after folding, over non-whitespace characters, so a folded
+    quote or dash counts as kept. Empty or all-whitespace text returns 0.
+    """
+    visible = [character for character in _fold(text) if not character.isspace()]
+    if not visible:
+        return 0.0
+    removed = sum(1 for character in visible if ord(character) > _LATIN_1_LIMIT)
+    return removed / len(visible)
 
 
 def extract_steps(reply_text: str) -> list[str]:
@@ -78,7 +129,7 @@ def build_slip(steps: list[str], source: SourceRecord) -> str:
     record. Steps are added in order while they fit, and packing stops at the
     first that does not so the printed procedure keeps its original order.
     """  #v1.2
-    domain = urlsplit(source.source_url).hostname or "official source"
+    domain = to_printable(urlsplit(source.source_url).hostname or "") or "official source"  #v1.5
     footer = [
         f"Source: {domain}",  #v1.2
         f"Source checked: {source.captured_at.strftime('%d-%b-%Y')}",
@@ -88,6 +139,9 @@ def build_slip(steps: list[str], source: SourceRecord) -> str:
 
     kept: list[str] = []
     for step in steps[:MAX_STEPS]:
+        step = to_printable(step)  #v1.5
+        if not step:
+            continue
         step_words = len(step.split())
         if used + step_words > MAX_SLIP_WORDS:
             break
@@ -103,14 +157,19 @@ def build_refusal_slip(question: str) -> str:  #v1.3
     line and no "Source checked" date: printing either would assert a
     provenance the turn does not have. WP3-AT-07 governs answered slips.
 
-    `question` is the transcript as recognised; the slip reproduces it so a
-    staff member can see what was asked. Its sentences are packed whole, in
+    `question` is the transcript as recognised, in whatever language was
+    spoken; the slip reproduces it so a staff member can see what was asked.
+    It is reduced to Latin-1 first. When that cut would remove more than
+    `MAX_QUESTION_CHARACTERS_REMOVED` of its visible characters, as for a
+    Chinese question, the question and its `You asked:` line are omitted
+    rather than printed hollow. Otherwise its sentences are packed whole, in
     order, while they fit; a question too long for the budget is omitted
-    rather than cut short, leaving a slip that still refers the user onward.
-    """  #v1.4
+    rather than cut short. The heading and referral line always print.
+    """  #v1.6
     used = len(" ".join([REFERRAL_HEADING, REFERRAL_LINE, QUESTION_PREFIX]).split())
     kept: list[str] = []
-    for sentence in extract_steps(question):
+    printable = removed_share(question) <= MAX_QUESTION_CHARACTERS_REMOVED  #v1.6
+    for sentence in extract_steps(to_printable(question)) if printable else []:  #v1.6
         sentence_words = len(sentence.split())
         if used + sentence_words > MAX_SLIP_WORDS:
             break

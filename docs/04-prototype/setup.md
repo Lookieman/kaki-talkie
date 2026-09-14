@@ -2,7 +2,7 @@
 
 **Detailed installation and operational procedure**
 
-Version 1.2 | 13-Sep-2026 | SGLN Group 10
+Version 1.4 | 13-Sep-2026 | SGLN Group 10
 
 Suggested repository location: `infra/macos/setup.md`
 
@@ -429,28 +429,26 @@ deactivate
 
 ### 7.3 Challenger environments
 
-**Applies to: WP5.2, WP5.3, WP5.4.**
+**Applies to: WP5.2.**
 
 Each challenger keeps its own environment. MERaLiON-3 pins an older
-`transformers` release, and OmniVoice brings its own audio stack. Installing
-either into the application `.venv` or into `kaki-llm` would break the
-baseline you already validated.
+`transformers` release, so installing it into the application `.venv` or into
+`kaki-llm` would break the baseline you already validated.
 
 ```text
 ~/.venvs/kaki-meralion    MERaLiON-3 STT challenger (8.7)
-~/.venvs/kaki-omnivoice   OmniVoice TTS target path (10.2)
 ```
-
-The SEA-LION challenger runs under the existing `kaki-llm` environment,
-because it is served by MLX-LM like the baseline. It needs no new environment,
-only a second port.
 
 [WEBSVC]
 
 ```bash
 python3.12 -m venv ~/.venvs/kaki-meralion
-python3.12 -m venv ~/.venvs/kaki-omnivoice
 ```
+
+Deferred beyond the MVP by owner decision, 13-Sep-2026: the OmniVoice
+environment (`~/.venvs/kaki-omnivoice`, section 10.2) and the SEA-LION
+challenger (section 9.6, which needs no new environment). Create neither
+until those units return.
 
 Do not mix challenger dependencies into the application `.venv` or the
 `kaki-llm` environment merely for convenience.
@@ -566,8 +564,9 @@ Do not proceed to model bake-offs until all of these are true:
 
 ### 8.7 MERaLiON-3 STT challenger
 
-**Applies to: WP5.2. Installed ahead of the bake-off by owner decision,
-13-Sep-2026.**
+**Applies to: WP5.2. Installed ahead of the viability check by owner
+decision, 13-Sep-2026.** WP5.2 is a 30-minute timeboxed check on a
+one-voice demo sample, not a benchmark (`execution-plan.md` 6).
 
 MERaLiON-3-3B-ASR is the Singapore-specific STT challenger. It is a
 Transformers model with custom code, served by PyTorch on MPS. It does not run
@@ -734,8 +733,11 @@ If the project's own `services/llm/` adapter later replaces the generic MLX-LM s
 
 ### 9.6 SEA-LION LLM challenger
 
-**Applies to: WP5.3. Installed ahead of the bake-off by owner decision,
-13-Sep-2026.**
+**DEFERRED beyond the MVP by owner decision, 13-Sep-2026.** WP5.3 is
+deferred, so do not download this model now. The Qwen baseline answers the
+golden paths, and no measured limitation justifies a 15 GB challenger before
+the pitch. The section stays for the post-MVP unit; the research below was
+verified on 13-Sep-2026 and needs rechecking before use.
 
 SEA-LION is the Southeast Asian LLM challenger from AI Singapore. Use the MLX
 conversion, so the challenger runs under the same runtime and the same adapter
@@ -873,10 +875,81 @@ Acceptance criteria:
 - the process is fully local;
 - FastAPI can invoke the adapter without requiring a GUI session.
 
+### 10.1.1 Malay reply voice
+
+**Applies to: WP5.1. Owner decision, 13-Sep-2026.**
+
+macOS ships a Malay voice, Amira (`ms_MY`). `Prepare WP5.1` found it on this
+host on 13-Sep-2026, correcting the earlier assumption in v1.3 that Indonesian
+was the nearest available option.
+
+```text
++-----------+---------+-------------------------------------------------+
+| Voice     | Locale  | Role                                            |
++-----------+---------+-------------------------------------------------+
+| Amira     | ms_MY   | Malay baseline                                  |
+| Damayanti | id_ID   | Fallback if Amira is absent or fails in the     |
+|           |         | service context; a Malay speaker hears the      |
+|           |         | Indonesian vowels and `r`                       |
++-----------+---------+-------------------------------------------------+
+```
+
+The voice runs through the existing `say` subprocess, selected by
+`KAKI_TTS_VOICE_MS`. No new runtime, environment or port.
+
+#### Confirm the voice is installed
+
+[WEBSVC]
+
+```bash
+say -v '?' | grep -Ei 'ms_MY|id_ID'
+```
+
+If neither appears, add the voice through System Settings, Accessibility,
+Spoken Content, System Voice, Manage Voices, then repeat the check. The
+download needs a GUI session; the `say` call afterwards does not.
+
+#### Choose the compact or enhanced variant
+
+macOS ships most voices in a compact form and offers an enhanced download of
+the same name. The compact voice sounds thin through the Jabra speaker, which
+matters more on a kiosk than on a laptop. Compare them on the same sentence
+before settling:
+
+```bash
+say -v Amira -o /tmp/kaki-tts-ms.aiff "Baucar CDC boleh digunakan di kedai yang menyertai program ini."
+afplay /tmp/kaki-tts-ms.aiff
+```
+
+Download the enhanced Amira through Manage Voices, then repeat the command and
+compare. The enhanced download replaces the compact one under the same name,
+so no configuration changes.
+
+#### Verify in the service context
+
+Enhanced and personal voices have historically been unavailable outside a
+logged-in GUI session. FastAPI calls `say` as `websvc`, so run the same
+command over SSH, without a desktop session, and confirm the audio still
+sounds like the enhanced voice rather than a substituted default. If it
+degrades, either keep the compact variant or fall back to Damayanti, and
+record which one in the WP5.1 evidence.
+
+#### Acceptance criteria
+
+- `say -v '?'` lists Amira, or Damayanti where Amira is unavailable;
+- the Malay sentence is understandable to a Malay speaker;
+- the chosen voice sounds the same over SSH as it does in a GUI session;
+- the process is fully local and needs no GUI session to speak.
+
+Localised Malay TTS through OmniVoice (10.2) stays on the post-MVP list.
+Amira removes the urgency rather than the goal.
+
 ### 10.2 OmniVoice multilingual TTS target path
 
-**Applies to: WP5.4. Installed ahead of the bake-off by owner decision,
-13-Sep-2026.**
+**DEFERRED beyond the MVP by owner decision, 13-Sep-2026.** WP5.4 is
+deferred. The macOS Malay voice in 10.1.1 carries the MVP; OmniVoice remains
+the target for conversational quality after the pitch. Do not download this model now. The research
+below was verified on 13-Sep-2026 and needs rechecking before use.
 
 `say` stays the baseline. OmniVoice is the target path for conversational
 English and Malay. It is published in MLX, so it runs natively on Apple
@@ -1611,9 +1684,12 @@ open-web autonomous browsing
 
 Add a component only when a locked requirement or measured limitation requires it.
 
-The WP5 challengers moved out of this list on 13-Sep-2026 by owner decision.
-Their installation now lives with the stage that owns them: MERaLiON-3 in 8.7,
-SEA-LION in 9.6 and OmniVoice in 10.2.
+MERaLiON-3 moved out of this list on 13-Sep-2026 by owner decision, and its
+installation lives with the stage that owns it (8.7).
+
+SEA-LION (9.6) and OmniVoice (10.2) are deferred beyond the MVP with WP5.3 and
+WP5.4. Do not install either before the pitch. Their sections stay in this
+document for the post-MVP units.
 
 ---
 
@@ -1717,6 +1793,20 @@ These references were checked on 01-Sep-2026 to confirm current installation beh
 |         |             | the shipped runtime and WP2.4 health readiness. Stages    |
 |         |             | from section 11 tagged with their owning work package.    |
 |         |             | Acceptance checklists moved to the validation runbook.    |
+| 1.4     | 13-Sep-2026 | Corrected 10.1.1 after Prepare WP5.1: macOS does ship   |
+|         |             | a Malay voice, Amira (ms_MY), and it becomes the Malay  |
+|         |             | baseline. Damayanti (id_ID) drops to fallback. Added    |
+|         |             | the compact/enhanced comparison and a service-context   |
+|         |             | check, since enhanced voices can degrade outside a GUI  |
+|         |             | session. Voice selected by KAKI_TTS_VOICE_MS.           |
+| 1.3     | 13-Sep-2026 | WP5 reduced to WP5.1 and a timeboxed WP5.2 viability     |
+|         |             | check (execution-plan.md v1.10). SEA-LION (9.6) and      |
+|         |             | OmniVoice (10.2) marked deferred beyond the MVP and      |
+|         |             | returned to the do-not-install position; section 7.3     |
+|         |             | keeps the MERaLiON environment only. New 10.1.1 adds     |
+|         |             | the Malay reply voice: macOS has no Malay voice, so the  |
+|         |             | Indonesian voice carries Malay through the existing say  |
+|         |             | subprocess.                                              |
 | 1.2     | 13-Sep-2026 | Added the WP5 challenger installations by owner decision  |
 |         |             | to install ahead of the bake-off: MERaLiON-3 STT (8.7),  |
 |         |             | SEA-LION LLM (9.6) and OmniVoice TTS (10.2). Section 7.3 |

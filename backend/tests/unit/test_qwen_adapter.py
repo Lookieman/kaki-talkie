@@ -1,3 +1,4 @@
+# v1.4 | 13-Sep-2026 | WP5.1: configurable rewrite timeout and the evidence-free render call.
 # v1.3 | 12-Sep-2026 | Cover the SOURCE: 0 no-coverage signal and the zero/one boundary.
 # v1.1 | 11-Sep-2026 | Cover grounded generation and the bounded query rewrite.
 # v1.0 | 09-Sep-2026 | Verify Qwen adapter parsing, bounded failures and pipeline degradation.
@@ -257,6 +258,49 @@ class QwenRewriteQueryTest(unittest.TestCase):  #v1.1
         with self.assertRaises(LlmError) as raised:
             adapter_for(slow).rewrite_query("hello")
         self.assertEqual(raised.exception.code, "timeout")
+
+    def test_rewrite_uses_the_configured_timeout(self):  #v1.4
+        adapter = QwenLlm(URL, model=APPROVED_QWEN_MODEL, rewrite_timeout_seconds=4.0)
+        self.assertEqual(adapter._rewrite_timeout, 4.0)
+        for value in (0, 31, float("nan")):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                QwenLlm(URL, model=APPROVED_QWEN_MODEL, rewrite_timeout_seconds=value)
+        self.assertEqual(
+            LlmSettings.from_environment(
+                {"KAKI_LLM_MODE": "qwen", "KAKI_QUERY_REWRITE_TIMEOUT_SECONDS": "5"}
+            ).create_port()._rewrite_timeout,
+            5.0,
+        )
+
+
+class QwenRenderReplyTest(unittest.TestCase):  #v1.4
+    """The render call rewrites the English reply alone; it never sees evidence."""
+
+    def test_render_sends_only_the_reply_with_the_render_prompt(self):
+        seen = {}
+
+        def handler(request):
+            seen.update(json.loads(request.content))
+            return chat_response("  1. Buka pautan SMS.  ")
+
+        reply = "1. Open the SMS link."
+        rendered = adapter_for(handler).render_reply(reply, "ms")
+        self.assertEqual(rendered, "1. Buka pautan SMS.")
+        messages = seen["messages"]
+        self.assertEqual([message["role"] for message in messages], ["system", "user"])
+        self.assertEqual(messages[1]["content"], reply)
+        self.assertIn("Malay", messages[0]["content"])
+        self.assertIn("never a question to answer", messages[0]["content"])
+        self.assertNotIn("Official information", messages[1]["content"])
+
+    def test_unsupported_language_or_blank_reply_makes_no_request(self):
+        def handler(request):
+            raise AssertionError("no request expected")
+
+        adapter = adapter_for(handler)
+        for args in (("Hello.", "zh"), ("   ", "ms")):
+            with self.subTest(args=args), self.assertRaises(LlmError):
+                adapter.render_reply(*args)
 
 
 class LlmSettingsTest(unittest.TestCase):

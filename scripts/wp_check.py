@@ -1,3 +1,6 @@
+# v2.6 | 14-Sep-2026 | WP5.1 text turn also runs the live Whisper transcript; the slip body must be English with steps.
+# v2.5 | 14-Sep-2026 | WP4.2 and WP4.5 schema checks equal the packaged migration count.
+# v2.4 | 13-Sep-2026 | Add the WP5.1 voice, Malay retrieval and Malay text-turn checks.
 # v2.3 | 13-Sep-2026 | Add the WP4.5 backup readability and devset action checks.
 # v2.2 | 13-Sep-2026 | WP4.2: debug check matches the newest-turn contract; add a repeat replay.
 # v2.1 | 13-Sep-2026 | Add the WP4.2 action checks; WP4.1 accepts later schema versions.
@@ -73,6 +76,12 @@ Currently registered:
   manifest hashes, integrity, foreign keys, schema version and turns count
   through an immutable read, then reports the action-item intents as a count
   and a rate, for example `9 of 10, 0.90`.
+- WP5.1 tier B - Malay voice, Malay retrieval and one Malay text turn
+  (WP5-AT-01, 04). Requires the grounded configuration, MLX-LM on 8082 and
+  the Chroma index. Checks the configured Malay voice is listed by `say` and
+  speaks; measures three Malay CDC questions original-only, with curated
+  English queries and with the live Qwen rewrite; then runs one Malay CDC
+  transcript through `TurnPipeline` against a disposable database.
 
 Side effects: WP2.3 tier B sends five fixed-transcript generation requests to
 the local LLM service. WP2.4 tier B synthesises one fixed sentence locally
@@ -89,7 +98,11 @@ directory, removed on exit, and submits one fixture turn plus its replay to the
 running backend, which stores them in the live database. WP4.2 tier B submits
 six turns plus two replays to the running backend, which stores them in the
 live database. WP4.5 tier B writes nothing: it reads the newest backup set
-and runs the devset regression, which uses its own disposable database. Exit status is zero only when every check passes; 2 indicates a
+and runs the devset regression, which uses its own disposable database. WP5.1
+tier B synthesises one Malay sentence locally, sends three rewrite requests and
+one Malay turn's completions to the local LLM, reads the Chroma index and
+writes only a disposable database under the system temporary directory.
+Exit status is zero only when every check passes; 2 indicates a
 usage or configuration error.
 """
 
@@ -118,6 +131,7 @@ from dotenv import load_dotenv  #v1.6
 
 from kaki_backend.config import APPROVED_QWEN_MODEL, LlmSettings, TtsSettings
 from kaki_backend.config import StorageSettings  #v2.0
+from kaki_backend.config import LanguageSettings, RetrievalSettings  #v2.4
 from kaki_backend.contracts.ports import LlmError, TtsError
 from kaki_backend.orchestration.canned_ports import CannedLlmPort, CannedSttPort
 
@@ -942,6 +956,21 @@ def check_wp41_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.0
 
 
 WP42_SCHEMA_VERSION = 2  #v2.1
+MIGRATION_FILE_GLOB = "[0-9][0-9][0-9][0-9]_*.sql"  #v2.5
+
+
+def packaged_schema_version() -> int:  #v2.5
+    """Count the packaged migration files: the schema version this checkout migrates to.
+
+    Migrations are numbered contiguously from 0001, so the file count is the
+    version, the same derivation as `scripts/wp4_5_evidence.sh`. It raises
+    the expectation only when a migration file ships.
+    """
+    from kaki_backend.persistence import migrations as migrations_package
+
+    return len(list(Path(migrations_package.__file__).parent.glob(MIGRATION_FILE_GLOB)))
+
+
 WP42_FIXTURES = ("repeat_request.wav", "print_request.wav")  #v2.1
 
 
@@ -1035,6 +1064,7 @@ def check_wp42_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.1
 
     report.update({
         "health": health, "schema_version": schema_version,
+        "packaged_schema_version": packaged_schema_version(),  #v2.5
         "turn_ids": {"answer": answer_id, "repeat": repeat_id, "print": print_id,
                      "second_repeat": second_id, "nothing_to_act_on": lonely_id},
         "elapsed_ms": {"answer": round(answer_ms, 1), "repeat": round(repeat_ms, 1),
@@ -1048,7 +1078,9 @@ def check_wp42_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.1
     checks = {
         "stack_reachable": True,
         "health_reports_storage_ready": health.get("storage_ready") is True,
-        "live_database_at_exact_schema_version_2": schema_version == WP42_SCHEMA_VERSION,
+        # The live backend migrates to the packaged version; WP4.2's 0002 is within it.  #v2.5
+        "live_database_at_packaged_schema_version": schema_version == packaged_schema_version()
+        and schema_version >= WP42_SCHEMA_VERSION,
         "answer_answered_with_sources": answer.get("state") == "answered"
         and bool(answer.get("sources")),
         "answer_has_null_action_fields": answer_debug.get("previous_turn_id") is None
@@ -1180,7 +1212,8 @@ def _check_backup_readability(data_root: Path) -> tuple[dict[str, object], dict[
         "backup_database_readable": True,
         "backup_integrity_ok": integrity == "ok",
         "backup_foreign_keys_ok": not foreign_key_problems,
-        "backup_schema_version_2": user_version == WP45_SCHEMA_VERSION,
+        "backup_schema_version_matches_packaged": user_version == packaged_schema_version()  #v2.5
+        and user_version >= WP45_SCHEMA_VERSION,
         "manifest_user_version_matches": fields.get("user_version") == str(user_version),
         "manifest_turns_matches": fields.get("turns") == str(turns),
         "manifest_lists_every_file": sorted(hashes) == present,
@@ -1255,6 +1288,193 @@ def check_wp45_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.3
     return {"backup": backup_report, "devset": devset_report}, checks
 
 
+WP51_CDC_SOURCE_ID = "cdc-vouchers-residents"  #v2.4
+# The runbook 10.1 WP5.1 probe questions with their curated English queries.
+WP51_PROBES = (  #v2.4
+    ("Macam mana saya boleh guna baucar CDC saya?", "How to use CDC vouchers"),
+    ("Baucar CDC tu boleh guna kat mana?", "Where can CDC vouchers be used"),
+    ("Saya nak tahu cara tuntut baucar CDC untuk isi rumah saya.",
+     "How to claim CDC vouchers for household"),
+)
+WP51_MALAY_SENTENCE = "Baucar CDC boleh digunakan di kedai yang menyertai program ini."  #v2.4
+# A gate value closer than this to the threshold is reported as near the gate.
+WP51_NEAR_GATE_MARGIN = 0.10  #v2.4
+WP51_MALAY_MARKERS = re.compile(  #v2.4
+    r"\b(?:saya|anda|boleh|untuk|dengan|dan|yang|ini|itu|tidak|baucar|guna|kedai)\b",
+    re.IGNORECASE,
+)
+
+
+def _wp51_voice() -> tuple[dict[str, object], dict[str, bool]]:  #v2.4
+    """Check the configured Malay voice is installed and speaks non-empty audio."""
+    tts = TtsSettings.from_environment()
+    listing = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, timeout=30)
+    listed = [line.split()[0] for line in listing.stdout.splitlines() if line.strip()]
+    malay_lines = [line.strip() for line in listing.stdout.splitlines()
+                   if "ms_MY" in line or "id_ID" in line]
+    frames = -1
+    error = None
+    if tts.malay_voice in listed:
+        from kaki_say_tts.adapter import SayTts
+
+        try:
+            audio = SayTts(timeout_seconds=tts.timeout_seconds, malay_voice=tts.malay_voice)
+            frames = _decode_wav_frames(audio.synthesize(WP51_MALAY_SENTENCE, language="ms"))
+        except TtsError as failure:
+            error = failure.code
+    report = {"malay_voice": tts.malay_voice, "installed_malay_and_indonesian_voices": malay_lines,
+              "malay_speech_frames": frames, "malay_speech_error": error}
+    return report, {
+        "configured_malay_voice_is_listed": tts.malay_voice in listed,
+        "malay_voice_speaks_non_empty_audio": frames > 0,
+    }
+
+
+def _gate_value(evidence) -> float | None:  #v2.4
+    scores = [chunk.dense_score for chunk in evidence if chunk.dense_score is not None]
+    return round(max(scores), 3) if scores else None
+
+
+def _wp51_retrieval(threshold: float) -> tuple[dict[str, object], dict[str, bool]]:  #v2.4
+    """Measure the gate value per Malay probe: original only, curated query, live rewrite."""
+    from kaki_rag.adapter import KakiRagRetriever
+
+    retrieval = RetrievalSettings.from_environment()
+    retriever = KakiRagRetriever(retrieval.data_root, model_id=retrieval.embedding_model)
+    llm = LlmSettings.from_environment().create_port()
+    probes = []
+    checks: dict[str, bool] = {}
+    for number, (question, curated) in enumerate(WP51_PROBES, start=1):
+        started = perf_counter()
+        try:
+            rewrite = llm.rewrite_query(question)
+            rewrite_error = None
+        except LlmError as failure:
+            rewrite, rewrite_error = None, failure.code
+        rewrite_ms = round((perf_counter() - started) * 1000, 1)
+        measured = {"original_only": retriever.retrieve(question, None),
+                    "curated_query": retriever.retrieve(question, curated)}
+        if rewrite is not None:
+            measured["qwen_rewrite"] = retriever.retrieve(question, rewrite)
+        values = {leg: _gate_value(evidence) for leg, evidence in measured.items()}
+        qwen_value = values.get("qwen_rewrite")
+        probes.append({
+            "question": question, "curated_query": curated, "qwen_rewrite": rewrite,
+            "rewrite_error": rewrite_error, "rewrite_ms": rewrite_ms, "gate_values": values,
+            "qwen_margin_over_gate": round(qwen_value - threshold, 3)
+            if qwen_value is not None else None,
+            "qwen_top3_sources": [chunk.source_id for chunk in measured.get("qwen_rewrite", ())],
+        })
+        qwen_top3 = [chunk.source_id for chunk in measured.get("qwen_rewrite", ())]
+        checks[f"probe{number}_qwen_rewrite_present"] = rewrite is not None
+        checks[f"probe{number}_qwen_top3_holds_cdc"] = WP51_CDC_SOURCE_ID in qwen_top3
+        checks[f"probe{number}_qwen_gate_value_at_or_above_threshold"] = (
+            qwen_value is not None and qwen_value >= threshold
+        )
+        checks[f"probe{number}_curated_gate_value_at_or_above_threshold"] = (
+            values["curated_query"] is not None and values["curated_query"] >= threshold
+        )
+    near = [probe["question"] for probe in probes
+            if probe["qwen_margin_over_gate"] is not None
+            and probe["qwen_margin_over_gate"] < WP51_NEAR_GATE_MARGIN]
+    if near:
+        print(f"NOTE: Qwen-rewrite gate values within {WP51_NEAR_GATE_MARGIN} of the "
+              f"{threshold} gate for: {near}. Report this to the owner as a decision.",
+              file=sys.stderr)
+    return {"threshold": threshold, "near_gate_margin": WP51_NEAR_GATE_MARGIN,
+            "near_gate_questions": near, "probes": probes}, checks
+
+
+# Malay CDC transcripts for the text turn: the probe question, and the exact
+# Whisper transcript whose grounded answer came back Malay in Test 3
+# (14-Sep-2026), which put Malay steps on the slip.  #v2.6
+WP51_TEXT_TURNS = (  #v2.6
+    ("probe", WP51_PROBES[0][0]),
+    ("live_whisper", "Bagaimana saya boleh guna baucah CDC saya?"),
+)
+
+
+def _wp51_slip_body(slip_text: str) -> str:  #v2.6
+    """Return the answered slip's lines between the heading and the Source: line."""
+    body = []
+    for line in slip_text.splitlines()[1:]:
+        if line.startswith("Source: "):
+            break
+        body.append(line)
+    return "\n".join(body)
+
+
+def _wp51_text_turn() -> tuple[dict[str, object], dict[str, bool]]:  #v2.6
+    """Run Malay CDC transcripts through the configured pipeline on a disposable store."""
+    from kaki_backend.orchestration.language_policy import is_english_text
+    from kaki_backend.orchestration.reply_language import BRIDGE_GREETING
+    from run_regression import InjectedStt, build_pipeline, open_history, silent_audio
+
+    language = LanguageSettings.from_environment()
+    expected_language = "en" if language.malay_reply_mode == "english" else "ms"
+    reports: dict[str, object] = {"reply_mode": language.malay_reply_mode}
+    checks: dict[str, bool] = {}
+    for tag, transcript in WP51_TEXT_TURNS:
+        stt = InjectedStt()
+        stt.speak(transcript, "ms")
+        with tempfile.TemporaryDirectory(prefix="kaki-wp51-") as directory:
+            pipeline = build_pipeline(stt, open_history(directory))
+            execution = pipeline.execute(
+                device_id="wp51-check", session_id=f"wp51-{uuid4()}",
+                turn_id=f"wp51-{tag}-{uuid4()}", audio=silent_audio(),
+                audio_preparation_ms=0.0, request_started_at=perf_counter(),
+            )
+        response, log = execution.response, execution.log
+        slip_lines = response.slip_text.splitlines()
+        body = _wp51_slip_body(response.slip_text)
+        reports[tag] = {
+            "transcript": transcript, "state": response.state.value,
+            "language": response.language, "reply_text": response.reply_text,
+            "slip_text": response.slip_text, "render_outcome": log.render_outcome,
+            "normalised_query": log.normalised_query, "best_dense_score": log.best_dense_score,
+            "cited_source_id": log.cited_source_id, "timings_ms": log.timings.model_dump(),
+        }
+        prefix = f"malay_turn_{tag}"
+        checks.update({
+            f"{prefix}_answered": response.state.value == "answered",
+            f"{prefix}_cites_cdc": log.cited_source_id == WP51_CDC_SOURCE_ID,
+            f"{prefix}_rewrite_present": log.normalised_query is not None,
+            f"{prefix}_policy_decided_ms": log.reply_language == "ms",
+            f"{prefix}_language_{expected_language}": response.language == expected_language,
+            f"{prefix}_slip_heading": bool(slip_lines) and slip_lines[0] == "KAKI-TALKIE HELP",
+            f"{prefix}_slip_body_has_steps": bool(body.strip()),
+            f"{prefix}_slip_body_is_english": is_english_text(body)
+            and WP51_MALAY_MARKERS.search(body) is None,
+            f"{prefix}_slip_has_no_you_asked_line": "You asked:" not in slip_lines,
+        })
+        if language.malay_reply_mode == "full":
+            checks[f"{prefix}_render_outcome_rendered"] = log.render_outcome == "rendered"
+        elif language.malay_reply_mode == "bridge":
+            checks[f"{prefix}_reply_starts_with_bridge_greeting"] = (
+                response.reply_text.startswith(BRIDGE_GREETING)
+            )
+    return reports, checks
+
+
+def check_wp51_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.4
+    """Prove the Malay voice, Malay retrieval and a Malay text turn (runbook 10.2 WP5.1).
+
+    Needs the grounded configuration, MLX-LM and the Chroma index; posts
+    nothing to the backend and never opens the live database.
+    """
+    if os.environ.get("KAKI_RETRIEVAL_MODE", "canned") != "rag":
+        raise ValueError("export KAKI_RETRIEVAL_MODE=rag before running WP5.1 tier B.")
+    if os.environ.get("KAKI_LLM_MODE", "canned") != "qwen":
+        raise ValueError("export KAKI_LLM_MODE=qwen before running WP5.1 tier B.")
+    retrieval = RetrievalSettings.from_environment()
+    voice_report, checks = _wp51_voice()
+    retrieval_report, retrieval_checks = _wp51_retrieval(retrieval.evidence_min_dense)
+    turn_report, turn_checks = _wp51_text_turn()
+    checks.update(retrieval_checks)
+    checks.update(turn_checks)
+    return {"voice": voice_report, "retrieval": retrieval_report, "text_turn": turn_report}, checks
+
+
 REGISTRY = {
     ("WP2.3", "B"): check_wp23_tier_b,
     ("WP2.4", "B"): check_wp24_tier_b,
@@ -1265,6 +1485,7 @@ REGISTRY = {
     ("WP4.1", "B"): check_wp41_tier_b,  #v2.0
     ("WP4.2", "B"): check_wp42_tier_b,  #v2.1
     ("WP4.5", "B"): check_wp45_tier_b,  #v2.3
+    ("WP5.1", "B"): check_wp51_tier_b,  #v2.4
 }
 
 

@@ -1,3 +1,4 @@
+# v1.1 | 13-Sep-2026 | WP5.1: the gate input is the better of the original and normalised legs.
 # v1.0 | 11-Sep-2026 | Verify the backend-facing retriever adapter offline with fakes.
 """Exercise KakiRagRetriever with injected fakes; no model, network or backend stack.
 
@@ -84,6 +85,28 @@ class KakiRagRetrieverTests(unittest.TestCase):
             "macam mana claim baucar", "claim CDC Vouchers SMS link"
         )
         self.assertEqual(evidence[0].source_id, "cdc-vouchers")
+
+    def test_dense_score_is_the_better_of_the_original_and_normalised_legs(self):  #v1.1
+        # WP5.1 Test 2: a Malay question that scores low on the original leg
+        # and high on the normalised leg must reach the gate with the high score.
+        from kaki_rag.retrieve.hybrid import RetrievalQuery
+        retriever = self.build()
+        original, normalised = "macam mana baucar", "claim CDC Vouchers SMS link"
+        paths = retriever._load().retrieve(RetrievalQuery(original, normalised))
+        evidence = retriever.retrieve(original, normalised)
+        original_only = retriever.retrieve(original, None)
+        by_chunk = {result.chunk.chunk_id: result.path_scores for result in paths}
+        for chunk in evidence:
+            dense = [score for path, score in by_chunk[chunk.chunk_id].items()
+                     if path.startswith("dense_")]
+            self.assertEqual(chunk.dense_score, max(dense))
+        self.assertGreater(
+            max(chunk.dense_score for chunk in evidence),
+            max(chunk.dense_score or 0.0 for chunk in original_only),
+        )
+        top_paths = by_chunk[evidence[0].chunk_id]
+        self.assertGreater(top_paths["dense_normalised"], top_paths.get("dense_original", 0.0))
+        self.assertEqual(evidence[0].dense_score, top_paths["dense_normalised"])
 
     def test_blank_query_is_rejected(self):
         with self.assertRaises(ValueError):

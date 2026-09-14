@@ -1,3 +1,4 @@
+# v1.4 | 13-Sep-2026 | WP5.1: Malay refusal and action wording.
 # v1.3 | 13-Sep-2026 | Refuse any credential mention without a procedural marker (WP3.4 defect).
 # v1.2 | 13-Sep-2026 | Route repeat_previous and print_previous; own their fixed wording.
 # v1.1 | 12-Sep-2026 | Drop the secret_volunteered input; refuse on the request alone.
@@ -30,9 +31,9 @@ routing decision is reproducible and testable offline:
    because the demo, the spoken output and the devset all need stable strings.
 
 The intent vocabulary here is internal (design.md 10 lists the MVP set).
-`live_lookup` arrives with WP5.6. `kaki_handoff` and `calendar_create` are
-deferred beyond the MVP (design.md v1.4) and are not built. Routing stays
-rule-based until the WP5.5 DSPy migration. The public contract is untouched:
+`live_lookup` and the DSPy migration are deferred beyond the MVP, as are
+`kaki_handoff` and `calendar_create` (design.md v1.4); none is built, and
+routing stays rule-based. The public contract is untouched:
 `refused` and `acted` have been `TurnState` members since WP1.1.
 """
 
@@ -68,9 +69,8 @@ class RefusalMessage:
     display_text: str
 
 
-# One catalogue, keyed by language then reason, so WP5.1 adds a language by
-# adding a key here rather than by touching the pipeline. English is the MVP
-# reply language and the permanent fallback.
+# One catalogue, keyed by language then reason: WP5.1 added Malay as a key
+# rather than by touching the pipeline. English is the permanent fallback.
 REFUSAL_MESSAGES: dict[str, dict[RefusalReason, RefusalMessage]] = {
     "en": {
         RefusalReason.NO_COVERAGE: RefusalMessage(
@@ -88,6 +88,24 @@ REFUSAL_MESSAGES: dict[str, dict[RefusalReason, RefusalMessage]] = {
                 "official steps so you can do it yourself."
             ),
             display_text="I cannot handle passwords. Never share them with anyone.",
+        ),
+    },
+    "ms": {  #v1.4
+        RefusalReason.NO_COVERAGE: RefusalMessage(
+            reply_text=(
+                "Maaf, saya tidak ada maklumat rasmi tentang perkara itu. Saya boleh bantu "
+                "tentang Singpass, CDC Vouchers, CHAS dan CareShield Life. Untuk perkara "
+                "lain, sila tanya kakitangan di pusat komuniti anda."
+            ),
+            display_text="Tiada maklumat rasmi. Sila tanya kakitangan pusat komuniti.",
+        ),
+        RefusalReason.CREDENTIAL_ACTION: RefusalMessage(
+            reply_text=(
+                "Maaf, saya tidak boleh log masuk untuk anda atau menguruskan kata laluan anda. "
+                "Jangan kongsi kata laluan atau kata laluan sekali guna dengan sesiapa pun, "
+                "termasuk saya. Saya boleh terangkan langkah rasmi supaya anda boleh buat sendiri."
+            ),
+            display_text="Saya tidak boleh urus kata laluan. Jangan kongsi dengan sesiapa.",
         ),
     },
 }
@@ -113,6 +131,16 @@ ACTION_MESSAGES: dict[str, dict[ActionMessageKind, RefusalMessage]] = {  #v1.2
         ActionMessageKind.NOTHING_TO_ACT_ON: RefusalMessage(
             reply_text="I have not answered a question yet. Please ask me first.",
             display_text="I have not answered a question yet. Please ask me first.",
+        ),
+    },
+    "ms": {  #v1.4
+        ActionMessageKind.PRINT_CONFIRMATION: RefusalMessage(
+            reply_text="Ini slip anda.",
+            display_text="Ini slip anda.",
+        ),
+        ActionMessageKind.NOTHING_TO_ACT_ON: RefusalMessage(
+            reply_text="Saya belum jawab apa-apa soalan lagi. Sila tanya saya dahulu.",
+            display_text="Saya belum jawab apa-apa soalan lagi. Sila tanya saya dahulu.",
         ),
     },
 }

@@ -1,3 +1,4 @@
+# v1.1 | 13-Sep-2026 | WP5.1: speak Malay with the configured voice; English stays unchanged.
 # v1.0 | 09-Sep-2026 | Synthesise playable English speech through the local macOS say binary.
 """Use the macOS `say` command behind the backend's TTS port.
 
@@ -7,6 +8,12 @@ to `say` on standard input (never on the command line), synthesis writes
 22.05 kHz mono signed 16-bit PCM WAV to a private temporary file, and the
 file is deleted on every path. Failures raise sanitised `TtsError` codes;
 reply text and engine output are never logged.
+
+WP5.1 adds a language argument. English runs `say` exactly as before, with no
+`-v`, so the system voice speaks. Malay adds `-v` with the configured voice
+(Amira, `ms_MY`, by default; Damayanti, `id_ID`, is the documented fallback,
+setup.md 10.1.1). A voice the host lacks makes `say` exit non-zero, which
+raises `TtsError` and degrades the turn to text.
 """
 
 import shutil
@@ -24,6 +31,8 @@ from kaki_backend.contracts.ports import TtsError
 
 MAX_TEXT_CHARS = 4096
 SAY_DATA_FORMAT = "LEI16@22050"
+DEFAULT_MALAY_VOICE = "Amira"  #v1.1
+MAX_VOICE_NAME_CHARS = 64  #v1.1
 
 CommandRunner = Callable[[Sequence[str], str, float], None]
 
@@ -43,10 +52,15 @@ class SayTts:
 
     def __init__(
         self, *, timeout_seconds: float = 30.0, runner: CommandRunner | None = None,
+        malay_voice: str = DEFAULT_MALAY_VOICE,  #v1.1
     ) -> None:
-        """Validate the synthesis timeout; runner injection supports deterministic tests."""
+        """Validate the timeout and Malay voice name; runner injection supports tests."""
         if not isfinite(timeout_seconds) or not 0.1 <= timeout_seconds <= 120:
             raise ValueError("TTS timeout must be between 0.1 and 120 seconds.")
+        voice = malay_voice.strip()  #v1.1
+        if not voice or len(voice) > MAX_VOICE_NAME_CHARS or voice.startswith("-"):  #v1.1
+            raise ValueError("The Malay voice name must be a non-blank say voice name.")
+        self._voices = {"ms": voice}  #v1.1
         self._timeout = timeout_seconds
         self._runner = runner or _run_say
 
@@ -54,10 +68,12 @@ class SayTts:
         """Report whether the `say` binary is available without synthesising speech."""
         return shutil.which("say") is not None
 
-    def synthesize(self, reply_text: str) -> str | None:
+    def synthesize(self, reply_text: str, language: str = "en") -> str | None:  #v1.1
         """Return spoken reply audio as a WAV data URL or raise TtsError.
 
-        Side effects: creates and always deletes one private temporary file.
+        `language` `ms` selects the configured Malay voice; any other value
+        uses the system voice. Side effects: creates and always deletes one
+        private temporary file.
         """
         if not reply_text.strip() or len(reply_text) > MAX_TEXT_CHARS:
             raise TtsError("invalid_text")
@@ -65,7 +81,12 @@ class SayTts:
         handle.close()
         output_path = Path(handle.name)
         try:
-            command = ("say", "-o", str(output_path), f"--data-format={SAY_DATA_FORMAT}", "-f", "-")
+            voice = self._voices.get(language)  #v1.1
+            voice_arguments = ("-v", voice) if voice else ()
+            command = (
+                "say", "-o", str(output_path), f"--data-format={SAY_DATA_FORMAT}",
+                *voice_arguments, "-f", "-",
+            )
             try:
                 self._runner(command, reply_text, self._timeout)
             except TtsError:

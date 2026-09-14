@@ -1,3 +1,4 @@
+# v1.3 | 13-Sep-2026 | WP5.1: build the pipeline with the configured language settings.
 # v1.2 | 13-Sep-2026 | Run WP4.2 action items in sessions on a disposable database.
 # v1.1 | 12-Sep-2026 | Drop the redaction check; redaction is no longer performed.
 # v1.0 | 12-Sep-2026 | Provide the WP3.4 devset regression over the real turn pipeline.
@@ -41,7 +42,7 @@ import wave
 from pathlib import Path
 from time import perf_counter
 
-from kaki_backend.config import LlmSettings, RetrievalSettings
+from kaki_backend.config import LanguageSettings, LlmSettings, RetrievalSettings  #v1.3
 from kaki_backend.contracts.ports import LanguageEvidence, Transcription
 from kaki_backend.contracts.turn_log import TurnExecution  #v1.2
 from kaki_backend.orchestration.intent_router import ACTION_INTENTS, Intent  #v1.2
@@ -95,7 +96,7 @@ class SilentTts:
         """Report readiness; there is no engine to check."""
         return True
 
-    def synthesize(self, reply_text: str) -> str | None:
+    def synthesize(self, reply_text: str, language: str = "en") -> str | None:  #v1.3
         """Return no audio reference, which the contract permits."""
         return None
 
@@ -147,6 +148,7 @@ def open_history(directory: str) -> TurnRepository:  #v1.2
 def build_pipeline(stt: InjectedStt, history: TurnRepository) -> TurnPipeline:  #v1.2
     """Assemble the pipeline from configuration, with STT, TTS and the store replaced."""
     retrieval = RetrievalSettings.from_environment()
+    language = LanguageSettings.from_environment()  #v1.3
     return TurnPipeline(
         stt=stt,
         llm=LlmSettings.from_environment().create_port(),
@@ -156,6 +158,8 @@ def build_pipeline(stt: InjectedStt, history: TurnRepository) -> TurnPipeline:  
         query_normalise=retrieval.normalise,
         evidence_min_dense=retrieval.evidence_min_dense,
         history=history,  #v1.2
+        language_preference=language.preference,  #v1.3
+        malay_reply_mode=language.malay_reply_mode,  #v1.3
     )
 
 

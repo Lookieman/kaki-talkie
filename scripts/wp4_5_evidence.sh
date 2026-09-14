@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# v1.3 | 13-Sep-2026 | Expect the packaged schema version; WP5.1 added migration 0003.
 # v1.2 | 13-Sep-2026 | Package mode reruns WP4.1 and WP4.2 only (execution-plan.md 1.1).
 # v1.1 | 13-Sep-2026 | Add --from-test and --regression scoped|package; Test 3 withdrawn.
 # v1.0 | 13-Sep-2026 | Owner evidence harness for runbook 9.2 WP4.5 Tests 1-6.
@@ -77,7 +78,6 @@ set -Eeuo pipefail
 BACKEND_URL="http://127.0.0.1:8000"
 SMOKE_DEVICE="wp45-smoke"
 CDC_HOST="vouchers.cdc.gov.sg"
-EXPECTED_SCHEMA_VERSION=2
 INTENT_TARGET="0.80"
 FIXTURE_DIR_RELATIVE="backend/src/kaki_backend/fixtures"
 SCHEMA_SNAPSHOT="backend/tests/contract/snapshots/turn_response.schema.json"
@@ -88,7 +88,7 @@ LLM_LOG_PATTERN="POST /v1/chat/completions"
 PACKAGE_TIER_B_UNITS="WP4.1 WP4.2"  #v1.2
 
 usage() {
-    awk 'NR > 5 && /^#/ { sub(/^# ?/, ""); print; next } NR > 5 { exit }' "$0"  #v1.2
+    awk 'NR > 6 && /^#/ { sub(/^# ?/, ""); print; next } NR > 6 { exit }' "$0"  #v1.2
 }
 
 usage_error() {  #v1.1
@@ -137,6 +137,10 @@ trap 'printf "FAIL: command exited non-zero at line %s: %s\n" "$LINENO" "$BASH_C
 KAKI_APP_ROOT="${KAKI_APP_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$KAKI_APP_ROOT"
 FIXTURE_DIR="$KAKI_APP_ROOT/$FIXTURE_DIR_RELATIVE"
+# Migrations are numbered contiguously from 0001, so their count is the schema
+# version this checkout's backend migrates to.  #v1.3
+EXPECTED_SCHEMA_VERSION="$(find "$KAKI_APP_ROOT/backend/src/kaki_backend/persistence/migrations" \
+    -name '[0-9][0-9][0-9][0-9]_*.sql' | wc -l | tr -d ' ')"  #v1.3
 
 has_tty() {
     { : </dev/tty; } 2>/dev/null

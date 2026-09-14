@@ -1,3 +1,5 @@
+# v1.3 | 14-Sep-2026 | The served schema equals the packaged migration count.
+# v1.2 | 13-Sep-2026 | WP5.1 migration 0003: the served schema is at least version 2.
 # v1.1 | 13-Sep-2026 | Cover repeat replay and replays of older turns against the debug contract.
 # v1.0 | 13-Sep-2026 | Verify WP4-AT-04/05 over the device HTTP contract with fake ports.
 """WP4.2 repeat and print over the device HTTP contract; fake ports only.
@@ -27,7 +29,7 @@ from kaki_test_env import canned_backend
 app = canned_backend().app
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "unit"))
-from test_actions import CountingPort, ScriptedStt  # noqa: E402
+from test_actions import CountingPort, ScriptedStt, packaged_schema_version  # noqa: E402
 from test_persistence import FakeLlm, FakeRetriever, FakeTts, synthetic_audio  # noqa: E402
 
 RESPONSE_FIELDS = {"turn_id", "reply_audio", "reply_text", "display_text", "slip_text",
@@ -157,9 +159,9 @@ class Wp42ContractTests(unittest.TestCase):
         self.assertEqual((debug["intent"], debug["previous_turn_id"], debug["action_outcome"]),
                          ("answer", None, None))
 
-    def test_schema_is_exactly_version_2_and_pending_stays_empty(self) -> None:
+    def test_schema_is_the_packaged_version_and_pending_stays_empty(self) -> None:  #v1.3
         self.post("answer", "How do I use my CDC vouchers?")
-        self.assertEqual(self.debug()["schema_version"], 2)
+        self.assertEqual(self.debug()["schema_version"], packaged_schema_version())
         self.assertIs(self.client.get("/api/health").json()["storage_ready"], True)
         self.assertEqual(self.client.get("/api/device/pending").json(), [])
 

@@ -1,3 +1,4 @@
+# v1.6 | 13-Sep-2026 | WP5.1: language preference, Malay reply mode, Malay voice, rewrite timeout.
 # v1.5 | 13-Sep-2026 | Require KAKI_DATA_ROOT everywhere and locate the SQLite database.
 # v1.4 | 12-Sep-2026 | Read the WP3.4 evidence-gate threshold from the environment.
 # v1.3 | 11-Sep-2026 | Select canned or rag retrieval and the query-normalise switch.
@@ -28,6 +29,13 @@ DEFAULT_EVIDENCE_MIN_DENSE = 0.50  #v1.4
 # The WP4.1 database lives under the runtime data root unless overridden.
 BASELINE_DATA_ROOT = "/Users/websvc/kaki-talkie-data"  #v1.5
 DEFAULT_SQLITE_RELATIVE_PATH = "sqlite/kaki.db"  #v1.5
+# WP5.1 (runbook 10.1 WP5.1): the reply language and how Malay answers are built.
+DEFAULT_LANGUAGE_PREFERENCE = "en"  #v1.6
+DEFAULT_MALAY_REPLY_MODE = "full"  #v1.6
+DEFAULT_MALAY_VOICE = "Amira"  #v1.6
+# Malay retrieval depends on the normalised English query, so the rewrite gets
+# more room than the WP3.3 2 s bound (owner decision, 13-Sep-2026).
+DEFAULT_QUERY_REWRITE_TIMEOUT_SECONDS = "4"  #v1.6
 
 
 def _bounded_timeout(env: Mapping[str, str], name: str, default: str, upper: float) -> float:
@@ -76,6 +84,7 @@ class LlmSettings:
     mode: str = "canned"
     url: str = "http://127.0.0.1:8082"
     timeout_seconds: float = 120.0
+    rewrite_timeout_seconds: float = 4.0  #v1.6
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> "LlmSettings":
@@ -85,7 +94,12 @@ class LlmSettings:
         if mode not in {"canned", "qwen"}:
             raise ValueError("KAKI_LLM_MODE must be canned or qwen.")
         timeout = _bounded_timeout(env, "KAKI_LLM_TIMEOUT_SECONDS", "120", 300)
-        return cls(mode, env.get("KAKI_LLM_URL", "http://127.0.0.1:8082"), timeout)
+        rewrite_timeout = _bounded_timeout(  #v1.6
+            env, "KAKI_QUERY_REWRITE_TIMEOUT_SECONDS", DEFAULT_QUERY_REWRITE_TIMEOUT_SECONDS, 30
+        )
+        return cls(
+            mode, env.get("KAKI_LLM_URL", "http://127.0.0.1:8082"), timeout, rewrite_timeout,
+        )
 
     def create_port(self) -> LlmPort:
         """Construct the selected adapter; perform no inference or readiness I/O."""
@@ -93,7 +107,10 @@ class LlmSettings:
             return CannedLlmPort()
         from kaki_qwen_local.adapter import QwenLlm
 
-        return QwenLlm(self.url, model=APPROVED_QWEN_MODEL, timeout_seconds=self.timeout_seconds)
+        return QwenLlm(
+            self.url, model=APPROVED_QWEN_MODEL, timeout_seconds=self.timeout_seconds,
+            rewrite_timeout_seconds=self.rewrite_timeout_seconds,  #v1.6
+        )
 
 
 def _evidence_threshold(env: Mapping[str, str]) -> float:  #v1.4
@@ -198,16 +215,20 @@ class TtsSettings:
 
     mode: str = "canned"
     timeout_seconds: float = 30.0
+    malay_voice: str = DEFAULT_MALAY_VOICE  #v1.6
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> "TtsSettings":
-        """Read process exports and reject unsupported modes or unbounded timeouts."""
+        """Read process exports and reject unsupported modes, timeouts or a blank voice."""
         env = os.environ if environment is None else environment
         mode = env.get("KAKI_TTS_MODE", "canned")
         if mode not in {"canned", "say"}:
             raise ValueError("KAKI_TTS_MODE must be canned or say.")
         timeout = _bounded_timeout(env, "KAKI_TTS_TIMEOUT_SECONDS", "30", 120)
-        return cls(mode, timeout)
+        voice = env.get("KAKI_TTS_VOICE_MS", DEFAULT_MALAY_VOICE).strip()  #v1.6
+        if not voice:
+            raise ValueError("KAKI_TTS_VOICE_MS must name a say voice, for example Amira.")
+        return cls(mode, timeout, voice)
 
     def create_port(self) -> TtsPort:
         """Construct the selected adapter; perform no synthesis or readiness I/O."""
@@ -215,4 +236,32 @@ class TtsSettings:
             return CannedTtsPort()
         from kaki_say_tts.adapter import SayTts
 
-        return SayTts(timeout_seconds=self.timeout_seconds)
+        return SayTts(timeout_seconds=self.timeout_seconds, malay_voice=self.malay_voice)  #v1.6
+
+
+@dataclass(frozen=True)
+class LanguageSettings:  #v1.6
+    """Select the reply-language preference and how Malay answers are built.
+
+    `preference` breaks ties the transcript and STT evidence leave open, and
+    decides short utterances. `malay_reply_mode` is `full` (render the
+    English answer into Malay), `bridge` (fixed Malay greeting and closing
+    around the English answer) or `english` (no Malay replies).
+    """
+
+    preference: str = DEFAULT_LANGUAGE_PREFERENCE
+    malay_reply_mode: str = DEFAULT_MALAY_REPLY_MODE
+
+    @classmethod
+    def from_environment(
+        cls, environment: Mapping[str, str] | None = None
+    ) -> "LanguageSettings":
+        """Read process exports; reject values outside the documented sets."""
+        env = os.environ if environment is None else environment
+        preference = env.get("KAKI_LANGUAGE_PREFERENCE", DEFAULT_LANGUAGE_PREFERENCE)
+        if preference not in {"en", "ms"}:
+            raise ValueError("KAKI_LANGUAGE_PREFERENCE must be en or ms.")
+        mode = env.get("KAKI_MALAY_REPLY_MODE", DEFAULT_MALAY_REPLY_MODE)
+        if mode not in {"full", "bridge", "english"}:
+            raise ValueError("KAKI_MALAY_REPLY_MODE must be full, bridge or english.")
+        return cls(preference, mode)

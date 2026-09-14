@@ -1,3 +1,4 @@
+# v1.7 | 13-Sep-2026 | WP5.1: expose the reply language, mode, render outcome and rewrite audit.
 # v1.6 | 13-Sep-2026 | Expose the action's previous turn and its outcome.
 # v1.5 | 13-Sep-2026 | Read the newest stored turn and expose its replay history.
 # v1.4 | 12-Sep-2026 | Drop transcript_redacted; redaction is no longer performed.
@@ -41,6 +42,13 @@ def last_turn(request: Request) -> dict[str, object]:
         "tts_error": log.tts_error,
         "retrieval_error": log.retrieval_error,  #v1.1
         "normalised_query": log.normalised_query,  #v1.1
+        # WP5.1: Malay retrieval depends on the rewrite, so its presence and
+        # duration are shown directly (runbook 10.1 WP5.1).
+        "rewrite_present": log.normalised_query is not None,  #v1.7
+        "rewrite_ms": log.timings.query_rewrite_ms,  #v1.7
+        "reply_language": log.reply_language,  #v1.7
+        "reply_mode": log.reply_mode,  #v1.7
+        "render_outcome": log.render_outcome,  #v1.7
         "cited_source_id": log.cited_source_id,  #v1.2
         "llm_cited_index": log.llm_cited_index,  #v1.2
         "retrieval_evidence": [  #v1.1

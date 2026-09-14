@@ -1,3 +1,4 @@
+# v1.7 | 13-Sep-2026 | WP5.1: render a reply into another language; speak in a given language.
 # v1.6 | 12-Sep-2026 | Carry the model's no-coverage signal on the grounded reply.
 # v1.5 | 12-Sep-2026 | Return the cited evidence block from grounded generation.
 # v1.4 | 11-Sep-2026 | Carry evidence text and scores through retrieval; ground generation.
@@ -113,6 +114,14 @@ class LlmPort(Protocol):
         original-only retrieval on failure rather than failing the turn.
         """
 
+    def render_reply(self, reply_text: str, language: str) -> str:  #v1.7
+        """Rewrite an already-grounded reply into `language` or raise LlmError.
+
+        Receives the reply text alone, never the evidence, so it rewrites and
+        cannot answer. Callers check the result and fall back to the original
+        reply (runbook 10.1 WP5.1, "Reply modes").
+        """
+
     def ready(self) -> bool:
         """Check current runtime readiness without generating or loading a model."""
 
@@ -130,8 +139,12 @@ class TtsError(RuntimeError):
 
 class TtsPort(Protocol):
     """Provide speech output independently of the selected speech engine."""
-    def synthesize(self, reply_text: str) -> str | None:
-        """Return an audio reference when speech output is available or raise TtsError."""
+    def synthesize(self, reply_text: str, language: str = "en") -> str | None:  #v1.7
+        """Return an audio reference when speech output is available or raise TtsError.
+
+        `language` selects the voice (`en` or `ms`). Callers pass it only for
+        a non-English segment, so English-only engines keep working unchanged.
+        """
 
     def ready(self) -> bool:
         """Check current engine readiness without synthesising speech."""

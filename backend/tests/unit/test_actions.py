@@ -1,11 +1,14 @@
+# v1.3 | 14-Sep-2026 | Pin the upgraded schema to the packaged migration count, not "at least 2".
+# v1.2 | 13-Sep-2026 | Migration 0003 (WP5.1) follows 0002: check 0002 within the current schema.
 # v1.1 | 13-Sep-2026 | Cover a repeat replay from its own stored rows.
 # v1.0 | 13-Sep-2026 | Cover WP4.2 actions in the pipeline, the store lookup and migration 0002.
 """WP4.2 actions with fake ports and disposable databases; no models or network.
 
 WP4-AT-04 a repeat calls no LLM, retrieval or TTS and keeps the stored text.
 WP4-AT-05 a print returns the stored slip unchanged.
-Also: "nothing to act on", previous-turn resolution rules, migration 0002 at
-its exact version, and the documented rollback SQL.
+Also: "nothing to act on", previous-turn resolution rules, migration 0002 and
+its documented rollback SQL. WP5.1 added migration 0003, so the 0002 checks
+run against the WP4.2 schema (migrations 0001-0002) where the version matters.
 """
 
 import sqlite3
@@ -18,6 +21,7 @@ from time import perf_counter
 from kaki_backend.contracts.ports import Transcription
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline
 from kaki_backend.persistence.database import Database
+from kaki_backend.persistence import migrations as migrations_package  #v1.3
 from kaki_backend.persistence.migrations import load_migrations
 from kaki_backend.persistence.repositories import TurnRepository
 
@@ -28,6 +32,17 @@ CDC_QUESTION = "How do I use my CDC vouchers?"
 CREDENTIAL_ACTION = "Log in to my Singpass for me."
 NOTHING_TO_ACT_ON = "I have not answered a question yet. Please ask me first."
 WP42_SCHEMA_VERSION = 2
+
+
+def packaged_schema_version() -> int:
+    """Count the packaged `NNNN_*.sql` migration files: the version a fresh build migrates to.
+
+    Counted from the files on disk, not from the loader under test, as the
+    WP4.5 harness does. A new migration raises the expectation only when its
+    file ships; a file the loader skips or cannot apply fails the equality.
+    """
+    return len(list(Path(migrations_package.__file__).parent.glob("[0-9][0-9][0-9][0-9]_*.sql")))
+
 
 ROLLBACK_0002 = (
     "ALTER TABLE turns DROP COLUMN action_outcome;"
@@ -244,10 +259,18 @@ class Migration0002Tests(unittest.TestCase):
         with database.connect() as connection:
             return {row["name"]: row for row in connection.execute("PRAGMA table_info(turns)")}
 
-    def test_packaged_schema_is_exactly_version_2_with_nullable_columns(self):
-        database = Database.open(self.path)
+    def wp42_database(self) -> Database:
+        """Open the database at exactly the WP4.2 schema: migrations 0001-0002."""
+        database = Database(self.path, load_migrations()[:WP42_SCHEMA_VERSION])
+        database.create_file()
+        database.migrate()
+        return database
+
+    def test_wp42_schema_is_exactly_version_2_with_nullable_columns(self):  #v1.2
+        database = self.wp42_database()
         self.assertEqual(database.schema_version(), WP42_SCHEMA_VERSION)
         self.assertEqual(database.latest_version, WP42_SCHEMA_VERSION)
+        self.assertEqual(Database(self.path).latest_version, packaged_schema_version())  #v1.3
         columns = self.columns(database)
         for name in ("previous_turn_id", "action_outcome"):
             self.assertIn(name, columns)
@@ -266,7 +289,7 @@ class Migration0002Tests(unittest.TestCase):
                 " VALUES ('old', 's', 'd', 'answered', 'en', 'r', 'd', 's', '{}', '[]', 'now');"
             )
         upgraded = Database.open(self.path)
-        self.assertEqual(upgraded.schema_version(), WP42_SCHEMA_VERSION)
+        self.assertEqual(upgraded.schema_version(), packaged_schema_version())  #v1.3
         with upgraded.connect() as connection:
             row = connection.execute(
                 "SELECT turn_id, previous_turn_id, action_outcome FROM turns"
@@ -286,14 +309,16 @@ class Migration0002Tests(unittest.TestCase):
             )
 
     def test_documented_rollback_returns_to_version_1(self):
-        database = Database.open(self.path)
+        database = self.wp42_database()  #v1.2
         with database.connect() as connection:
             connection.executescript(ROLLBACK_0002)
         self.assertEqual(database.schema_version(), 1)
         self.assertNotIn("previous_turn_id", self.columns(database))
         self.assertNotIn("action_outcome", self.columns(database))
         # Reopening with the WP4.2 build re-applies 0002.
-        self.assertEqual(Database.open(self.path).schema_version(), WP42_SCHEMA_VERSION)
+        reopened = Database(self.path, load_migrations()[:WP42_SCHEMA_VERSION])  #v1.2
+        reopened.migrate()
+        self.assertEqual(reopened.schema_version(), WP42_SCHEMA_VERSION)
 
 
 if __name__ == "__main__":

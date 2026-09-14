@@ -1,3 +1,4 @@
+# v2.0 | 13-Sep-2026 | WP5.1: record the reply-language decision, Malay reply mode and render outcome.
 # v1.9 | 13-Sep-2026 | Record the turn an action resolved to and whether it resolved.
 # v1.8 | 13-Sep-2026 | Record which evidence chunk stands behind each response source.
 # v1.7 | 12-Sep-2026 | Drop transcript_redacted; redaction is no longer performed.
@@ -100,6 +101,11 @@ class TurnLog(BaseModel):
     # "resolved" or "nothing_to_act_on"; both null on answer and refuse turns.
     previous_turn_id: str | None = None  #v1.9
     action_outcome: str | None = None  #v1.9
+    # WP5.1: the policy's reply language (en or ms), the Malay reply mode the
+    # turn ran under, and a full-mode render's outcome; all null on failed turns.
+    reply_language: str | None = None  #v2.0
+    reply_mode: str | None = None  #v2.0
+    render_outcome: str | None = None  #v2.0
 
 
 class TurnExecution(BaseModel):

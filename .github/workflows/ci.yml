@@ -1,3 +1,4 @@
+# v1.5 | 13-Sep-2026 | Install the kaki-rag package so the corpus script tests import.
 # v1.4 | 09-Sep-2026 | Auto-install all service adapter packages; rename drifted step names.
 # v1.3 | 07-Sep-2026 | Include the Whisper adapter and deterministic WP2.2 checks.
 # v1.2 | 07-Sep-2026 | Remove history enforcement and retain product validation.
@@ -34,6 +35,8 @@ jobs: #v1.0
           for pkg in services/*/*/pyproject.toml; do #v1.4
             python -m pip install -e "$(dirname "$pkg")" #v1.4
           done #v1.4
+      - name: Install corpus and retrieval package #v1.5
+        run: python -m pip install -e 'rag[retrieve]' #v1.5
       - name: Python lint and whitespace formatting #v1.0
         run: python -m ruff check --config backend/pyproject.toml backend scripts services
       - name: Backend contracts and unchanged turn schema #v1.0

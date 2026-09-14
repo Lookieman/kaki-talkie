@@ -1,3 +1,4 @@
+# v1.1 | 13-Sep-2026 | WP5.1: speak the confirmation in the turn's reply language.
 # v1.0 | 13-Sep-2026 | WP4.2 print_previous from the stored turn.
 """Return the previous slip unchanged, with a short spoken confirmation.
 
@@ -19,32 +20,38 @@ from kaki_backend.orchestration.intent_router import (
 )
 
 
-def nothing_to_act_on() -> ActionOutcome:
-    """Return the fixed reply for an action with no stored turn in its session."""
-    message = action_message(ActionMessageKind.NOTHING_TO_ACT_ON)
+def nothing_to_act_on(language: str = DEFAULT_LANGUAGE) -> ActionOutcome:  #v1.1
+    """Return the fixed reply, in `language`, for an action with no stored turn to act on."""
+    message = action_message(ActionMessageKind.NOTHING_TO_ACT_ON, language)
     return ActionOutcome(
         kind=ActionOutcomeKind.NOTHING_TO_ACT_ON,
         reply_text=message.reply_text,
         display_text=message.display_text,
         slip_text="",
-        language=DEFAULT_LANGUAGE,
+        language=language,  #v1.1
         sources=(),
         source_links=(),
         speak=True,
     )
 
 
-def print_previous(previous: TurnExecution | None) -> ActionOutcome:
-    """Return the previous slip and sources unchanged with the fixed confirmation."""
+def print_previous(
+    previous: TurnExecution | None, language: str = DEFAULT_LANGUAGE,
+) -> ActionOutcome:  #v1.1
+    """Return the previous slip and sources unchanged with the confirmation in `language`.
+
+    The slip is the stored English slip; only the spoken confirmation follows
+    the current turn's reply language.
+    """
     if previous is None:
-        return nothing_to_act_on()
-    message = action_message(ActionMessageKind.PRINT_CONFIRMATION)
+        return nothing_to_act_on(language)
+    message = action_message(ActionMessageKind.PRINT_CONFIRMATION, language)
     return ActionOutcome(
         kind=ActionOutcomeKind.RESOLVED,
         reply_text=message.reply_text,
         display_text=message.display_text,
         slip_text=previous.response.slip_text,
-        language=DEFAULT_LANGUAGE,
+        language=language,  #v1.1
         sources=tuple(previous.response.sources),
         source_links=tuple(previous.log.source_links),
         speak=True,

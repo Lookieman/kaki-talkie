@@ -1,3 +1,4 @@
+# v1.7 | 13-Sep-2026 | WP5.1: canned render returns its input; canned speech accepts a language.
 # v1.6 | 12-Sep-2026 | Return a typed grounded reply for the shared port protocol.
 # v1.5 | 11-Sep-2026 | Match the WP3.3 port shapes: rewrite, evidence and readiness.
 # v1.4 | 09-Sep-2026 | Report canned TTS readiness for the shared port protocol.
@@ -57,6 +58,10 @@ class CannedLlmPort:
         """Return the transcript unchanged; canned mode never rewrites queries."""
         return transcript
 
+    def render_reply(self, reply_text: str, language: str) -> str:  #v1.7
+        """Return the reply unchanged; canned mode has no model to render with."""
+        return reply_text
+
 
 class CannedTtsPort:
     """Return only the recording matching the exact canned reply."""
@@ -65,7 +70,7 @@ class CannedTtsPort:
         """Report that canned speech needs no external engine."""
         return True
 
-    def synthesize(self, reply_text: str) -> str | None:
+    def synthesize(self, reply_text: str, language: str = "en") -> str | None:  #v1.7
         """Return canned speech or reject text for which no recording exists."""
         expected = CannedLlmPort().generate("[canned]")  #v1.1
         if reply_text != expected:  #v1.1

@@ -1,3 +1,4 @@
+# v1.1 | 13-Sep-2026 | WP5.1: answer 'nothing to act on' in the turn's reply language.
 # v1.0 | 13-Sep-2026 | WP4.2 repeat_previous from the stored turn.
 """Replay the previous spoken answer without generating or synthesising again.
 
@@ -10,12 +11,19 @@ with the `auto` print policy does not reprint (design.md 9.3).
 from kaki_backend.actions import ActionOutcome, ActionOutcomeKind
 from kaki_backend.actions.print_action import nothing_to_act_on
 from kaki_backend.contracts.turn_log import TurnExecution
+from kaki_backend.orchestration.intent_router import DEFAULT_LANGUAGE  #v1.1
 
 
-def repeat_previous(previous: TurnExecution | None) -> ActionOutcome:
-    """Return the previous turn's reply, display text, audio and sources unchanged."""
+def repeat_previous(
+    previous: TurnExecution | None, language: str = DEFAULT_LANGUAGE,
+) -> ActionOutcome:  #v1.1
+    """Return the previous turn's reply, display text, audio and sources unchanged.
+
+    A resolved repeat keeps the stored language. `language` applies only to
+    the "nothing to act on" reply.
+    """
     if previous is None:
-        return nothing_to_act_on()
+        return nothing_to_act_on(language)
     response = previous.response
     return ActionOutcome(
         kind=ActionOutcomeKind.RESOLVED,

@@ -1,3 +1,4 @@
+# v1.2 | 13-Sep-2026 | WP5.1: a short Malay transcript labelled en still gets its rewrite.
 # v1.1 | 12-Sep-2026 | Drop the redaction test; three refusal layers remain.
 # v1.0 | 12-Sep-2026 | Cover the WP3.4 refusal layers end to end with fake ports.
 """Pipeline-level refusal behaviour with fake ports; no models or network.
@@ -256,6 +257,19 @@ class RefusedTurnShapeTests(unittest.TestCase):
         self.assertLessEqual(len(slip.split()), 40)
         self.assertIn("staff member", slip)
         self.assertIn("weather forecast", slip)
+
+    def test_short_malay_transcript_labelled_english_still_rewrites(self):  #v1.2
+        # Before WP5.1 the STT label alone skipped the rewrite, and a Malay CDC
+        # question lost the normalised leg the evidence gate depends on.
+        execution, llm, retriever = run("Macam mana nak guna baucar CDC saya?")
+        self.assertEqual(llm.rewrite_calls, ["Macam mana nak guna baucar CDC saya?"])
+        self.assertEqual(retriever.queries[0][1], "normalised query")
+        self.assertIsNotNone(execution.log.normalised_query)
+
+    def test_short_english_transcript_labelled_english_skips_the_rewrite(self):  #v1.2
+        _, llm, retriever = run("How do I use my CDC vouchers?")
+        self.assertEqual(llm.rewrite_calls, [])
+        self.assertIsNone(retriever.queries[0][1])
 
     def test_a_very_long_question_is_omitted_rather_than_cut_short(self):
         question = " ".join(["voucher"] * 60) + "?"

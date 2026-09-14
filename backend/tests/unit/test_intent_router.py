@@ -1,3 +1,4 @@
+# v1.3 | 13-Sep-2026 | WP5.1 added Malay wording, so the unknown-language case uses zh.
 # v1.2 | 13-Sep-2026 | Inverted credential rule: any verb refuses; Malay markers; rule order.
 # v1.1 | 12-Sep-2026 | Drop the volunteered-secret case with transcript redaction.
 # v1.0 | 12-Sep-2026 | Cover the credential-action rules and the fixed refusal wording.
@@ -173,9 +174,9 @@ class RefusalWordingTests(unittest.TestCase):
             self.assertIn(scheme, message.reply_text)
 
     def test_unknown_language_falls_back_to_english(self):
-        # WP5.1 adds languages to the catalogue; a gap must not raise.
+        # A language without a catalogue entry must not raise (WP5.1 added ms).
         self.assertEqual(
-            refusal_message(RefusalReason.NO_COVERAGE, "ms"),
+            refusal_message(RefusalReason.NO_COVERAGE, "zh"),  #v1.3
             refusal_message(RefusalReason.NO_COVERAGE, "en"),
         )
 

@@ -1,3 +1,4 @@
+# v1.5 | 13-Sep-2026 | Add WP5.1: KAKI_DB, WP51_EVIDENCE at wp5.1/evidence.XXXXXX, WP51_AUDIO.
 # v1.4 | 13-Sep-2026 | Add WP4.5: KAKI_DB and WP45_EVIDENCE at wp4.5/evidence.XXXXXX.
 # v1.3 | 13-Sep-2026 | Export KAKI_DB for WP4.2 validation too.
 # v1.2 | 13-Sep-2026 | Export KAKI_DB for WP4.1 validation.
@@ -74,6 +75,15 @@ case "$KAKI_UNIT" in                                             #v1.2
         KAKI_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp4.5/evidence.XXXXXX")" || return 1  #v1.4
         export KAKI_EVIDENCE WP45_EVIDENCE="$KAKI_EVIDENCE"      #v1.4
         ;;                                                       #v1.4
+    WP5.1)                                                       #v1.5
+        # The harness takes an empty evidence.XXXXXX directory and reads the
+        # owner-voice demo sample from WP51_AUDIO (runbook 10.1 and 10.2 WP5.1).
+        export KAKI_DB="${KAKI_SQLITE_PATH:-$KAKI_DATA_ROOT/sqlite/kaki.db}"  #v1.5
+        rmdir "$KAKI_EVIDENCE" || return 1                       #v1.5
+        KAKI_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp5.1/evidence.XXXXXX")" || return 1  #v1.5
+        export KAKI_EVIDENCE WP51_EVIDENCE="$KAKI_EVIDENCE"      #v1.5
+        export WP51_AUDIO="$KAKI_DATA_ROOT/wp5.1/audio"          #v1.5
+        ;;                                                       #v1.5
 esac                                                             #v1.2
 
 printf 'Unit:     %s\n' "$KAKI_UNIT"

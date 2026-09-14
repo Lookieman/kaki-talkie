@@ -2,8 +2,11 @@
 
 **Six work packages, decomposed into bounded implementation units with independent test checkpoints**
 
-Version 1.9 | 13-Sep-2026 | SGLN Group 10
+Version 1.10 | 13-Sep-2026 | SGLN Group 10
 
+> v1.10 reduces WP5 to WP5.1 and a timeboxed WP5.2 viability check.
+> WP5.3, WP5.4, WP5.5 and WP5.6 are deferred beyond the MVP, and the
+> live lookup leaves the baseline decisions.
 > v1.8 rules that any case follow-up shown at the prototype pitch is
 > scripted canned-mode illustration, never built behaviour, and never a
 > second path inside the live pipeline.
@@ -455,9 +458,12 @@ Runbook: section 9, expanded by `Prepare WP4.x`.
 
 ---
 
-## 6. WP5 - Singapore language + model improvement
+## 6. WP5 - Singapore language
 
-Goal: improve Singapore-language quality and introduce programmable prompting without destabilising the working baseline. Add one bounded volatile-information path.
+Goal: make the Malay path work on the validated baseline, and check whether a
+Singapore-specific STT model is worth adopting. Owner decision, 13-Sep-2026:
+WP5 is one build unit and one timeboxed check. Everything else moves beyond
+the MVP, so WP6 gets the time the pitch actually needs.
 
 ### Implementation units
 
@@ -465,26 +471,46 @@ Goal: improve Singapore-language quality and introduce programmable prompting wi
 +-------+-----------------------------------------------+-------+
 | IU    | Build together                                | Owner |
 +-------+-----------------------------------------------+-------+
-| WP5.1 | language policy + baseline Malay path        | S     |
-| WP5.2 | MERaLiON STT challenger + sequential bakeoff| S     |
-| WP5.3 | SEA-LION LLM challenger + sequential bakeoff| S     |
-| WP5.4 | OmniVoice target path; optional Hokkien      | S     |
-| WP5.5 | DSPy router/answerer/formatter migration     | S     |
-| WP5.6 | one allowlisted live lookup + evidence + gate| G     |
+| WP5.1 | language policy + baseline Malay path         | S     |
+| WP5.2 | MERaLiON STT viability check (timeboxed)      | S     |
+| WP5.3 | DEFERRED beyond MVP (13-Sep-2026)             | -     |
+| WP5.4 | DEFERRED beyond MVP (13-Sep-2026)             | -     |
+| WP5.5 | DEFERRED beyond MVP (13-Sep-2026)             | -     |
+| WP5.6 | DEFERRED beyond MVP (13-Sep-2026)             | -     |
 +-------+-----------------------------------------------+-------+
 ```
 
-Challenger IUs are experiments. A documented keep-baseline result completes the experiment when the challenger is unavailable or worse.
+Deferral reasons, recorded so they are not relitigated:
+
+```text
++-------+------------------------------------------------------------+
+| IU    | Reason                                                     |
++-------+------------------------------------------------------------+
+| WP5.3 | SEA-LION is a challenger with no measured baseline limit    |
+|       | to justify it. The Qwen baseline answers the golden paths.  |
+| WP5.4 | OmniVoice is the wanted localised TTS. The macOS            |
+|       | Indonesian voice carries Malay well enough for the pitch.   |
+| WP5.5 | The DSPy migration's best case is parity (former AT-06).    |
+|       | It pays off with an optimiser and a devset, after the       |
+|       | pitch.                                                      |
+| WP5.6 | The live lookup adds a network call, a failure mode and     |
+|       | unbounded latency inside the turn loop. No golden path      |
+|       | needs it, and design.md 7.5 already refuses on volatile     |
+|       | questions rather than serving a stale snapshot.             |
++-------+------------------------------------------------------------+
+```
+
+WP5.2 is a viability check, not a benchmark. It runs on the WP5.1 demo sample
+in one voice, so it answers "does MERaLiON install, run and transcribe Malay
+and code-switch clips visibly better or worse than Whisper" and nothing more.
+A recorded keep-baseline result completes it. The timebox is 30 minutes; on
+expiry, record keep-baseline and stop.
 
 Acceptance ownership:
 
 ```text
-WP5.1 -> WP5-AT-01, 02, 03, 04
+WP5.1 -> WP5-AT-01, 02, 03, 04, 12
 WP5.2 -> WP5-AT-08
-WP5.3 -> WP5-AT-09
-WP5.4 -> WP5-AT-05
-WP5.5 -> WP5-AT-06, 07
-WP5.6 -> WP5-AT-10, 11, 12
 ```
 
 Acceptance criteria:
@@ -494,15 +520,27 @@ WP5-AT-01 curated Malay -> Malay reply/display + English slip
 WP5-AT-02 curated code-switch cases match expected response language
 WP5-AT-03 human sample judges SG English natural/not exaggerated
 WP5-AT-04 Malay CDC utterance retrieves CDC evidence in top three
-WP5-AT-05 selected Malay TTS, if adopted, returns playable audio
-WP5-AT-06 DSPy router matches/exceeds prior intent performance or baseline remains active
-WP5-AT-07 DSPy migration does not change turn contract
-WP5-AT-08 STT bakeoff file contains usefulness/quality + latency where viable
-WP5-AT-09 LLM bakeoff file contains grounding/refusal/latency where viable
-WP5-AT-10 live lookup returns fresh provenance or refuses on unavailable current evidence
-WP5-AT-11 evidence page renders committed measurement files
+WP5-AT-05 WITHDRAWN - localised Malay TTS deferred beyond MVP; the
+          macOS Indonesian voice is the MVP baseline
+WP5-AT-06 WITHDRAWN - DSPy migration deferred beyond MVP
+WP5-AT-07 WITHDRAWN - DSPy migration deferred beyond MVP
+WP5-AT-08 viability check ends in a recorded keep-baseline or promote
+          decision, with the sample's limits stated
+WP5-AT-09 WITHDRAWN - SEA-LION challenger deferred beyond MVP
+WP5-AT-10 WITHDRAWN - live lookup deferred beyond MVP
+WP5-AT-11 WITHDRAWN - live lookup deferred beyond MVP
 WP5-AT-12 golden paths + earlier contract tests remain green
 ```
+
+Retrieval is already built. WP3.2 and WP3.3 deliver hybrid retrieval over the
+original transcript and the normalised English query (`design.md` 7.4), so
+WP5.1 adds no retrieval code. AT-04 verifies the existing path against Malay
+input.
+
+Speech data: the consented multi-speaker Singapore speech set is deferred
+beyond the MVP with the bake-off it would have served. WP5.1 records only the
+owner-voice utterances its single tier B turn needs, stored under
+`KAKI_DATA_ROOT` as a demo sample.
 
 Runbook: section 10, expanded by `Prepare WP5.x`.
 
@@ -578,7 +616,8 @@ X-AT-04 earlier acceptance tests are not weakened merely to obtain green
 +----+--------------------------------------+-----------------------------------------+
 | #  | Item                                 | Current baseline                        |
 +----+--------------------------------------+-----------------------------------------+
-| 1  | Live lookup placement                | WP5 after static grounded WP3           |
+| 1  | Live lookup placement                | deferred beyond MVP (13-Sep-2026);      |
+|    |                                      | volatile questions refuse per design 7.5|
 | 2  | Browser/device Cloudflare auth       | human Access / physical service auth    |
 | 3  | Handoff capability + channel         | deferred beyond MVP (13-Sep-2026)       |
 | 4  | Calendar capability + channel        | deferred beyond MVP (13-Sep-2026)       |
@@ -607,7 +646,7 @@ The owner's latest explicit direction may change items that are baselined-but-ch
 | WP2 | 6-9 Sep        | local model/runtime integration         |
 | WP3 | 10-14 Sep      | source cleaning/retrieval quality       |
 | WP4 | 15-17 Sep      | persistence and deterministic actions   |
-| WP5 | 18-22 Sep      | challenger work becoming unbounded      |
+| WP5 | 13-14 Sep      | Malay quality below demo standard       |
 | WP6 | 23-27 Sep      | hardware/integration surprises          |
 +-----+----------------+------------------------------------------+
 ```
@@ -618,10 +657,13 @@ Protect the date:
 - optional Safari compatibility does not block the MVP;
 - deferring handoff and calendar removes the two external integrations that carried the most schedule risk;
 - optional Tailscale Serve does not block freeze;
-- optional Hokkien does not block the baseline;
+- optional Hokkien does not block the baseline, and remains a stretch
+  goal beyond the MVP;
+- WP5 reduced to one build unit returns eight days to WP6, where the
+  Pi integration carries the remaining unknowns;
 - caregiver UI does not exist in this MVP schedule.
 
-Current execution point: **WP4.5**.
+Current execution point: **WP5.1**.
 
 ---
 
@@ -649,6 +691,14 @@ The normal prompts are intentionally short because repository rules carry the de
 +---------+-------------+------------------------------------------------------+
 | Version | Date        | Change                                               |
 +---------+-------------+------------------------------------------------------+
+| 1.10    | 13-Sep-2026 | Reduced WP5 to WP5.1 plus a timeboxed WP5.2         |
+|         |             | viability check. WP5.3, WP5.4, WP5.5 and WP5.6      |
+|         |             | deferred beyond the MVP with reasons recorded.      |
+|         |             | WP5-AT-05, 06, 07, 09, 10 and 11 withdrawn; AT-08   |
+|         |             | reworded to a recorded decision. Live lookup left   |
+|         |             | the baseline decisions. The consented speech set    |
+|         |             | is deferred; WP5.1 uses an owner-voice demo sample. |
+|         |             | Execution point moved to WP5.1.                     |
 | 1.9     | 13-Sep-2026 | Added the within-package regression rule to 1.1:    |
 |         |             | tier B reruns stay inside the work package and      |
 |         |             | only when the current unit touches that unit's      |
