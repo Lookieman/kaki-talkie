@@ -29,7 +29,7 @@ Key retained observations:
 ---
 # 10. WP5 - Singapore language
 
-Status: **DRAFT - structure fixed; `Prepare WP5.1` fills in commands**
+Status: **WP5.1 VERIFIED / CLOSED 14-Sep-2026. WP5.2 not started.**
 
 ##### Scope
 
@@ -96,7 +96,11 @@ example it describes is the WP3.4 block, archived in
 #### WP5.1 setup - language policy and baseline Malay path
 
 Owner level: **S**
-Status: **READY - implemented 13-Sep-2026; owner validation pending.**
+Status: **VERIFIED / CLOSED 14-Sep-2026.** Gate evidence: runbook 10.2
+WP5.1, "WP5.1 gate result". Validated on the uncommitted working tree
+over base commit `5ad7f74`; record the WP5.1 commit hash in that section
+when it is made. Compress this block under the section 12 rule after the
+commit, so the full prepared text reaches Git history first.
 
 Machine: Mac Mini as `websvc`, checkout `~/projects/kaki-talkie`.
 Tests 1 and 2 post no audio. Test 2 needs MLX-LM for the live rewrite;
@@ -299,20 +303,24 @@ Gate values for three Malay CDC questions, top three all CDC:
 | Malay question                               | original | curated  | Qwen        |
 |                                              | only     | English  | rewrite     |
 +----------------------------------------------+----------+----------+-------------+
-| Macam mana saya boleh guna baucar CDC saya?  | 0.463    | 0.770    | owner run   |
-| Baucar CDC tu boleh guna kat mana?           | 0.429    | 0.727    | owner run   |
-| Saya nak tahu cara tuntut baucar CDC untuk   | 0.444    | 0.807    | owner run   |
+| Macam mana saya boleh guna baucar CDC saya?  | 0.466    | 0.772    | 0.759       |
+| Baucar CDC tu boleh guna kat mana?           | 0.427    | 0.727    | 0.685       |
+| Saya nak tahu cara tuntut baucar CDC untuk   | 0.446    | 0.806    | 0.798       |
 | isi rumah saya.                              |          |          |             |
 +----------------------------------------------+----------+----------+-------------+
 ```
 
-The first two columns come from an in-memory probe on 13-Sep-2026 with
-hand-written English queries. The Qwen column is not yet measured: the
-coding agent's sandbox has no Metal device, so MLX-LM cannot start
-there. Test 2 measures it, and `wp_check.py --unit WP5.1` repeats it.
-Record the three values here when marking the block VERIFIED. If any
-Qwen value sits within 0.10 of the gate, treat it as an owner decision
-before closing.
+Measured on the Mac on 14-Sep-2026 against the live index: Test 2
+(`evidence.mYtqUP`) and `wp_check.py --unit WP5.1` in Test 5
+(`evidence.xw0BAj`) returned identical values. The 13-Sep-2026 in-memory
+probe read within 0.003 of the first two columns. The Qwen rewrites were
+"How can I use my CDC voucher?", "Where can CDC Vouchers be used in
+Singapore?" and "How to claim CDC Voucher for my household?", in
+408-479 ms.
+
+The Qwen rewrite clears the 0.50 gate by 0.185-0.298, so no value sits
+within the 0.10 near-gate margin and no owner decision was needed. It
+scores 0.008-0.042 below the hand-written queries.
 
 The normalised leg is load-bearing: without it all three questions fall
 below the 0.50 gate. WP5.1 protects it in two ways:
@@ -754,9 +762,13 @@ WP5-AT-01 evidence.
 +-------------+---------+-----------------+--------------------+------------------+
 | Date        | Mode    | Q1 verdict      | Voice variant      | Evidence dir     |
 +-------------+---------+-----------------+--------------------+------------------+
-|             |         |                 |                    |                  |
+| 14-Sep-2026 | full    | yes             | Amira enhanced     | evidence.xw0BAj  |
 +-------------+---------+-----------------+--------------------+------------------+
 ```
+
+The owner selected `full`, the configured default, so WP5-AT-01 passes in
+its full form. `bridge` and `english` were not rehearsed; they remain
+demo-day insurance.
 
 ##### Test 4: MERaLiON viability (WP5-AT-08)
 
@@ -880,8 +892,112 @@ reply WAVs, `llm.log` counts and the voice variant; the Test 5
 - Chinese and other languages reply in the preference language, and
   their referral slip omits the question. Hokkien is a
   stretch goal beyond the MVP.
-- The Qwen-rewrite gate values in 10.1 are unmeasured until the owner
-  runs Test 2.
+- **Slip step parser drops text before a year (WP3.3 defect, found in
+  Test 3).** `slip.extract_steps` reads a number followed by ". " as a
+  numbered-step marker. In "The vouchers are valid until 31 December
+  2027. Ensure you keep your voucher link safe…", it treats "2027." as
+  step marker and keeps only the text after it. The 14-Sep-2026
+  `ms_cdc` slip therefore printed one step and lost the main instruction
+  and the validity date. The slip stays English and within 40 words, so
+  WP5.1 acceptance holds. The defect predates WP5.1 and affects English
+  turns too. It is recorded for an owner decision on when to fix it,
+  before the WP6 printer work at the latest.
+- WP5.1 was validated on the uncommitted working tree, not on a commit.
+
+##### WP5.1 gate result
+
+Owner level S, closed 14-Sep-2026 on the Mac as `websvc`. Base commit
+`5ad7f74` with the WP5.1 changes uncommitted. WP5.1 commit: record here.
+
+The evidence spans two harness runs. Each covers tests on the final
+build or re-proves them there:
+
+```text
++------+----------------------+-------------------+-----------------------------------+
+| Test | Run                  | Result            | Final-build cover                 |
++------+----------------------+-------------------+-----------------------------------+
+| 1    | evidence.mYtqUP      | Suites passed;    | Test 5 reran all unit suites on   |
+|      | 14-Sep 17:42         | Malay strings yes | the final build (206 passed). The |
+|      |                      |                   | Malay fixed strings are unchanged |
+|      |                      |                   | since the verdict.                |
+| 2    | evidence.mYtqUP      | All probe checks  | wp_check WP5.1 in Test 5 repeated |
+|      |                      | passed            | the probe with identical values.  |
+| 3    | evidence.xw0BAj      | All checks        | Final build.                      |
+|      | 14-Sep 21:43         | passed; 4 yes     |                                   |
+|      | (--from-test 3)      | verdicts          |                                   |
+| 4    | -                    | WP5.2, not run    | -                                 |
+| 5    | evidence.xw0BAj      | All checks passed | Final build.                      |
++------+----------------------+-------------------+-----------------------------------+
+```
+
+The three earlier Test 3 runs (`evidence.mYtqUP`, `evidence.HPXIb7`,
+`evidence.FBflc9`) failed on the `ms_cdc` slip body: Qwen answered the
+Malay question in Malay and the slip printed Malay steps. The English
+answer guard (10.1, "Reply modes") fixed it. In the passing run the
+first grounded call answered in English, with 3 completions and no
+retry. Keep all four directories.
+
+Acceptance:
+
+```text
++-----------+-------------------------------------------+--------------------------------------+
+| Criterion | Requirement                               | Evidence                             |
++-----------+-------------------------------------------+--------------------------------------+
+| WP5-AT-01 | Curated Malay -> Malay reply/display +    | Test 1 suites; Test 3 ms_cdc and     |
+|           | English slip                              | ms_codeswitch in full mode: language |
+|           |                                           | ms, render rendered, slip body       |
+|           |                                           | English; Q1 yes                      |
+| WP5-AT-02 | Curated code-switch cases match expected  | 17 cases in language_cases.jsonl;    |
+|           | response language                         | Test 3 ms_codeswitch ms, en_sg_cdc en|
+| WP5-AT-03 | SG English natural, not exaggerated       | Test 3 Q3 yes; en_sg_cdc particle    |
+|           |                                           | count 0                              |
+| WP5-AT-04 | Malay CDC utterance retrieves CDC in top 3| Test 2 and wp_check: top 3 all CDC,  |
+|           |                                           | Qwen gate 0.685-0.798; Test 3 ms_cdc |
+|           |                                           | cites cdc-vouchers-residents         |
+| WP5-AT-12 | Golden paths + earlier contracts green    | Test 5: devset 25 items, intent 1.00,|
+|           |                                           | golden paths 6 of 6; suites green;   |
+|           |                                           | X-AT-01 and X-AT-03 held             |
++-----------+-------------------------------------------+--------------------------------------+
+```
+
+Test 3 observations, `evidence.xw0BAj`:
+
+```text
++----------------+--------------------------------------+-------+-----------+---------+-------+
+| File           | Transcript (Whisper)                 | Lang  | State     | Rewrite | Turn  |
++----------------+--------------------------------------+-------+-----------+---------+-------+
+| ms_cdc         | Bagaimana saya boleh guna baucah     | ms    | answered  | 560 ms  | 7.5 s |
+|                | CDC saya?                            |       |           |         |       |
+| ms_codeswitch  | Care Shield Life itu apa? Kena bayar | ms    | answered  | 551 ms  | 5.9 s |
+|                | premium setiap tahunkah?             |       |           |         |       |
+| en_sg_cdc      | CDC voucher how to use that? Can you | en    | answered  | 497 ms  | 6.8 s |
+|                | use it at the Hawker Centre or not?  |       |           |         |       |
+| ms_unsupported | Esok, cuaca macam mana ada huja tak? | ms    | refused   | 515 ms  | 2.3 s |
++----------------+--------------------------------------+-------+-----------+---------+-------+
+```
+
+- Malay answers took 3.6-5.1 s of `llm_ms` for the answer plus render,
+  against 2.0 s for the English answer.
+- The `ms_unsupported` referral slip printed "You asked:" with the Malay
+  transcript verbatim.
+- The re-recorded `ms_codeswitch` (18:08) and `ms_unsupported` (18:18)
+  clips transcribed cleanly. Whisper labelled `ms_unsupported` Malay at
+  probability 0.45.
+- The transcript holds three "FAIL: command exited non-zero" lines, at
+  the two `You asked:` checks and the particle count. They are the ERR
+  trap reporting an intended non-zero `grep` inside a check. The run did
+  not stop, and each belonging check reads "check ok". The other three
+  FAIL lines are expected output from the scripts suite's negative tests.
+
+Test 5, `evidence.xw0BAj`: `wp_check.py --unit WP5.1 --tier B` exit 0,
+including both text turns (probe and live Whisper transcript) with
+English slip bodies and the Amira voice (85,897 frames). ruff clean;
+contract 40, unit 206, rag 69, scripts 73, all passed. The `$KAKI_DB`
+turns count stayed at 77 across the suites.
+
+Owner completed Tests 1, 2, 3 and 5 on the Mac; block VERIFIED and WP5.1
+CLOSED 14-Sep-2026. `execution-plan.md` 10 "Current execution point"
+moves to WP5.2 at the owner's next plan update.
 
 ---
 
