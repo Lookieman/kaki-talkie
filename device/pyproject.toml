@@ -1,0 +1,23 @@
+# v1.0 | 16-Sep-2026 | Package the WP6.1 thin Raspberry Pi client; stdlib plus httpx.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kaki-device"
+version = "0.1.0"
+description = "KaKi-Talkie thin device client for the Raspberry Pi kiosk"
+requires-python = ">=3.11"
+# The device holds no model, retrieval, prompt or case logic (WP6-AT-13), so
+# the base install is the standard library plus one HTTP client.
+dependencies = ["httpx>=0.27,<1"]
+
+[project.optional-dependencies]
+# The pygame backend draws the kiosk display. It is an extra so Tier A and CI
+# stay headless: layout is pure and tested with injected text metrics.
+# Mac: pip install -e 'device[display]'. Pi: apt install python3-pygame.
+display = ["pygame>=2.5,<3"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["kaki_device*"]

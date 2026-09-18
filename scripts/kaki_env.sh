@@ -1,3 +1,4 @@
+# v1.6 | 16-Sep-2026 | Add WP6.1: device evidence directory and mock fixture path.
 # v1.5 | 13-Sep-2026 | Add WP5.1: KAKI_DB, WP51_EVIDENCE at wp5.1/evidence.XXXXXX, WP51_AUDIO.
 # v1.4 | 13-Sep-2026 | Add WP4.5: KAKI_DB and WP45_EVIDENCE at wp4.5/evidence.XXXXXX.
 # v1.3 | 13-Sep-2026 | Export KAKI_DB for WP4.2 validation too.
@@ -75,6 +76,14 @@ case "$KAKI_UNIT" in                                             #v1.2
         KAKI_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp4.5/evidence.XXXXXX")" || return 1  #v1.4
         export KAKI_EVIDENCE WP45_EVIDENCE="$KAKI_EVIDENCE"      #v1.4
         ;;                                                       #v1.4
+    WP6.1)                                                       #v1.6
+        # The device harness writes evidence and a slip log; the mock
+        # microphone replays a committed spoken fixture (runbook 11.1 WP6.1).
+        rmdir "$KAKI_EVIDENCE" || return 1                       #v1.6
+        KAKI_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp6.1/evidence.XXXXXX")" || return 1  #v1.6
+        export KAKI_EVIDENCE WP61_EVIDENCE="$KAKI_EVIDENCE"      #v1.6
+        export KAKI_DEVICE_MOCK__AUDIO_PATH="$KAKI_APP_ROOT/backend/src/kaki_backend/fixtures/cdc_question.wav"  #v1.6
+        ;;                                                       #v1.6
     WP5.1)                                                       #v1.5
         # The harness takes an empty evidence.XXXXXX directory and reads the
         # owner-voice demo sample from WP51_AUDIO (runbook 10.1 and 10.2 WP5.1).

@@ -2,7 +2,7 @@
 
 **Detailed installation and operational procedure**
 
-Version 1.4 | 13-Sep-2026 | SGLN Group 10
+Version 1.5 | 16-Sep-2026 | SGLN Group 10
 
 Suggested repository location: `infra/macos/setup.md`
 
@@ -1687,6 +1687,9 @@ Add a component only when a locked requirement or measured limitation requires i
 MERaLiON-3 moved out of this list on 13-Sep-2026 by owner decision, and its
 installation lives with the stage that owns it (8.7).
 
+Raspberry Pi packages are not part of Mac preparation at all: they install on
+the Pi, in section 29.
+
 SEA-LION (9.6) and OmniVoice (10.2) are deferred beyond the MVP with WP5.3 and
 WP5.4. Do not install either before the pitch. Their sections stay in this
 document for the post-MVP units.
@@ -1698,6 +1701,9 @@ document for the post-MVP units.
 **Defined by: `execution-plan.md`.**
 
 The work-package sequence, implementation units and acceptance criteria live in `docs/04-prototype/execution-plan.md`. Do not maintain a second sequence here. When a work package introduces a new host component, add its installation to the matching stage of this document and cross-reference it from the runbook.
+
+Sections 4 to 23 install the Mac Mini. Section 29 installs the Raspberry Pi
+kiosk, which WP6 introduces.
 
 ---
 
@@ -1775,7 +1781,232 @@ These references were checked on 01-Sep-2026 to confirm current installation beh
 
 ---
 
-## 29. Document history
+## 29. Stage 20 - Raspberry Pi thin client
+
+**Applies to: WP6.1 onward. Hardware confirmed by the owner, 14-Sep-2026.**
+
+Installation and configuration only. What to test, and in what order, lives in
+the validation runbook section 11.
+
+The Pi is a thin client: it records audio, posts it to the Mac, shows the
+answer and prints the slip. No model, corpus, prompt or case logic is
+installed here, and `wp_check.py --unit WP6.1 --tier A` fails if any appears
+(WP6-AT-13).
+
+### 29.1 Hardware
+
+```text
++---------------------------+--------------------------------------------------+
+| Part                      | Detail                                           |
++---------------------------+--------------------------------------------------+
+| Computer                  | Raspberry Pi 4B, 8 GB                            |
+| Display                   | Waveshare 5DP-CAPLCD-H, 1024x600, HDMI           |
+| Touch panel               | Physically unplugged; the kiosk is button-only   |
+| Audio                     | Jabra Speak over USB (microphone and speaker)    |
+| Button                    | Dome button on GPIO 17, to ground                |
+| Printer                   | ESC/POS thermal, separate power supply (WP6.3)   |
++---------------------------+--------------------------------------------------+
+```
+
+The WS2812 LED ring is **not** part of the MVP. The owner dropped it on
+14-Sep-2026: the display carries all device state. Do not wire or install
+anything for it.
+
+### 29.2 Operating system and first boot
+
+Use Raspberry Pi OS (64-bit) **with desktop**, Bookworm, on a 32 GB or larger
+card. The desktop session stays enabled for now; WP6.4 decides whether to
+disable it for boot time.
+
+[ADMIN, on the machine writing the card]
+
+Write the image with Raspberry Pi Imager and set these in its advanced
+options, so the Pi never needs a keyboard:
+
+```text
+hostname:        kaki-pi
+username:        kaki
+SSH:             enabled, public-key authentication
+Wi-Fi:           the demo network, country SG
+locale/timezone: Asia/Singapore
+```
+
+[KAKI, first boot over SSH]
+
+```bash
+sudo apt update && sudo apt full-upgrade -y
+sudo raspi-config nonint do_boot_behaviour B4   # desktop, auto-login as kaki
+sudo reboot
+```
+
+Confirm the basics after the reboot:
+
+```bash
+cat /etc/os-release | head -2
+uname -m            # expect aarch64
+vcgencmd measure_temp
+```
+
+Expected: Bookworm, `aarch64`, and a temperature under 70 C at idle.
+
+### 29.3 Python and system dependencies
+
+Raspberry Pi OS Bookworm ships Python 3.11, which the device package
+requires. Install from apt rather than pip where a wheel would otherwise
+compile on the Pi.
+
+[KAKI]
+
+```bash
+sudo apt install -y python3-venv python3-pip python3-pygame \
+                    python3-httpx python3-gpiozero alsa-utils git
+```
+
+Why each package exists:
+
+```text
++-------------------+-----------------------------------------------------------+
+| Package           | Purpose                                                   |
++-------------------+-----------------------------------------------------------+
+| python3-venv/pip  | Create the device environment.                            |
+| python3-pygame    | Fullscreen display renderer (SDL2). apt avoids a long     |
+|                   | source build and pulls the right SDL libraries.           |
+| python3-httpx     | The only network dependency of the device package.        |
+| python3-gpiozero  | Dome button on GPIO 17 (WP6.2).                           |
+| alsa-utils        | arecord/aplay for the Jabra Speak (WP6.2).                |
+| git               | Clone the repository.                                     |
++-------------------+-----------------------------------------------------------+
+```
+
+Create the environment with access to those apt packages, then install the
+device package alone. The backend, rag and services packages are never
+installed on the Pi.
+
+```bash
+git clone https://github.com/<owner>/kaki-talkie.git ~/kaki-talkie
+python3 -m venv --system-site-packages ~/.venvs/kaki-device
+~/.venvs/kaki-device/bin/python -m pip install -e ~/kaki-talkie/device
+```
+
+Verify:
+
+```bash
+~/.venvs/kaki-device/bin/python -c "import kaki_device, httpx, pygame; print('device ok')"
+~/.venvs/kaki-device/bin/python -m kaki_device.main --help
+```
+
+Expected: `device ok`, then the command-line help.
+
+### 29.4 Display configuration
+
+The Waveshare panel runs over HDMI at 1024x600. Bookworm uses the KMS driver,
+so the mode is set in `/boot/firmware/config.txt`.
+
+[KAKI]
+
+```bash
+sudo cp /boot/firmware/config.txt /boot/firmware/config.txt.bak
+sudo tee -a /boot/firmware/config.txt >/dev/null <<'EOF'
+
+# KaKi-Talkie kiosk display: Waveshare 5DP-CAPLCD-H, 1024x600 over HDMI
+hdmi_group=2
+hdmi_mode=87
+hdmi_cvt=1024 600 60 6 0 0 0
+hdmi_drive=2
+disable_overscan=1
+EOF
+sudo reboot
+```
+
+Confirm the mode and stop the screen blanking mid-demo:
+
+```bash
+xrandr | grep -w connected        # expect 1024x600
+xset s off; xset -dpms; xset s noblank
+```
+
+Make the no-blanking setting persist for the auto-login session:
+
+```bash
+mkdir -p ~/.config/autostart
+tee ~/.config/autostart/kaki-no-blank.desktop >/dev/null <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=KaKi no blanking
+Exec=sh -c "xset s off; xset -dpms; xset s noblank"
+EOF
+```
+
+Expected: `xrandr` reports 1024x600, and the panel stays lit after ten idle
+minutes.
+
+Touch input stays physically unplugged, so no touch driver or calibration is
+installed. If the panel is ever reconnected, disable the input device rather
+than relying on the UI ignoring it.
+
+### 29.5 Device configuration file
+
+The device reads a TOML file, and `KAKI_DEVICE_*` exports override it.
+
+```bash
+sudo mkdir -p /etc/kaki
+sudo tee /etc/kaki/device.toml >/dev/null <<'EOF'
+backend_url = "http://<mac-mini-host>:8000"
+device_id = "kaki-pi-01"
+record_seconds = 15
+session_idle_minutes = 10
+print_policy = "auto"
+display_width = 1024
+display_height = 600
+EOF
+sudo chmod 0644 /etc/kaki/device.toml
+```
+
+```text
++------------------------------------+--------------------------------------+
+| Setting                            | Meaning                              |
++------------------------------------+--------------------------------------+
+| backend_url                        | Mac Mini origin; path-free           |
+| device_id                          | Identifies this kiosk to the backend |
+| record_seconds                     | Recording cap; 15 is the maximum     |
+| session_idle_minutes               | Idle gap that starts a new session   |
+| print_policy                       | auto or on_request (design.md 9.3)   |
+| display_width / display_height     | Panel size in pixels                 |
++------------------------------------+--------------------------------------+
+```
+
+Reaching the backend over the demo network, rather than over Cloudflare, is a
+WP6.4 decision together with service authentication (15.4). Until then the Pi
+and the Mac sit on the same network.
+
+### 29.6 What is not installed on the Pi
+
+```text
+whisper.cpp, MLX-LM, embedding models, Chroma
+kaki-backend, kaki-rag, the services/ adapters
+SQLite databases or corpus snapshots
+Node.js and the simulator
+LED libraries (rpi_ws281x, adafruit-circuitpython-neopixel)
+```
+
+The kiosk asks the Mac Mini for every answer. Adding any of the above to the
+Pi fails WP6-AT-13.
+
+### 29.7 Acceptance criteria
+
+- Bookworm 64-bit, `aarch64`, auto-login to the desktop session;
+- `python3 -c "import kaki_device, httpx, pygame"` succeeds in the device
+  environment;
+- `xrandr` reports 1024x600 and the panel does not blank;
+- `/etc/kaki/device.toml` names the Mac Mini and parses;
+- nothing from 29.6 is installed.
+
+Buttons, audio devices, the printer and systemd services arrive with WP6.2 to
+WP6.4 and are documented there when those units are prepared.
+
+---
+
+## 30. Document history
 
 ```text
 +---------+-------------+-----------------------------------------------------------+
@@ -1793,6 +2024,13 @@ These references were checked on 01-Sep-2026 to confirm current installation beh
 |         |             | the shipped runtime and WP2.4 health readiness. Stages    |
 |         |             | from section 11 tagged with their owning work package.    |
 |         |             | Acceptance checklists moved to the validation runbook.    |
+| 1.5     | 16-Sep-2026 | Added section 29, the Raspberry Pi thin client:      |
+|         |             | Pi 4B 8 GB, Bookworm 64-bit with desktop, Python    |
+|         |             | and apt dependencies, the Waveshare 1024x600 HDMI   |
+|         |             | panel and /etc/kaki/device.toml. Installation only. |
+|         |             | The LED ring is dropped from the MVP, so nothing is |
+|         |             | installed for it. Document history moved to 30;     |
+|         |             | sections 1-28 keep their numbers.                   |
 | 1.4     | 13-Sep-2026 | Corrected 10.1.1 after Prepare WP5.1: macOS does ship   |
 |         |             | a Malay voice, Amira (ms_MY), and it becomes the Malay  |
 |         |             | baseline. Damayanti (id_ID) drops to fallback. Added    |

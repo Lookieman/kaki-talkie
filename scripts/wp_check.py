@@ -1,3 +1,4 @@
+# v2.7 | 16-Sep-2026 | Add WP6.1: thin-client static inspection (tier A) and a scripted mock turn (tier B).
 # v2.6 | 14-Sep-2026 | WP5.1 text turn also runs the live Whisper transcript; the slip body must be English with steps.
 # v2.5 | 14-Sep-2026 | WP4.2 and WP4.5 schema checks equal the packaged migration count.
 # v2.4 | 13-Sep-2026 | Add the WP5.1 voice, Malay retrieval and Malay text-turn checks.
@@ -76,6 +77,13 @@ Currently registered:
   manifest hashes, integrity, foreign keys, schema version and turns count
   through an immutable read, then reports the action-item intents as a count
   and a rate, for example `9 of 10, 0.90`.
+- WP6.1 tier A - thin-client static inspection (WP6-AT-13) plus the device
+  suite. Reads `device/` only: import allowlist, dependency allowlist,
+  forbidden model/retrieval/prompt/SQL tokens, request paths and environment
+  names. Needs no backend, no hardware and no network.
+- WP6.1 tier B - one scripted mock turn against the running stack. Requires
+  the grounded stack; posts one fixture turn through the device loop with mock
+  I/O and checks the loop rendered, spoke and printed from the response alone.
 - WP5.1 tier B - Malay voice, Malay retrieval and one Malay text turn
   (WP5-AT-01, 04). Requires the grounded configuration, MLX-LM on 8082 and
   the Chroma index. Checks the configured Malay voice is listed by `say` and
@@ -107,6 +115,8 @@ usage or configuration error.
 """
 
 import argparse
+import ast  #v2.7
+import tomllib  #v2.7
 import hashlib  #v2.3
 import io
 import json
@@ -1475,6 +1485,179 @@ def check_wp51_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.4
     return {"voice": voice_report, "retrieval": retrieval_report, "text_turn": turn_report}, checks
 
 
+# ---------------------------------------------------------------------------
+# WP6.1: the device stays a thin client (WP6-AT-13).
+# ---------------------------------------------------------------------------
+
+DEVICE_ROOT = Path(__file__).resolve().parent.parent / "device"  #v2.7
+# Everything the thin client may import: the standard library plus one HTTP
+# client, plus pygame for drawing and its own package.
+DEVICE_ALLOWED_IMPORTS = frozenset({"httpx", "pygame", "kaki_device"})  #v2.7
+DEVICE_ALLOWED_DEPENDENCIES = frozenset({"httpx", "pygame"})  #v2.7
+# Modules that would mean the Pi had started thinking for itself.
+DEVICE_FORBIDDEN_IMPORTS = frozenset({  #v2.7
+    "kaki_backend", "kaki_rag", "kaki_qwen_local", "kaki_whisper_cpp", "kaki_say_tts",
+    "chromadb", "sentence_transformers", "transformers", "mlx", "mlx_lm", "dspy",
+    "torch", "sqlite3", "fastapi", "uvicorn",
+})
+# Text that would mean model, retrieval, prompt, case or SQL logic on the Pi.
+DEVICE_FORBIDDEN_TOKENS = (  #v2.7
+    ":8081", ":8082", "/v1/chat/completions", "/v1/models", "SYSTEM_PROMPT",
+    "GROUNDED_SYSTEM_PROMPT", "RENDER_SYSTEM_PROMPT", "REWRITE_SYSTEM_PROMPT",
+    "evidence_min_dense", "best_dense_score", "refusal_reason", "no_coverage",
+    "INSERT INTO", "SELECT ", "CREATE TABLE", "cited_source", "devset",
+)
+# The device calls these paths and no others (design.md 5).
+DEVICE_ALLOWED_PATHS = frozenset({"/api/device/turn", "/api/device/pending", "/api/health"})  #v2.7
+DEVICE_PATH_LITERAL = re.compile(r"[\"']((?:/api|/v1)[a-zA-Z0-9_/.-]*)[\"']")  #v2.7
+DEVICE_ENVIRONMENT_LITERAL = re.compile(r"[\"'](KAKI_[A-Z0-9_]+)[\"']")  #v2.7
+DEVICE_ENVIRONMENT_PREFIX = "KAKI_DEVICE_"  #v2.7
+
+
+def _device_sources() -> list[Path]:  #v2.7
+    """Return every Python file the device ships, tests excluded."""
+    return sorted((DEVICE_ROOT / "src").rglob("*.py"))
+
+
+def _imported_names(tree: ast.AST) -> set[str]:  #v2.7
+    """Return the top-level module names a parsed file imports."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".")[0])
+    return names
+
+
+def thin_client_findings(root: Path | None = None) -> dict[str, list[str]]:  #v2.7
+    """Inspect the device package for anything that is not a thin client.
+
+    Returns one list of human-readable findings per rule; empty lists mean the
+    package passed. Pure static reading: no import, no execution, no network.
+    """
+    root = DEVICE_ROOT if root is None else root
+    sources = sorted((root / "src").rglob("*.py"))
+    findings: dict[str, list[str]] = {
+        "imports": [], "dependencies": [], "tokens": [], "paths": [], "environment": [],
+    }
+    if not sources:
+        findings["imports"].append(f"no device sources found under {root}/src")
+        return findings
+
+    standard = set(sys.stdlib_module_names)
+    for path in sources:
+        text = path.read_text(encoding="utf-8")
+        relative = path.relative_to(root)
+        for name in sorted(_imported_names(ast.parse(text, filename=str(path)))):
+            if name in DEVICE_FORBIDDEN_IMPORTS:
+                findings["imports"].append(f"{relative} imports {name}")
+            elif name not in standard and name not in DEVICE_ALLOWED_IMPORTS:
+                findings["imports"].append(f"{relative} imports unapproved {name}")
+        for token in DEVICE_FORBIDDEN_TOKENS:
+            if token in text:
+                findings["tokens"].append(f"{relative} contains {token!r}")
+        for literal in DEVICE_PATH_LITERAL.findall(text):
+            if literal not in DEVICE_ALLOWED_PATHS:
+                findings["paths"].append(f"{relative} requests {literal}")
+        for name in DEVICE_ENVIRONMENT_LITERAL.findall(text):
+            if not name.startswith(DEVICE_ENVIRONMENT_PREFIX):
+                findings["environment"].append(f"{relative} reads {name}")
+
+    # Runtime dependencies only: `build-system.requires` is what builds the
+    # wheel on a developer machine, not what the kiosk imports.
+    manifest = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    project = manifest.get("project", {})
+    declared = list(project.get("dependencies", []))
+    for extra in project.get("optional-dependencies", {}).values():
+        declared.extend(extra)
+    for requirement in declared:
+        name = re.split(r"[><=!~\[ ]", requirement, maxsplit=1)[0].strip().lower()
+        if name not in DEVICE_ALLOWED_DEPENDENCIES:
+            findings["dependencies"].append(f"pyproject.toml declares {requirement}")
+    return findings
+
+
+def check_wp61_tier_a() -> tuple[dict[str, object], dict[str, bool]]:  #v2.7
+    """Prove the device is a thin client and its own suite passes (WP6-AT-13).
+
+    Deterministic: reads `device/` and runs `device/tests`. No backend, no
+    hardware, no network.
+    """
+    findings = thin_client_findings()
+    suite = subprocess.run(
+        [sys.executable, "-m", "unittest", "discover", "-s", str(DEVICE_ROOT / "tests"),
+         "-t", str(DEVICE_ROOT / "tests")],
+        capture_output=True, text=True, timeout=600,
+    )
+    ran = re.search(r"^Ran (\d+) tests?", suite.stderr, re.MULTILINE)
+    report = {
+        "device_root": str(DEVICE_ROOT),
+        "device_sources": [str(path.relative_to(DEVICE_ROOT)) for path in _device_sources()],
+        "findings": findings,
+        "suite_exit_code": suite.returncode,
+        "suite_tests_ran": int(ran.group(1)) if ran else 0,
+        "suite_tail": suite.stderr.strip().splitlines()[-1:],
+    }
+    checks = {f"no_{rule}_findings": not found for rule, found in findings.items()}
+    checks["device_suite_passed"] = suite.returncode == 0
+    checks["device_suite_ran_tests"] = report["suite_tests_ran"] > 0
+    return report, checks
+
+
+def check_wp61_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.7
+    """Drive one scripted mock turn through the device loop against the live stack.
+
+    Uses the mock button, microphone, speaker and printer, so it needs no
+    hardware, and posts one committed fixture to the running backend. Writes
+    nothing except the turn the backend stores, as any device turn does.
+    """
+    sys.path.insert(0, str(DEVICE_ROOT / "src"))
+    from kaki_device.api_client import BackendClient
+    from kaki_device.config import DeviceConfig, MockSettings
+    from kaki_device.mock_io import (
+        CollectingDisplay, FixtureMicrophone, LoggingPrinter, RecordingSpeaker,
+        ScriptedButton, fixed_measure,
+    )
+    from kaki_device.state_machine import TurnLoop
+
+    fixture = Path(str(files("kaki_backend").joinpath("fixtures", "cdc_question.wav")))
+    if not fixture.is_file():
+        raise ValueError(f"the spoken fixture is missing: {fixture}")
+    config = DeviceConfig(
+        device_id=f"wp61-check-{uuid4()}", mock=MockSettings(audio_path=fixture),
+    )
+    display, printer, speaker = CollectingDisplay(), LoggingPrinter(), RecordingSpeaker()
+    loop = TurnLoop(
+        config, BackendClient(config.backend_url, timeout_seconds=300),
+        button=ScriptedButton(), microphone=FixtureMicrophone(config.mock.audio_path),
+        speaker=speaker, printer=printer, display=display, measure=fixed_measure(),
+    )
+    pending = loop.poll_pending()
+    outcome = loop.run_turn()
+    report = {
+        "device_id": config.device_id, "turn_id": outcome.turn_id,
+        "session_id": outcome.session_id, "state": outcome.state,
+        "error_code": outcome.error_code, "printed": outcome.printed,
+        "spoke": outcome.spoke, "truncated": outcome.truncated,
+        "display_states": display.states, "pending_items": len(pending),
+        "slip_first_line": printer.slips[0].splitlines()[0] if printer.slips else None,
+        "spoken_seconds": round(speaker.durations[0], 2) if speaker.durations else 0.0,
+    }
+    return report, {
+        "turn_completed_without_local_error": outcome.error_code is None,
+        "backend_state_is_a_contract_state": outcome.state in {
+            "answered", "refused", "acted", "handed_off", "failed"
+        },
+        "display_showed_recording_thinking_then_answer": display.states == [
+            "recording", "thinking", "answer"
+        ],
+        "reply_audio_played": outcome.spoke and report["spoken_seconds"] > 0,
+        "slip_printed_under_auto_policy": outcome.printed,
+        "pending_is_empty": not pending,
+    }
+
+
 REGISTRY = {
     ("WP2.3", "B"): check_wp23_tier_b,
     ("WP2.4", "B"): check_wp24_tier_b,
@@ -1486,6 +1669,8 @@ REGISTRY = {
     ("WP4.2", "B"): check_wp42_tier_b,  #v2.1
     ("WP4.5", "B"): check_wp45_tier_b,  #v2.3
     ("WP5.1", "B"): check_wp51_tier_b,  #v2.4
+    ("WP6.1", "A"): check_wp61_tier_a,  #v2.7
+    ("WP6.1", "B"): check_wp61_tier_b,  #v2.7
 }
 
 

@@ -1,0 +1,223 @@
+# v1.0 | 16-Sep-2026 | WP6.1 device configuration from a TOML file and KAKI_DEVICE_* overrides.
+"""Read the device's own settings; the backend keeps its configuration separate.
+
+The Pi is a thin client (design.md 3), so everything here describes local
+behaviour: which backend to call, how long to record, how long to wait, when a
+session rotates and how the display is sized. Nothing here selects a model,
+a corpus or a prompt.
+
+Settings come from a TOML file, then `KAKI_DEVICE_*` environment overrides, so
+a demo-day change needs no file edit. Invalid values raise `ConfigError` at
+startup rather than failing mid-turn: a kiosk that cannot reach its backend
+should refuse to start and say so on the console, not fail silently in front
+of a user.
+"""
+
+import os
+import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Mapping
+from urllib.parse import urlsplit
+
+# WP1 fixed the recording cap at 15 seconds (WP1-AT-09, WP6-AT-02); the device
+# enforces the same bound so a held button cannot post an unbounded upload.
+DEFAULT_RECORD_SECONDS = 15.0
+MAX_RECORD_SECONDS = 15.0
+# A turn covers speech recognition, retrieval, generation and speech, so the
+# client waits longer than a normal HTTP call would (runbook 10.2 WP5.1
+# measured 2-8 s per turn; a cold model is slower).
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
+# design.md 9.3: the backend always produces slip_text; the device decides
+# whether to print it. `auto` is the demo baseline (execution-plan.md 9).
+PRINT_POLICIES = ("auto", "on_request")
+DEFAULT_PRINT_POLICY = "auto"
+# A session groups turns so "repeat that" resolves (WP4.2). The Pi owns the
+# boundary: an idle kiosk starts a fresh session so the next user never
+# repeats a stranger's answer.
+DEFAULT_SESSION_IDLE_MINUTES = 10.0
+# The Waveshare 5DP-CAPLCD-H panel over HDMI (setup.md 30.4).
+DEFAULT_DISPLAY_WIDTH = 1024
+DEFAULT_DISPLAY_HEIGHT = 600
+
+ENVIRONMENT_PREFIX = "KAKI_DEVICE_"
+
+
+class ConfigError(ValueError):
+    """Signal a device configuration this build refuses to start with."""
+
+
+@dataclass(frozen=True)
+class MockSettings:
+    """Fixtures the mock I/O backend replays instead of real hardware."""
+
+    audio_path: Path | None = None
+    button_presses: tuple[float, ...] = ()
+    playback_realtime: bool = False
+
+
+@dataclass(frozen=True)
+class DeviceConfig:
+    """Everything the device loop needs, validated once at startup."""
+
+    backend_url: str = "http://127.0.0.1:8000"
+    device_id: str = "kaki-pi-01"
+    record_seconds: float = DEFAULT_RECORD_SECONDS
+    request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
+    session_idle_minutes: float = DEFAULT_SESSION_IDLE_MINUTES
+    print_policy: str = DEFAULT_PRINT_POLICY
+    display_width: int = DEFAULT_DISPLAY_WIDTH
+    display_height: int = DEFAULT_DISPLAY_HEIGHT
+    mock: MockSettings = field(default_factory=MockSettings)
+
+    @property
+    def session_idle_seconds(self) -> float:
+        """Return the idle rotation interval in seconds."""
+        return self.session_idle_minutes * 60.0
+
+
+def _bounded_number(values: Mapping[str, Any], name: str, default: float,
+                    lower: float, upper: float) -> float:
+    """Return a finite number within bounds, or raise ConfigError naming it."""
+    raw = values.get(name, default)
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        raise ConfigError(f"{name} must be a number between {lower} and {upper}.") from None
+    if not lower <= number <= upper:
+        raise ConfigError(f"{name} must be between {lower} and {upper}, got {number}.")
+    return number
+
+
+def _positive_integer(values: Mapping[str, Any], name: str, default: int) -> int:
+    """Return a positive integer setting, or raise ConfigError naming it."""
+    raw = values.get(name, default)
+    try:
+        number = int(raw)
+    except (TypeError, ValueError):
+        raise ConfigError(f"{name} must be a positive integer.") from None
+    if number <= 0:
+        raise ConfigError(f"{name} must be a positive integer, got {number}.")
+    return number
+
+
+def _validated_backend_url(raw: object) -> str:
+    """Accept a plain http(s) origin only; reject paths, queries and credentials.
+
+    The device talks to one origin and builds every path itself, so a
+    configured path could only smuggle a request somewhere unintended.
+    """
+    url = str(raw).rstrip("/")
+    parsed = urlsplit(url)
+    valid = (
+        parsed.scheme in {"http", "https"} and parsed.hostname
+        and parsed.username is None and parsed.password is None
+        and not parsed.path and not parsed.query and not parsed.fragment
+    )
+    if not valid:
+        raise ConfigError(
+            "backend_url must be a plain http(s) origin such as "
+            f"http://127.0.0.1:8000, got {raw!r}."
+        )
+    return url
+
+
+def _non_empty_text(values: Mapping[str, Any], name: str, default: str) -> str:
+    """Return a trimmed non-empty setting, or raise ConfigError naming it."""
+    text = str(values.get(name, default)).strip()
+    if not text:
+        raise ConfigError(f"{name} must not be blank.")
+    return text
+
+
+def _mock_settings(values: Mapping[str, Any]) -> MockSettings:
+    """Build the mock fixture settings; an absent section means bare defaults."""
+    section = values.get("mock", {})
+    if not isinstance(section, Mapping):
+        raise ConfigError("[mock] must be a table of mock fixture settings.")
+    audio = section.get("audio_path")
+    presses = section.get("button_presses", [])
+    if not isinstance(presses, (list, tuple)):
+        raise ConfigError("mock.button_presses must be a list of seconds.")
+    try:
+        schedule = tuple(float(value) for value in presses)
+    except (TypeError, ValueError):
+        raise ConfigError("mock.button_presses must be a list of seconds.") from None
+    return MockSettings(
+        audio_path=Path(str(audio)).expanduser() if audio else None,
+        button_presses=schedule,
+        playback_realtime=bool(section.get("playback_realtime", False)),
+    )
+
+
+def _environment_overrides(environment: Mapping[str, str]) -> dict[str, Any]:
+    """Map `KAKI_DEVICE_*` exports onto configuration keys.
+
+    Nested mock settings use a double underscore: `KAKI_DEVICE_MOCK__AUDIO_PATH`.
+    """
+    overrides: dict[str, Any] = {}
+    for name, value in environment.items():
+        if not name.startswith(ENVIRONMENT_PREFIX):
+            continue
+        key = name[len(ENVIRONMENT_PREFIX):].lower()
+        if key.startswith("mock__"):
+            mock = overrides.setdefault("mock", {})
+            mock[key[len("mock__"):]] = value
+        else:
+            overrides[key] = value
+    return overrides
+
+
+def _merge(file_values: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[str, Any]:
+    """Overlay environment overrides on file values, one level deep for [mock]."""
+    merged: dict[str, Any] = {**file_values}
+    for key, value in overrides.items():
+        if key == "mock":
+            section = dict(merged.get("mock", {}))
+            section.update(value)
+            merged["mock"] = section
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_config(
+    path: Path | str | None = None, environment: Mapping[str, str] | None = None
+) -> DeviceConfig:
+    """Return the validated device configuration.
+
+    Reads `path` when given and present, applies `KAKI_DEVICE_*` overrides,
+    then validates every field. Raises ConfigError for an unreadable or
+    malformed file and for any value outside its documented range.
+    """
+    environment = os.environ if environment is None else environment
+    file_values: dict[str, Any] = {}
+    if path is not None:
+        config_path = Path(path).expanduser()
+        if config_path.exists():
+            try:
+                file_values = tomllib.loads(config_path.read_text(encoding="utf-8"))
+            except (OSError, tomllib.TOMLDecodeError) as error:
+                raise ConfigError(f"cannot read {config_path}: {error}") from None
+    values = _merge(file_values, _environment_overrides(environment))
+
+    policy = _non_empty_text(values, "print_policy", DEFAULT_PRINT_POLICY)
+    if policy not in PRINT_POLICIES:
+        raise ConfigError(f"print_policy must be one of {PRINT_POLICIES}, got {policy!r}.")
+    return DeviceConfig(
+        backend_url=_validated_backend_url(values.get("backend_url", "http://127.0.0.1:8000")),
+        device_id=_non_empty_text(values, "device_id", "kaki-pi-01"),
+        record_seconds=_bounded_number(
+            values, "record_seconds", DEFAULT_RECORD_SECONDS, 1.0, MAX_RECORD_SECONDS
+        ),
+        request_timeout_seconds=_bounded_number(
+            values, "request_timeout_seconds", DEFAULT_REQUEST_TIMEOUT_SECONDS, 1.0, 600.0
+        ),
+        session_idle_minutes=_bounded_number(
+            values, "session_idle_minutes", DEFAULT_SESSION_IDLE_MINUTES, 1.0, 240.0
+        ),
+        print_policy=policy,
+        display_width=_positive_integer(values, "display_width", DEFAULT_DISPLAY_WIDTH),
+        display_height=_positive_integer(values, "display_height", DEFAULT_DISPLAY_HEIGHT),
+        mock=_mock_settings(values),
+    )

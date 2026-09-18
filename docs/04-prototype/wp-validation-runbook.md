@@ -1003,63 +1003,424 @@ moves to WP5.2 at the owner's next plan update.
 
 # 11. WP6 - physical client + hardening
 
-Status: **DRAFT - structure fixed; Prepare WP6.x fills in commands**
+Status: **WP6.1 READY - implemented 16-Sep-2026, owner validation pending.
+WP6.2 to WP6.5 DRAFT; Prepare WPn.m fills in commands.**
 
 ### 11.1 Setup and installation
 
-##### Known setup.md coverage (Mac side)
+##### Known setup.md coverage
 
-Device routes through Cloudflare Access (15.4). Model services are
-never published externally (15.5).
+```text
++---------------------------------------+---------------------+
+| Component                             | setup.md section    |
++---------------------------------------+---------------------+
+| Raspberry Pi OS, first boot           | 29.2                |
+| Pi Python and apt dependencies        | 29.3                |
+| Waveshare 1024x600 HDMI display       | 29.4                |
+| Device configuration file             | 29.5                |
+| What the Pi never installs            | 29.6                |
+| Device routes through Cloudflare      | 15.4                |
+| Model services are never published    | 15.5                |
++---------------------------------------+---------------------+
+```
 
 ##### Components absent from setup.md
 
-**Raspberry Pi installation.** No Pi source of truth exists yet.
-`Prepare WP6.x` must either extend `setup.md` with a Pi section or
-create a peer document covering:
-
-- Pi OS and version, first-boot preparation.
-- Python and system dependencies.
-- ALSA device names.
-- Dome button GPIO 17, LED ring GPIO 18.
-- ESC/POS printer with separate power.
-- systemd services.
-- Service authentication.
-- Optional Tailscale hardening.
+Button wiring, ALSA device names, the ESC/POS printer, systemd services and
+device authentication. Each arrives with the unit that needs it: WP6.2 for
+the button and audio, WP6.3 for the printer, WP6.4 for systemd and
+authentication. WP6.1 needs none of them, because it ships mock I/O.
 
 ##### Runbook writing rule
 
-Use the section structure standard in section 12 for every WP6.x section
-the coding agent fills in during Prepare.
+Use the section structure standard in section 12 for every WP6.x section the
+coding agent fills in during Prepare. The worked example it describes is the
+WP3.4 block, archived in `wp-validation-runbook_old.md` section 8.1.
+
+#### WP6.1 setup - device package, mock I/O and the display renderer
+
+Owner level: **S**
+Status: **READY - implemented 16-Sep-2026; owner validation pending.**
+
+Machine: Mac Mini as `websvc`, checkout `~/projects/kaki-talkie`. No
+Raspberry Pi, button, microphone, speaker or printer is needed for this unit:
+the mock I/O backend stands in for all of them. Tests 2 and 3 post real turns,
+so they need the grounded stack; Tests 1 and 4 need nothing running.
+
+##### Prerequisites
+
+- The device package installed into the checkout venv:
+  `python -m pip install -e device`. The display extra
+  (`pip install -e 'device[display]'`) is optional on the Mac and only needed
+  to open a real window.
+- For Tests 2 and 3, the grounded stack (`python scripts/dev_stack.py up`) and
+  the committed spoken fixture
+  `backend/src/kaki_backend/fixtures/cdc_question.wav`.
+
+No new backend service, port, model or `setup.md` Mac stage. The Pi's own
+installation is `setup.md` 29 and is not exercised until WP6.2.
+
+##### Scope
+
+WP6-AT-13, and the groundwork WP6-AT-01 to WP6-AT-05 build on. WP6.1
+delivers the `device/` package:
+
+```text
++------------------------+--------------------------------------------------+
+| Module                 | Responsibility                                   |
++------------------------+--------------------------------------------------+
+| config.py              | TOML file plus KAKI_DEVICE_* overrides, validated|
+| api_client.py          | The three device HTTP routes and reply audio     |
+| state_machine.py       | The turn loop, sessions and print policy         |
+| display/layout.py      | Pure state-to-frame layout for 1024x600          |
+| display/pygame_backend | Fullscreen renderer; the only pygame import      |
+| io_ports.py            | Button, microphone, speaker, printer, display    |
+| mock_io.py             | Fakes for all five, so the loop runs on the Mac  |
+| main.py                | Entry point; --mock is the only WP6.1 mode       |
++------------------------+--------------------------------------------------+
+```
+
+Out of scope, by unit: GPIO button and ALSA audio (WP6.2), ESC/POS printing
+(WP6.3), systemd, retry and device authentication (WP6.4), canned mode and the
+demo freeze (WP6.5).
+
+The WS2812 LED ring is dropped from the MVP (owner decision, 14-Sep-2026). The
+display carries all device state, there is no LED port, and the WP6-AT-13
+inspection lists the LED libraries among the packages the Pi must not hold.
+
+##### Display renderer decision
+
+The owner ratified the Python fullscreen renderer on 16-Sep-2026, over a
+Chromium kiosk page.
+
+```text
++------------------+--------------------------------------------------------+
+| Judged on        | Why the Python renderer won                            |
++------------------+--------------------------------------------------------+
+| Failure mode     | A crash blanks the screen and systemd restarts one     |
+|                  | process. A dead Chromium page keeps showing its last   |
+|                  | state, so the kiosk looks alive while it is dead.      |
+| Boot             | One unit, no desktop session or browser to wait for;   |
+|                  | ~35-40 s now, less if WP6.4 disables the desktop.      |
+| Styling work     | The simulator is Next.js and never installs on the Pi, |
+|                  | so "reuse" meant copying tokens either way.            |
+| Testability      | Layout is pure, so Tier A proves it with no screen.    |
++------------------+--------------------------------------------------------+
+```
+
+Layout is a pure function of state and an injected text-measure callable;
+`pygame_backend.py` only blits the result. SDL chooses X11 under the desktop
+session and KMS/DRM without it, so the WP6.4 boot decision needs no code
+change.
+
+##### Turn loop
+
+States, and what the user sees in each:
+
+```text
++-----------+-------------------------------+------------------------------+
+| State     | Display                       | Leaves when                  |
++-----------+-------------------------------+------------------------------+
+| idle      | EN/MS prompt to press         | the button is pressed        |
+| recording | "Listening" and the cap       | the microphone returns       |
+| thinking  | "Thinking"                    | the backend responds         |
+| retrying  | identical to thinking         | WP6.4 drives it              |
+| answer    | display_text, wrapped         | playback ends or is stopped  |
+| error     | fixed calm wording, no code   | the loop returns to idle     |
++-----------+-------------------------------+------------------------------+
+```
+
+Each interaction takes a fresh `turn_id` and holds it for that interaction,
+which is what WP6.4's retry builds on. A session identifier is created at
+start-up and rotated after the configured idle interval, so the next user
+never inherits a stranger's answer: this is the Pi-owned session boundary
+WP4.5 left open.
+
+**Interruption.** A button press during playback stops the speech and starts a
+new recording. There is no double-press gesture: the owner withdrew the AT-03
+double-press repeat on 16-Sep-2026. One button does one thing at any moment.
+
+**Printing.** `design.md` 9.3 puts the policy on the client. Under `auto`, a
+turn whose `slip_text` is non-empty is printed; under `on_request` nothing
+prints. A printer failure is recorded and swallowed, because WP6-AT-09
+requires the spoken answer to survive a dead printer.
+
+**Recording cap.** The loop asks the microphone for `record_seconds`, which
+configuration caps at 15 (WP1-AT-09, WP6-AT-02). The hardware stop when the
+button is released is WP6.2's, and the physical proof is Tier C.
+
+##### Reply audio
+
+`TurnResponse.reply_audio` is typed `str | None` with no format in the schema
+snapshot, and `design.md` 5.2 calls it a "spoken response reference or
+payload". Every current producer emits one concrete form: an RFC 2397 data
+URL, `data:audio/wav;base64,<base64 WAV>`, written by the TTS adapters and by
+`persistence.repositories.audio_to_data_url`.
+
+```text
++-----------------------------+---------------------------------------------+
+| reply_audio                 | Device behaviour                            |
++-----------------------------+---------------------------------------------+
+| null                        | No speech; the answer stays on the display  |
+| data:audio/wav;base64,...   | Decoded, checked as PCM WAV, played         |
+| Any other string            | Refused as unplayable; the turn still shows |
+|                             | its answer and is not a failure             |
+| Malformed base64 or WAV     | Same as above                               |
++-----------------------------+---------------------------------------------+
+```
+
+The device does not guess at other forms. If the backend ever emits a URL
+reference, this is the one place to teach it that, and the tests say so.
+
+##### Configuration
+
+```text
++------------------------------------+--------------------------------------+
+| Setting (KAKI_DEVICE_* override)   | Default and meaning                  |
++------------------------------------+--------------------------------------+
+| backend_url                        | http://127.0.0.1:8000; path-free     |
+|                                    | http(s) origin, or startup fails     |
+| device_id                          | kaki-pi-01                           |
+| record_seconds                     | 15; values above 15 fail startup     |
+| request_timeout_seconds            | 120; one turn can be slow            |
+| session_idle_minutes               | 10; idle gap that rotates a session  |
+| print_policy                       | auto, or on_request                  |
+| display_width / display_height     | 1024 / 600                           |
+| mock.audio_path                    | WAV the mock microphone replays      |
+| mock.button_presses                | Scheduled press times, seconds       |
+| mock.playback_realtime             | false; true sleeps for the duration  |
++------------------------------------+--------------------------------------+
+```
+
+Nested mock settings use a double underscore:
+`KAKI_DEVICE_MOCK__AUDIO_PATH`. The device reads no other environment
+variables, which the WP6-AT-13 inspection checks.
+
+##### Files changed and created
+
+Created:
+
+- `device/pyproject.toml` - stdlib plus httpx; pygame is the `display` extra
+- `device/src/kaki_device/`: `config.py`, `api_client.py`, `state_machine.py`,
+  `io_ports.py`, `mock_io.py`, `main.py`, `display/layout.py`,
+  `display/pygame_backend.py`
+- `device/tests/`: `test_config.py`, `test_api_client.py`,
+  `test_state_machine.py`, `test_layout.py`, `test_mock_io.py`,
+  `test_thin_client.py`
+- `scripts/wp6_1_frames.py` - prints the frames a turn shows; offline recovery
+  checks
+- `scripts/wp6_1_evidence.sh` - owner evidence harness (11.2)
+
+Changed:
+
+- `scripts/wp_check.py` - WP6.1 tier A and tier B branches, and the shared
+  `thin_client_findings` inspection
+- `scripts/kaki_env.sh` - WP6.1 case
+- `.github/workflows/ci.yml` - installs the device package, lints `device` and
+  `rag`, and runs the device suite
+
+No backend, rag, services or web source changes, and no database migration.
+
+##### Shared-file changes
+
+Under the shared-file exception in `execution-plan.md` 1.1, `wp_check.py` and
+`kaki_env.sh` each gain a WP6.1 branch and nothing else: additions, not
+changes to a shared code path. WP6.1 is the first unit in WP6, so no
+within-package tier B rerun applies, and no earlier package is touched.
+
+##### Known limitations
+
+- Real hardware is unproven: the button, microphone, speaker, printer and the
+  physical panel arrive in WP6.2 and WP6.3. Everything here runs on mocks.
+- Font sizes are chosen for 1024x600 on paper. WP6.2 confirms them on the
+  panel at a metre and may retune `BODY_SIZES`.
+- The recording countdown shows the cap, not a live count: a synchronous
+  microphone cannot report progress. WP6.2 adds the live countdown with the
+  real capture loop.
+- `main.py` without `--mock` exits 2 by design until WP6.2 lands the real
+  ports.
+- The EN/MS wording on every frame is placeholder, marked `TODO(ergonomics)`
+  in `display/layout.py`, pending owner sign-off before the demo freeze.
+- A replayed `turn_id` returns a stored non-empty `slip_text`, so an `auto`
+  client would print twice. WP6.3 owns print-once-per-`turn_id`; WP6.1 never
+  retries, so it cannot trigger this.
 
 ### 11.2 Testing and validation
 
-##### Test 1: thin-client conformance
+#### WP6.1 tests - thin client, mock turn, frames and recovery
 
-**Objective:** prove the Pi holds no model, RAG, prompt or
-case-decision logic. Any such logic on the Pi is a gate failure.
+Run on the Mac as `websvc` from the WP6.1 checkout. Tests 2 and 3 need the
+grounded stack (`python scripts/dev_stack.py up`); Tests 1 and 4 do not.
 
-##### Test 2: canned-mode sequence
+##### Evidence harness
 
-**Objective:** prove the button, LED states, audio capture and
-playback, and printer work against canned backend responses before real
-inference is in the loop.
+Run `scripts/wp6_1_evidence.sh` after `source scripts/kaki_env.sh WP6.1`;
+`--help` lists its side effects. It runs Tests 1-4, following the WP4.2
+harness rules: fresh identifiers, owner verdicts for judgements,
+`wp_check.py` per unit and tier, counts as observations, no teardown.
+Evidence goes to `$KAKI_DATA_ROOT/wp6.1/evidence.XXXXXX` (`WP61_EVIDENCE`).
 
-##### Test 3: network retry
+```sh
+source scripts/kaki_env.sh WP6.1
+scripts/wp6_1_evidence.sh --help
+scripts/wp6_1_evidence.sh                  # Tests 1-4
+scripts/wp6_1_evidence.sh --from-test 3    # resume at Test 3
+```
 
-**Objective:** prove a dropped connection retried with the same
-`turn_id` produces exactly one answer and one print.
+`--from-test N` (1-4, default 1) starts at test N and runs to the end. A start
+at 3 or earlier needs a terminal for the judgement.
 
-##### Test 4: power-cycle recovery
+##### Test 1: thin-client conformance (WP6-AT-13)
 
-**Objective:** prove the kiosk returns to service after a process kill
-and a power cycle without operator intervention. This is demo-day
-insurance.
+**Objective:** prove the device holds no model, RAG, prompt, case or SQL
+logic, and that its own suite passes. This is the WP6 gate criterion, run
+early so a violation cannot accumulate.
 
-##### Test 5: demo run
+`wp_check.py --unit WP6.1 --tier A` reads `device/` statically and runs the
+device suite. Five rules, each reported as a list of findings:
 
-**Objective:** execute the final demo procedure end to end on the
-physical kiosk.
+```text
++---------------+---------------------------------------------------------+
+| Rule          | What fails it                                           |
++---------------+---------------------------------------------------------+
+| imports       | Importing kaki_backend, kaki_rag, a services adapter,   |
+|               | chromadb, transformers, mlx, torch, sqlite3, fastapi,   |
+|               | or any third-party module outside httpx and pygame      |
+| dependencies  | A runtime dependency in device/pyproject.toml outside   |
+|               | httpx and pygame (build-system requires is not runtime) |
+| tokens        | Model ports :8081 or :8082, /v1/chat/completions, any   |
+|               | *_SYSTEM_PROMPT, evidence_min_dense, best_dense_score,  |
+|               | refusal_reason, no_coverage, cited_source, devset, or   |
+|               | SQL (INSERT INTO, SELECT, CREATE TABLE)                 |
+| paths         | A request path literal outside /api/device/turn,        |
+|               | /api/device/pending and /api/health                     |
+| environment   | Reading a KAKI_* variable that is not KAKI_DEVICE_*     |
++---------------+---------------------------------------------------------+
+```
+
+**Expected:** exit code 0; every rule reports zero findings; every check true;
+the device suite runs more than zero tests and passes; ruff clean over
+`backend scripts services rag device`.
+
+The device may branch on the response `state` field, which is data from the
+backend. It may not decide a state itself.
+
+##### Test 2: scripted mock turn against the live stack
+
+**Objective:** prove the whole loop works against the real backend, with mock
+hardware: one recorded fixture in, one rendered, spoken and printed answer
+out, driven only by the response.
+
+`wp_check.py --unit WP6.1 --tier B` posts the committed CDC fixture through
+the device loop under a fresh `device_id`.
+
+**Expected:**
+
+- exit code 0, and every check true;
+- `state` is `answered`, `error_code` null;
+- the display showed `recording`, then `thinking`, then `answer`;
+- reply audio decoded and played, with a duration above zero;
+- the slip printed under the `auto` policy, and its first line is the
+  `KAKI-TALKIE HELP` heading;
+- `GET /api/device/pending` returned an empty list.
+
+The turn is stored in `$KAKI_DB` like any device turn.
+
+##### Test 3: the frames a user would see
+
+**Objective:** let the owner judge legibility and wording before the panel
+exists, from the exact frames the renderer would draw.
+
+The harness runs one headless mock turn, then prints every frame with the
+point size each line would use.
+
+**Expected, machine-checked:** the mock run reports `state=answered` and
+`printed=True`; a slip reaches the slip log and names `vouchers.cdc.gov.sg`.
+
+**Expected, owner judgement:** the harness shows the idle, recording, thinking
+and answer frames, and asks whether they read clearly for someone standing a
+metre from the kiosk. Record any wording change against the
+`TODO(ergonomics)` placeholder in `display/layout.py`.
+
+##### Test 4: failure recovery and session boundary
+
+**Objective:** prove the kiosk recovers from a backend failure without
+operator help, and that an idle kiosk starts a fresh session. Both are local
+behaviours, so neither needs the stack.
+
+`scripts/wp6_1_frames.py --recovery` drives the loop with a failing client and
+a fake clock.
+
+**Expected:**
+
+- the failed turn reports a safe code, and the error frame is shown;
+- the loop returns to idle;
+- after the idle interval, the next turn uses a new `session_id`;
+- turn identifiers differ between turns;
+- the live backend still returns an empty `pending` list.
+
+##### Teardown and evidence
+
+The harness leaves the stack running and prints `python scripts/dev_stack.py
+down`. `WP61_EVIDENCE` keeps `run-header.txt`, `transcript.txt`,
+`observations.txt`, `judgements.txt`, both `wp_check` reports with their exit
+codes, the ruff and device suite outputs, `mock_run.txt`, `frames.txt`,
+`recovery.txt` and `slips.log`.
+
+##### Troubleshooting
+
+- **`python cannot import kaki_device`:** the package is not installed in the
+  active venv. Run `python -m pip install -e device` from the checkout root.
+- **Tier A reports `imports` findings after an edit:** something in `device/`
+  imported a backend, model or third-party module. Move that work to the
+  backend; the Pi is a thin client.
+- **Tier B fails with `error_code` `unavailable` or `timeout`:** the stack is
+  down or still loading a model. Check `dev_stack.py status`, then retry.
+- **Tier B reports `spoke=false`:** the backend returned null or unplayable
+  `reply_audio`. Read `tts_ready` in `/api/health`; the turn is still valid.
+- **The mock run prints nothing to the slip log:** `print_policy` is
+  `on_request`, or the turn carried an empty `slip_text`.
+- **`DisplayUnavailable` from a non-headless run:** pygame is missing or no
+  screen is attached. Use `--headless`, or install the display extra.
+
+##### Known limitations
+
+Runbook 11.1 WP6.1 owns the unit's limitations. The ones that matter when
+reading this evidence:
+
+- Every result here uses mock hardware. It proves the loop, not the kiosk.
+- Legibility is judged from text and point sizes, not from the panel. WP6.2
+  repeats the judgement on the real display at a metre.
+- The device suite imports `wp_check.py` for the shared inspection, so Tier A
+  runs on a machine with the backend package installed: the Mac or CI, not the
+  Pi.
+
+#### WP-level objectives (owned by WP6.2-WP6.5)
+
+These are the scaffold objectives for the units still to come; each unit's
+Prepare fills in its own numbered test block, as WP6.1 did above.
+
+##### Canned-mode sequence (WP6.2, WP6.3, WP6.5)
+
+**Objective:** prove the button, display states, audio capture and playback,
+and the printer work against canned backend responses before real inference is
+in the loop.
+
+##### Network retry (WP6.4)
+
+**Objective:** prove a dropped connection retried with the same `turn_id`
+produces exactly one answer and one print. WP6.1 already fixes one `turn_id`
+per interaction, and the display's `retrying` state exists for this.
+
+##### Power-cycle recovery (WP6.4)
+
+**Objective:** prove the kiosk returns to service after a process kill and a
+power cycle without operator intervention. This is demo-day insurance.
+
+##### Demo run (WP6.5)
+
+**Objective:** execute the final demo procedure end to end on the physical
+kiosk.
 
 ---
 
