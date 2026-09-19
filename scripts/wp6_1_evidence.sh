@@ -229,6 +229,7 @@ run_wp_check() {
     local stdout_file="$WP61_EVIDENCE/wp_check_${tag}_tier${tier}.json"
     local stderr_file="$WP61_EVIDENCE/wp_check_${tag}_tier${tier}.stderr.txt"
     python scripts/wp_check.py --unit "$unit" --tier "$tier" \
+        --evidence "$WP61_EVIDENCE" \
         >"$stdout_file" 2>"$stderr_file" || rc=$?
     printf '%s\n' "$rc" > "$WP61_EVIDENCE/wp_check_${tag}_tier${tier}.exit.txt"
     cat "$stderr_file"

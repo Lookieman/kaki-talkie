@@ -1,3 +1,4 @@
+# v1.7 | 18-Sep-2026 | WP6.6: admin bearer token and the admin default device.
 # v1.6 | 13-Sep-2026 | WP5.1: language preference, Malay reply mode, Malay voice, rewrite timeout.
 # v1.5 | 13-Sep-2026 | Require KAKI_DATA_ROOT everywhere and locate the SQLite database.
 # v1.4 | 12-Sep-2026 | Read the WP3.4 evidence-gate threshold from the environment.
@@ -179,6 +180,36 @@ class RetrievalSettings:  #v1.3
         from kaki_rag.adapter import KakiRagRetriever
 
         return KakiRagRetriever(self.data_root, model_id=self.embedding_model)
+
+
+@dataclass(frozen=True)
+class AdminSettings:  #v1.7
+    """Guard the demo admin surface (design.md 5.5).
+
+    `token` is the application's own bearer secret, required on every
+    `/api/admin/*` request in every environment; an empty token means the
+    admin surface fails closed. It is a human-operator secret and is never
+    the WP6.4 device service credential. `default_device` is what the admin
+    page offers as its target; every write still names its device_id
+    explicitly.
+    """
+
+    token: str = ""
+    default_device: str = "kaki-pi-01"
+
+    @classmethod
+    def from_environment(cls, environment: Mapping[str, str] | None = None) -> "AdminSettings":
+        """Read KAKI_ADMIN_TOKEN and KAKI_ADMIN_DEFAULT_DEVICE; both may be absent."""
+        env = os.environ if environment is None else environment
+        default_device = env.get("KAKI_ADMIN_DEFAULT_DEVICE", "kaki-pi-01").strip()
+        if not default_device:
+            raise ValueError("KAKI_ADMIN_DEFAULT_DEVICE must not be blank when set.")
+        return cls(env.get("KAKI_ADMIN_TOKEN", "").strip(), default_device)
+
+    @property
+    def enabled(self) -> bool:
+        """True when a token is configured; without one the routes refuse."""
+        return bool(self.token)
 
 
 @dataclass(frozen=True)

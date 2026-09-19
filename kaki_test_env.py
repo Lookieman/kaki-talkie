@@ -1,3 +1,4 @@
+# v1.1 | 18-Sep-2026 | Add the canned admin token so WP6.6 contract tests authenticate.
 # v1.0 | 12-Sep-2026 | Make the deterministic suites hermetic against ambient KAKI_* exports.
 """Give the deterministic test suites a canned environment of their own.
 
@@ -40,7 +41,12 @@ CANNED_ENVIRONMENT = {
     "KAKI_TTS_MODE": "canned",
     "KAKI_RETRIEVAL_MODE": "canned",
     "KAKI_QUERY_NORMALISE": "on",
+    # The WP6.6 admin routes fail closed without a token; the suites use a
+    # fixed one so authentication is deterministic and tunnel-free.
+    "KAKI_ADMIN_TOKEN": "kaki-test-admin-token",  #v1.1
 }
+
+CANNED_ADMIN_TOKEN = CANNED_ENVIRONMENT["KAKI_ADMIN_TOKEN"]  #v1.1
 
 _disposable_root: str | None = None
 

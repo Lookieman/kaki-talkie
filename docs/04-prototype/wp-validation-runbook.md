@@ -1,7 +1,10 @@
 # KaKi-Talkie WP validation runbook
 
-Version 1.19 | 13-Sep-2026 | SGLN Group 10
+Version 1.20 | 18-Sep-2026 | SGLN Group 10
 
+> v1.20 records WP6.3 as withdrawn and adds WP6.6, the demo admin
+> surface. The WP6.6 blocks in 11.1 and 11.2 are written during
+> `Prepare WP6.6`.
 > This runbook now covers WP5 onward. The full record for WP1 to WP4,
 > the environment model, the runbook states, the standard IU structure,
 > the worktree lifecycle and the version summary block are archived in
@@ -1003,8 +1006,13 @@ moves to WP5.2 at the owner's next plan update.
 
 # 11. WP6 - physical client + hardening
 
-Status: **WP6.1 READY - implemented 16-Sep-2026, owner validation pending.
-WP6.2 to WP6.5 DRAFT; Prepare WPn.m fills in commands.**
+Status: **WP6.1 READY - implemented 16-Sep-2026, owner validation pending
+(tier B blocked on hardware). WP6.3 WITHDRAWN, printer dropped
+18-Sep-2026. WP6.6 READY - implemented 19-Sep-2026, owner validation pending.
+WP6.2, WP6.4 and WP6.5 DRAFT; Prepare WPn.m fills in commands.**
+
+Build order is WP6.1, WP6.6, WP6.2, WP6.4, WP6.5
+(`execution-plan.md` section 7).
 
 ### 11.1 Setup and installation
 
@@ -1020,16 +1028,21 @@ WP6.2 to WP6.5 DRAFT; Prepare WPn.m fills in commands.**
 | Device configuration file             | 29.5                |
 | What the Pi never installs            | 29.6                |
 | Device routes through Cloudflare      | 15.4                |
+| Admin routes through Cloudflare       | 15.2, 15.3          |
 | Model services are never published    | 15.5                |
 +---------------------------------------+---------------------+
 ```
 
 ##### Components absent from setup.md
 
-Button wiring, ALSA device names, the ESC/POS printer, systemd services and
-device authentication. Each arrives with the unit that needs it: WP6.2 for
-the button and audio, WP6.3 for the printer, WP6.4 for systemd and
-authentication. WP6.1 needs none of them, because it ships mock I/O.
+Button wiring, ALSA device names, systemd services and device
+authentication. Each arrives with the unit that needs it: WP6.2 for the
+button and audio, WP6.4 for systemd and authentication. WP6.1 needs none
+of them, because it ships mock I/O.
+
+WP6.3 is withdrawn, so the printer never enters `setup.md`. WP6.6 adds no
+Pi component; its only installation change is the `/api/admin/*`
+Cloudflare route in `setup.md` 15.2 and 15.3.
 
 ##### Runbook writing rule
 
@@ -1245,6 +1258,232 @@ within-package tier B rerun applies, and no earlier package is touched.
   client would print twice. WP6.3 owns print-once-per-`turn_id`; WP6.1 never
   retries, so it cannot trigger this.
 
+#### WP6.6 setup - demo admin surface: language toggle and push
+
+Owner level: **S**
+Status: **READY - implemented 19-Sep-2026; owner validation pending.
+BLOCKED items: none. The two push fixtures are owner-captured before the
+tier B run (see "Fixture capture" below).**
+
+Machine: Mac Mini as `websvc`, checkout `~/projects/kaki-talkie`. No
+hardware: WP6.6 is built before WP6.2 (build order, `execution-plan.md`
+section 7), so the simulator stands in for the kiosk. Tests 2-4 need the
+grounded stack; Test 1 needs nothing running.
+
+##### Prerequisites
+
+- `KAKI_ADMIN_TOKEN` in the project-root `.env` (`setup.md` 11.4). The
+  admin routes fail closed without it.
+- The two push fixtures, captured once with
+  `scripts/wp6_6_evidence.sh --capture-fixtures` and committed.
+- For the tunnel path only: the `/api/admin/*` Cloudflare route
+  (`setup.md` 15.2, 15.3). Nothing at tier A or tier B needs the tunnel.
+
+No new package, model, service or port.
+
+##### Scope
+
+WP6-AT-15, 16, 17 and 18. WP6.6 delivers the second operator: a phone
+opens `/admin`, switches one device's reply language, and releases one
+canned push.
+
+```text
++--------------------------+------------------------------------------------+
+| Piece                    | Responsibility                                 |
++--------------------------+------------------------------------------------+
+| migration 0004           | device_config, pending_messages (one seeded   |
+|                          | row), turns.language_override                  |
+| persistence/admin_store  | config reads/writes; atomic push delivery      |
+| api/admin.py             | the three routes behind the bearer token       |
+| api/pending.py           | fetch-and-mark for the named device; [] with   |
+|                          | no identity (WP1-AT-05 unchanged)              |
+| apps/web /admin          | four large buttons and a status line           |
+| apps/web simulator       | 3-second pending poll; plays a nudge once      |
+| scripts/wp6_6_admin.sh   | the loopback curl fallback (WP6-AT-18)         |
+| scripts/seed_push_message| re-runnable wording seed; no migration needed  |
++--------------------------+------------------------------------------------+
+```
+
+Out of scope: a second canned message, Pi pending behaviour (WP6.5), the
+device service credential (WP6.4). The `device/` package is untouched;
+the WP6-AT-13 inspection re-runs in Test 1 to prove it.
+
+##### Per-device reply language
+
+`device_config` (migration 0004) holds one row per configured device:
+`reply_language IN ('en','ms','auto')`, no foreign key, absent row =
+`auto`. The turn pipeline gained one additive constructor parameter,
+`reply_language_for(device_id)`, consulted once per transcribed turn - a
+single indexed point read, no cache, so a change applies to the next
+turn with no restart (WP6-AT-15).
+
+`auto` returns the decision to the section 6.4 policy, byte-identical to
+the pre-WP6.6 behaviour. `en`/`ms` forces the reply language. The stored
+turn keeps all three facts: `stt_language_json` (Whisper's evidence,
+never rewritten), `reply_language` (what ran) and the new nullable
+`turns.language_override` ('en'/'ms' when the admin, not the policy,
+chose; surfaced in the debug view).
+
+This pipeline touch is the ratified exception to "admin never enters the
+turn pipeline": the pipeline reads admin state; admin routes still never
+execute turns. Regression scope is therefore WP6.1 at tier A and tier B
+(`execution-plan.md` v1.13), both rerun by the Test 1 and Test 4 blocks.
+
+##### The push queue
+
+`pending_messages` holds one seeded message, `cdc-vouchers-available`,
+with English and Malay bodies and pre-synthesised audio fixtures.
+
+```text
++------------+-----------------------------------------------------------+
+| State      | Meaning                                                   |
++------------+-----------------------------------------------------------+
+| idle       | Seeded, never pushed (or drained by a delivered fetch).   |
+| queued     | POST /api/admin/push armed it for one named device.       |
+| delivered  | GET /api/device/pending handed it to that device.         |
++------------+-----------------------------------------------------------+
+```
+
+Delivery is the design.md 5.4 rule as one transaction: the pending
+endpoint selects the device's queued rows and marks them delivered in the
+same transaction, so the 3-second poll receives a push exactly once
+(at-most-once; WP6-AT-16). Only a new push re-arms the message;
+`delivered_count` accumulates as rehearsal evidence. Delivery language
+follows the device's config: `ms` delivers the Malay body and audio,
+`en` and `auto` the English (owner decision, 18-Sep-2026).
+
+The mark is scoped to the calling `device_id`, so the simulator
+(`web-simulator`) and the Pi (`kaki-pi-01`) must keep distinct
+identities; whichever identity a push names is the only one that can
+consume it. A push without a `device_id` is refused with 422.
+
+##### Authentication
+
+Every `/api/admin/*` request needs `Authorization: Bearer
+$KAKI_ADMIN_TOKEN`. An unset token means 403 for everyone (fail closed);
+a missing or wrong token means 401, refused before any state change
+(WP6-AT-17). Access remains the human gate on the tunnel path; the token
+guards the loopback path, which exists for the times the tunnel is down.
+The WP6.4 device service credential is a different secret and is never
+accepted here. The deterministic suites authenticate with the fixed test
+token in `kaki_test_env.py`.
+
+##### The admin page and the poll
+
+`/admin` is a static page on the simulator origin (behind the same
+Access session as `/sim`), four large buttons - English, Bahasa Melayu,
+Auto, Push - and a status line. It asks for the token once per tab
+session. Every write names its `device_id`: the target is the backend's
+`KAKI_ADMIN_DEFAULT_DEVICE` (default `kaki-pi-01`), reported by
+`GET /api/admin/state` and shown in the status line. No route infers a
+target from recent activity.
+
+The simulator polls `GET /api/device/pending?device_id=web-simulator`
+every `PENDING_POLL_SECONDS` (a constant, 3) while idle, and surfaces
+each delivery once, keyed by message id plus `pushed_at`, so a re-pushed
+rehearsal plays again but a duplicate poll of one delivery does not. The
+device package is untouched; the Pi's pending behaviour is WP6.5's.
+
+##### Environment variables
+
+```text
++----------------------------+---------------------------------------------+
+| Variable                   | Meaning                                     |
++----------------------------+---------------------------------------------+
+| KAKI_ADMIN_TOKEN           | Bearer secret for /api/admin/*. Unset means |
+|                            | the admin surface answers 403 (fail closed).|
+| KAKI_ADMIN_DEFAULT_DEVICE  | The target the /admin page offers. Default  |
+|                            | kaki-pi-01. Blank fails startup.            |
++----------------------------+---------------------------------------------+
+```
+
+Both are read at backend start; restart after changing either. The
+startup log prints `admin surface enabled|disabled` and the default
+device.
+
+##### Message wording
+
+The wording is provisional (the Singlish and Auntie phrasing is open).
+It lives in `scripts/seed_push_message.py`, re-runnable: edit the
+constants, run with `--apply`, rehearse again - no migration, no restart,
+and the message's delivery state is untouched. Migration 0004 seeds the
+same words so a fresh database starts complete.
+
+##### Fixture capture
+
+One-time owner task, then committed (the deliberate-fixture exception):
+
+```sh
+scripts/wp6_6_evidence.sh --capture-fixtures
+```
+
+It records `push_cdc_en.wav` (Samantha) and `push_cdc_ms.wav` (Amira) at
+22.05 kHz mono 16-bit PCM - the reply-audio format - plays both back and
+asks for a verdict; it refuses to overwrite existing files. Until the
+fixtures exist a push still delivers its text with null audio, and
+`wp_check.py --unit WP6.6 --tier B` refuses to run.
+
+##### Files changed and created
+
+Created: `persistence/migrations/0004_admin_surface.sql`,
+`persistence/admin_store.py`, `api/admin.py`,
+`apps/web/src/app/admin/page.tsx`, `apps/web/src/simulator/pending.ts`,
+`scripts/wp6_6_admin.sh`, `scripts/seed_push_message.py`,
+`scripts/wp6_6_evidence.sh`, the two push fixtures, and tests
+(`test_wp6_6.py`, `test_admin_store.py`, `test_language_override.py`,
+`test_wp6_6_admin.py`, `test_seed_push_message.py`, `pending.test.ts`).
+
+Changed: `config.py` (AdminSettings), `main.py` (wiring),
+`orchestration/turn_pipeline.py` (the ratified override read),
+`contracts/turn_log.py`, `persistence/repositories.py`, `api/pending.py`,
+`api/debug.py`, `kaki_test_env.py`, `apps/web` (simulator poll, API
+client), `scripts/wp_check.py` and `scripts/kaki_env.sh` (WP6.6
+branches, additive).
+
+##### Shared-file changes
+
+Under `execution-plan.md` 1.1, two of the WP6.6 changes to
+`scripts/wp_check.py` are different in kind:
+
+- The WP6.6 tier A and tier B branches are additions. They touch no
+  earlier unit.
+- The suite-output change (v2.9) is a change to a shared code path.
+  Every check that shells out to a suite now runs it through one
+  `run_suite` helper, which writes `<suite>.output.txt` under
+  `--evidence` and keeps a 20-line tail. WP6.1 tier A and WP4.5 tier B
+  go through it too. The regression scope is unchanged - WP6.1 at tier
+  A and tier B - because the per-device language override already
+  required both.
+
+##### Reconciliation
+
+- The pre-WP6.6 statements that `GET /api/device/pending` "returns an
+  empty list for the whole MVP" (execution-plan section 5 history, the
+  archived WP4 blocks) are superseded by design.md v1.6/v1.7 section
+  5.5. The path and its empty default are unchanged: with no `device_id`
+  or nothing queued it still returns `[]`, so WP1-AT-05 and every
+  archived assertion still hold as written.
+- `test_persistence.py`'s four-table check became a subset check:
+  migration owners assert their own tables.
+- The turns insert in `repositories.py` gained one nullable column; the
+  WP4 packages keep their cover from the deterministic suites under
+  section 1.1, and the packaged-schema-version checks self-adjust to 4.
+
+##### Known limitations
+
+- Delivery is at-most-once by design: the poll response that carries the
+  nudge is not acknowledged, so a response lost mid-flight loses that
+  delivery. The operator watches the status line - if it reads
+  `delivered` but nothing played, press Push again; a new push re-arms
+  the same message. Nothing replays by itself.
+- One canned message. A second is scope creep with no demo value.
+- The admin token sits in the operator's browser session storage after
+  first entry; closing the tab forgets it. Access remains the outer gate.
+- The simulator plays a nudge only while idle, so a push during a turn
+  waits for the next idle poll.
+- `auto` pushes English: with no transcript there is nothing for the
+  language policy to judge.
+
 ### 11.2 Testing and validation
 
 #### WP6.1 tests - thin client, mock turn, frames and recovery
@@ -1394,6 +1633,157 @@ reading this evidence:
 - The device suite imports `wp_check.py` for the shared inspection, so Tier A
   runs on a machine with the backend package installed: the Mac or CI, not the
   Pi.
+
+#### WP6.6 tests - admin surface: auth, live flow, push audio, page
+
+Run on the Mac as `websvc` from the WP6.6 checkout, with the grounded
+stack running for Tests 2-4 (`python scripts/dev_stack.py up`). Test 4
+also wants the simulator (`cd apps/web && npm run build && npm start`).
+
+##### Evidence harness
+
+Run `scripts/wp6_6_evidence.sh` after `source scripts/kaki_env.sh
+WP6.6`; `--help` lists its side effects, `--capture-fixtures` is the
+one-time fixture capture. It runs Tests 1-4, following the WP4.2
+harness rules: fresh identifiers, owner verdicts for judgements,
+`wp_check.py` per unit and tier, counts as observations, no teardown.
+Evidence goes to `$KAKI_DATA_ROOT/wp6.6/evidence.XXXXXX`
+(`WP66_EVIDENCE`). Scratch devices are restored to `auto` and drained
+before the run ends.
+
+```sh
+source scripts/kaki_env.sh WP6.6
+scripts/wp6_6_evidence.sh --help
+scripts/wp6_6_evidence.sh                  # Tests 1-4
+scripts/wp6_6_evidence.sh --from-test 3    # resume at Test 3
+```
+
+`--from-test N` (1-4, default 1) starts at test N and runs to the end.
+Tests 3 and 4 need an interactive terminal for the judgements.
+
+##### Test 1: deterministic gate and the WP6.1 rerun (WP6-AT-15, 16, 17 at tier A)
+
+**Objective:** prove the admin surface hermetically - authentication
+refused before any write, a config change flipping the next turn with no
+restart, a push delivered exactly once - and prove the device is still a
+thin client after the unit that was told not to touch it.
+
+`wp_check.py --unit WP6.6 --tier A` runs the three WP6.6 suites from the
+checkout root, re-runs the WP6-AT-13 inspection and pins the packaged
+schema version at 4. The harness adds `wp_check.py --unit WP6.1 --tier A`
+(the regression scope), ruff over all five source trees, the contract
+and unit suites and the web tests.
+
+**Expected:** every exit code 0; every rule of the thin-client
+inspection clean; `turn_response.schema.json` unchanged (X-AT-01);
+`push_fixtures_present` both true once captured. WP1-AT-05 is asserted
+inside `test_wp6_6.py`: pending returns `[]` with no identity and with
+nothing queued.
+
+##### Test 2: live admin flow and the loopback curl fallback (WP6-AT-15, 17, 18)
+
+**Objective:** prove the same three actions against the running stack,
+authenticated by the real token, and prove they run from a loopback
+`curl` script with the tunnel out of the picture.
+
+`wp_check.py --unit WP6.6 --tier B` uses a scratch device: an
+unauthenticated config attempt is refused with 401 and provably changes
+nothing; `config ms` then makes a real spoken turn (the committed CDC
+fixture) answer in Malay, `language_override` `ms` in the debug view,
+with no restart; a push delivers once with the Malay body and
+pre-synthesised audio; pending without an identity stays `[]`. Then the
+harness drives `scripts/wp6_6_admin.sh` - `state`, `config ms`, `push`,
+`state` - against 127.0.0.1:8000 and asserts the state changes landed.
+
+**Expected:** both wp_check exit codes 0; the curl `state` output shows
+the curl device at `ms` and the message `queued` for it; every action
+completed without the tunnel.
+
+##### Test 3: the delivered nudge, heard once (WP6-AT-16)
+
+**Objective:** prove what the audience would hear: one push, one Malay
+announcement, no replay.
+
+The harness configures a scratch device to `ms`, pushes, fetches pending
+once (one item, Malay, with audio), fetches again (empty), decodes the
+audio and plays it.
+
+**Expected, machine-checked:** exactly one item on the first poll, zero
+on the second; `language` `ms`; non-empty WAV.
+
+**Expected, owner judgement:** the recording is the Malay CDC-vouchers
+announcement, clear and calm.
+
+##### Test 4: the admin page, one-handed, and the WP6.1 tier B rerun
+
+**Objective:** prove the surface an operator actually touches: four
+buttons and a status line on a phone-sized screen, steering the
+simulator; then close the regression scope.
+
+The harness prints the owner steps: open `/admin`, enter the token once,
+set the simulator's language to `ms`, ask the CDC question in `/sim`
+(Malay reply), push, and watch the simulator speak the announcement once
+within 3 seconds. On the phone, the same page rides the tunnel behind
+Access. Then `wp_check.py --unit WP6.1 --tier B` reruns the scripted
+mock turn - the WP6.6 regression scope (`execution-plan.md` v1.13).
+
+**Expected, machine-checked:** the WP6.1 tier B rerun exits 0.
+
+**Expected, owner judgement:** the page worked one-handed; the status
+line named the target and tracked queued -> delivered; the push played
+exactly once.
+
+##### Teardown and evidence
+
+The harness leaves the stack running and prints `python
+scripts/dev_stack.py down`. `WP66_EVIDENCE` keeps the WP4.2-style files
+(`run-header.txt`, `transcript.txt`, `observations.txt`,
+`judgements.txt`), all four `wp_check` reports with exit codes, the suite
+outputs, the curl JSON, `nudge.json`, `nudge_second_poll.json`,
+`nudge.wav` and the Test 4 verdicts. The admin token never appears in
+the evidence. A `jq-error.txt` appears only when jq itself failed; the
+run stops there and names the filter.
+
+Each suite `wp_check.py` runs also leaves its whole output in
+`<evidence>/<suite>.output.txt` - for example
+`test_admin_store.py.output.txt` and `device_tests.output.txt` - because
+the harness passes `--evidence "$WP66_EVIDENCE"`. The JSON report keeps
+the last 20 lines of the same output in each suite's `tail`, so a failed
+run names the failing test, its assertion and its traceback without a
+rerun. A tail line longer than 400 characters is truncated there and
+stays whole in the file.
+
+##### Troubleshooting
+
+- **`/api/admin/*` returns 404 through the tunnel:** the Cloudflare
+  route is missing, so the request falls through to the simulator origin
+  on port 3000, which has no such path. Add the `/api/admin/*` ingress
+  route (`setup.md` 15.2, 15.3) and re-test. The loopback curl fallback
+  works meanwhile - that is what it is for.
+- **403 with `KAKI_ADMIN_TOKEN` in the message:** the backend started
+  without a token and is failing closed as designed. Add the token to
+  the project-root `.env` (`setup.md` 11.4) and restart the backend;
+  the startup log must print `admin surface enabled`.
+- **401 with a token set:** the request's token does not match. Reload
+  `/admin` and re-enter it (the page forgets a rejected token), or
+  re-source `scripts/kaki_env.sh WP6.6` for the shell.
+- **A push lands on the wrong device_id:** the status line names the
+  target of every write; check it before pressing Push. `GET
+  /api/admin/state` shows `target_device_id` on the message - if it
+  names the Pi while you rehearsed against the simulator, the delivered
+  push went to whichever poller carries that identity. Re-push with
+  `--device web-simulator` (or the page's target once WP6.5 puts the Pi
+  on stage), and keep the two identities distinct.
+- **The simulator never plays the push:** it polls only while idle, and
+  only its own identity. Confirm the push targeted `web-simulator` and
+  the simulator tab is open on `/sim`.
+
+##### Known limitations
+
+Runbook 11.1 WP6.6 owns the unit's limitations, led by the at-most-once
+delivery rule: a nudge lost between backend and browser is not replayed;
+the operator sees `delivered` on the status line, hears nothing, and
+presses Push again. That is the whole recovery procedure.
 
 #### WP-level objectives (owned by WP6.2-WP6.5)
 

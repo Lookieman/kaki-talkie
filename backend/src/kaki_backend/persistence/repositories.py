@@ -1,3 +1,4 @@
+# v1.3 | 18-Sep-2026 | WP6.6: store language_override (migration 0004).
 # v1.2 | 13-Sep-2026 | WP5.1: store reply_language, reply_mode and render_outcome (migration 0003).
 # v1.1 | 13-Sep-2026 | Resolve an action's previous turn; store previous_turn_id and outcome.
 # v1.0 | 13-Sep-2026 | Store completed turns durably and replay them by turn_id.
@@ -251,6 +252,7 @@ class TurnRepository:
             reply_language=row["reply_language"],  #v1.2
             reply_mode=row["reply_mode"],  #v1.2
             render_outcome=row["render_outcome"],  #v1.2
+            language_override=row["language_override"],  #v1.3
         )
         return StoredTurn(
             response=response, log=log,
@@ -264,9 +266,10 @@ _INSERT_TURN = (
     "reply_audio, case_id, stt_error, llm_error, tts_error, retrieval_error, "
     "normalised_query, best_dense_score, evidence_min_dense, cited_source_id, "
     "llm_cited_index, timings_json, retrieval_evidence_json, completed_at, "
-    "previous_turn_id, action_outcome, reply_language, reply_mode, render_outcome) "  #v1.2
+    "previous_turn_id, action_outcome, reply_language, reply_mode, render_outcome, "  #v1.2
+    "language_override) "  #v1.3
     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-    "?, ?, ?)"
+    "?, ?, ?, ?)"
 )
 
 
@@ -285,4 +288,5 @@ def _turn_values(execution: TurnExecution, audio: bytes | None, completed_at: st
         json.dumps([entry.model_dump(mode="json") for entry in log.retrieval_evidence]),
         completed_at, log.previous_turn_id, log.action_outcome,  #v1.1
         log.reply_language, log.reply_mode, log.render_outcome,  #v1.2
+        log.language_override,  #v1.3
     )

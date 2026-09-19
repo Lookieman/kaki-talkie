@@ -1,3 +1,4 @@
+// v1.5 | 18-Sep-2026 | WP6.6: poll pending every 3 s while idle and play a nudge once.
 // v1.4 | 13-Sep-2026 | Apply the client print policy and keep the last printed slip (WP4.2).
 // v1.3 | 05-Sep-2026 | Support identifier generation in insecure browser contexts.
 // v1.2 | 04-Sep-2026 | Stabilise the recording controller used during cleanup.
@@ -9,12 +10,13 @@
 import { useCallback, useEffect, useRef, useState } from "react"; //v1.1
 import type { PointerEvent } from "react"; //v1.1
 
-import { submitTurn, TurnResponse } from "../api-client/device";
+import { fetchPending, submitTurn, TurnResponse } from "../api-client/device"; //v1.5
 import { createIdentifier } from "./identifiers"; //v1.3
 import { RecordingLimitController, RecordingStopReason } from "./recorder";
 import { DEFAULT_PRINT_POLICY, PRINT_POLICIES, PrintPolicy, shouldPrint } from "./printPolicy"; //v1.4
 import { wrapReceipt } from "./receipt";
 import { DeviceState, DEVICE_STATES } from "./states";
+import { NudgeTracker, parsePendingItems, PENDING_POLL_SECONDS, PendingNudge } from "./pending"; //v1.5
 
 const DEVICE_ID = "web-simulator";
 const PRINT_PREVIEW_MS = 650;
@@ -38,6 +40,29 @@ async function playListeningChime(): Promise<void> {
   oscillator.stop(context.currentTime + 0.13);
   await wait(140);
   await context.close();
+}
+
+async function playNudgeAudio(nudge: PendingNudge): Promise<void> { //v1.5
+  if (nudge.audio) {
+    const audio = new Audio(nudge.audio);
+    await audio.play();
+    if (!audio.ended) {
+      await new Promise<void>((resolve) => {
+        audio.addEventListener("ended", () => resolve(), { once: true });
+        audio.addEventListener("error", () => resolve(), { once: true });
+      });
+    }
+    return;
+  }
+  if ("speechSynthesis" in window) {
+    await new Promise<void>((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(nudge.text);
+      utterance.lang = nudge.language;
+      utterance.addEventListener("end", () => resolve(), { once: true });
+      utterance.addEventListener("error", () => resolve(), { once: true });
+      window.speechSynthesis.speak(utterance);
+    });
+  }
 }
 
 async function playReply(response: TurnResponse): Promise<void> {
@@ -69,6 +94,7 @@ export function Simulator() {
   const [error, setError] = useState<string | null>(null);
   const [printPolicy, setPrintPolicy] = useState<PrintPolicy>(DEFAULT_PRINT_POLICY); //v1.4
   const [printedSlip, setPrintedSlip] = useState(""); //v1.4
+  const [nudge, setNudge] = useState<PendingNudge | null>(null); //v1.5
   const printPolicyRef = useRef<PrintPolicy>(DEFAULT_PRINT_POLICY); //v1.4
   const sessionId = useRef(createIdentifier("session"));
   const mediaRecorder = useRef<MediaRecorder | null>(null);
@@ -77,6 +103,31 @@ export function Simulator() {
   const limitController = useRef(new RecordingLimitController());
   const mounted = useRef(true);
   const pointerHeld = useRef(false); //v1.1
+  const nudgeTracker = useRef(new NudgeTracker()); //v1.5
+  const deviceStateRef = useRef<DeviceState>("idle"); //v1.5
+  deviceStateRef.current = deviceState; //v1.5
+
+  useEffect(() => { //v1.5
+    // WP6.6: the admin push arrives through the existing pending endpoint.
+    // Poll only while idle, so a nudge never interrupts a turn in progress,
+    // and surface each delivery exactly once (NudgeTracker).
+    const interval = window.setInterval(async () => {
+      if (deviceStateRef.current !== "idle") {
+        return;
+      }
+      try {
+        const items = parsePendingItems(await fetchPending(DEVICE_ID));
+        const fresh = nudgeTracker.current.takeNew(items);
+        if (fresh.length > 0 && mounted.current) {
+          setNudge(fresh[0]);
+          await playNudgeAudio(fresh[0]);
+        }
+      } catch {
+        // A failed poll is silent; the next tick tries again.
+      }
+    }, PENDING_POLL_SECONDS * 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const recordingController = limitController.current; //v1.2
@@ -208,6 +259,12 @@ export function Simulator() {
         <h1 id="simulator-title">KaKi-Talkie</h1>
         <p>Hold the button while speaking. Recording ends on release or automatically after 15 seconds.</p>
       </section>
+
+      {nudge ? ( //v1.5
+        <section className="nudge" role="status" aria-label="Announcement">
+          <p>{nudge.text}</p>
+        </section>
+      ) : null}
 
       <section className="device" aria-label="KaKi-Talkie simulator">
         <ol className="state-track" aria-label="Device state">

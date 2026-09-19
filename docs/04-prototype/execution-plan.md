@@ -2,8 +2,18 @@
 
 **Six work packages, decomposed into bounded implementation units with independent test checkpoints**
 
-Version 1.10 | 13-Sep-2026 | SGLN Group 10
+Version 1.13 | 18-Sep-2026 | SGLN Group 10
 
+> v1.13 corrects the WP6.6 regression scope after the plan turn. A
+> per-device reply-language override has to touch the turn pipeline, so
+> WP6.1 reruns at tier A and tier B. WP6.1 tier B runs against mock I/O on
+> the Mac and needs no Raspberry Pi; v1.12 said otherwise and was wrong.
+> v1.12 adds WP6.6, the demo admin surface, and withdraws WP6.3 after the
+> owner dropped the thermal printer on 18-Sep-2026. WP6-AT-09 is
+> withdrawn; WP6-AT-15 to WP6-AT-18 are added. Unit numbers are identity,
+> not sequence: WP6.6 is built before WP6.2 because it needs no hardware.
+> v1.11 adds the physical audio rule to WP6.2 (design section 4.3) and
+> moves the execution point to WP6.2 after WP6.1 was implemented.
 > v1.10 reduces WP5 to WP5.1 and a timeboxed WP5.2 viability check.
 > WP5.3, WP5.4, WP5.5 and WP5.6 are deferred beyond the MVP, and the
 > live lookup leaves the baseline decisions.
@@ -558,9 +568,10 @@ Goal: connect the working software MVP to the Raspberry Pi without changing the 
 +-------+-----------------------------------------------+-------+
 | WP6.1 | thin Pi state loop/config/API/mock I/O       | S     |
 | WP6.2 | button/debounce/audio/LED integration        | S     |
-| WP6.3 | ESC/POS printer + print failure handling     | S     |
+| WP6.3 | WITHDRAWN - printer dropped 18-Sep-2026      | -     |
 | WP6.4 | service auth/retry same turn_id/systemd      | S     |
 | WP6.5 | pending/action regression/canned/demo freeze | G     |
+| WP6.6 | demo admin surface: language toggle + push   | S     |
 +-------+-----------------------------------------------+-------+
 ```
 
@@ -569,9 +580,10 @@ Acceptance ownership:
 ```text
 WP6.1 -> WP6-AT-13
 WP6.2 -> WP6-AT-01, 02, 03 where enabled
-WP6.3 -> WP6-AT-09
+WP6.3 -> WITHDRAWN
 WP6.4 -> WP6-AT-04, 05, 10
 WP6.5 -> WP6-AT-06, 07, 08, 11, 12, 14
+WP6.6 -> WP6-AT-15, 16, 17, 18
 ```
 
 Acceptance criteria:
@@ -585,13 +597,61 @@ WP6-AT-05 unauthenticated device request denied before turn processing
 WP6-AT-06 WITHDRAWN - handoff and calendar deferred beyond MVP
 WP6-AT-07 WITHDRAWN - pending follow-up deferred beyond MVP
 WP6-AT-08 network-down canned mode advances five scripted responses
-WP6-AT-09 printer failure does not suppress spoken answer
+WP6-AT-09 WITHDRAWN - thermal printer dropped from the build
+          18-Sep-2026; no unit prints
 WP6-AT-10 systemd recovers after process kill/power cycle
 WP6-AT-11 simulator canned mode exposes same five scenarios
 WP6-AT-12 BOM <= SGD 450
 WP6-AT-13 device static inspection finds no model/RAG/prompt/case-decision logic
 WP6-AT-14 golden paths + earlier contract tests remain green
+WP6-AT-15 an admin language change alters the next turn's reply
+          language, with no service restart
+WP6-AT-16 an admin push plays once on the client; repeated polling does
+          not replay it
+WP6-AT-17 an unauthenticated /api/admin/* request is rejected before any
+          state change
+WP6-AT-18 the same push and language change run from a loopback curl
+          script on the Mac Mini when the tunnel is unavailable
 ```
+
+WP6.2 audio follows design section 4.3: capture at 16 kHz mono, and convert all playback to 48 kHz stereo. The owner checks playback by ear during the WP6.2 smoke test (level S). No separate acceptance test covers playback speed (owner decision, 17-Sep-2026).
+
+### WP6.6 - demo admin surface
+
+WP6.6 gives the pitch a second operator. A colleague opens `/admin` on a
+phone, switches the reply language between English and Malay, and
+releases one canned push message: new CDC vouchers are available. The
+architecture is `design.md` section 5.5.
+
+Build order. Unit numbers are identity, not sequence. WP6.6 is numbered
+last and built early, because it needs no hardware:
+
+```text
+WP6.1 -> WP6.6 -> WP6.2 -> WP6.4 -> WP6.5
+```
+
+Two constraints bind the unit:
+
+- WP6-AT-13 still holds. The device gains no request path, no `KAKI_`
+  variable outside `KAKI_DEVICE_*`, and no admin logic. It learns of a
+  push through the existing pending endpoint.
+- Shared-file changes stay additive. Adding a WP6.6 branch to
+  `wp_check.py`, `kaki_env.sh` or `dev_stack.py` triggers nothing.
+  Changing a shared function, default or code path reruns WP6.1
+  (section 1.1).
+
+Regression scope for WP6.6: **WP6.1 at tier A and tier B.** The
+per-device reply-language override is resolved inside the turn pipeline,
+which WP6.1's scripted mock-I/O turn exercises. That check runs on the
+Mac against the grounded stack and needs no Raspberry Pi, so the rerun
+costs one command.
+
+Push content is one message. A second canned push is scope creep with no
+demo value: the pitch shows the mechanism once.
+
+WP6.3 is withdrawn, so no unit prints. The backend still produces
+`slip_text` and the simulator still renders the 58 mm mock, so the
+printed-slip story survives the hardware loss.
 
 Tailscale Serve remains optional. Long-press reprint remains deferred. Caregiver UI remains out of scope.
 
@@ -663,7 +723,7 @@ Protect the date:
   Pi integration carries the remaining unknowns;
 - caregiver UI does not exist in this MVP schedule.
 
-Current execution point: **WP5.1**.
+Current execution point: **WP6.6**.
 
 ---
 
@@ -691,6 +751,19 @@ The normal prompts are intentionally short because repository rules carry the de
 +---------+-------------+------------------------------------------------------+
 | Version | Date        | Change                                               |
 +---------+-------------+------------------------------------------------------+
+| 1.13    | 18-Sep-2026 | Corrected the WP6.6 regression scope to rerun      |
+|         |             | WP6.1 at tier A and tier B, after the plan turn    |
+|         |             | showed the language override must sit in the turn  |
+|         |             | pipeline. Removed the wrong claim that WP6.1 tier  |
+|         |             | B needs hardware.                                  |
+| 1.12    | 18-Sep-2026 | Added WP6.6, the demo admin surface, with          |
+|         |             | WP6-AT-15 to WP6-AT-18 and an explicit build       |
+|         |             | order. Withdrew WP6.3 and WP6-AT-09 after the      |
+|         |             | thermal printer was dropped from the build.        |
+|         |             | Execution point moved to WP6.6.                    |
+| 1.11    | 17-Sep-2026 | Added the design 4.3 audio rule to WP6.2, with an   |
+|         |             | owner-ear playback check and no separate AT.        |
+|         |             | Execution point moved to WP6.2.                     |
 | 1.10    | 13-Sep-2026 | Reduced WP5 to WP5.1 plus a timeboxed WP5.2         |
 |         |             | viability check. WP5.3, WP5.4, WP5.5 and WP5.6      |
 |         |             | deferred beyond the MVP with reasons recorded.      |

@@ -1,3 +1,5 @@
+# v2.9 | 19-Sep-2026 | Keep every suite's full output: --evidence writes <suite>.output.txt; JSON tails hold 20 lines.
+# v2.8 | 18-Sep-2026 | Add WP6.6: admin-surface suites (tier A) and the live admin flow (tier B).
 # v2.7 | 16-Sep-2026 | Add WP6.1: thin-client static inspection (tier A) and a scripted mock turn (tier B).
 # v2.6 | 14-Sep-2026 | WP5.1 text turn also runs the live Whisper transcript; the slip body must be English with steps.
 # v2.5 | 14-Sep-2026 | WP4.2 and WP4.5 schema checks equal the packaged migration count.
@@ -84,6 +86,13 @@ Currently registered:
 - WP6.1 tier B - one scripted mock turn against the running stack. Requires
   the grounded stack; posts one fixture turn through the device loop with mock
   I/O and checks the loop rendered, spoke and printed from the response alone.
+- WP6.6 tier A - the admin-surface suites (auth, config, push, override) run
+  hermetically from the checkout root, the thin-client inspection stays clean
+  and the packaged schema version is 4. No backend, no network.
+- WP6.6 tier B - the live admin flow: an unauthenticated request is refused,
+  a config change flips a real turn's reply language with no restart, a push
+  is delivered exactly once with its pre-synthesised audio, and pending stays
+  [] without an identity. Requires the grounded stack and KAKI_ADMIN_TOKEN.
 - WP5.1 tier B - Malay voice, Malay retrieval and one Malay text turn
   (WP5-AT-01, 04). Requires the grounded configuration, MLX-LM on 8082 and
   the Chroma index. Checks the configured Malay voice is listed by `say` and
@@ -112,6 +121,11 @@ one Malay turn's completions to the local LLM, reads the Chroma index and
 writes only a disposable database under the system temporary directory.
 Exit status is zero only when every check passes; 2 indicates a
 usage or configuration error.
+
+Every check that shells out to a test suite keeps that suite's whole output.
+`--evidence DIR` (or `KAKI_WP_EVIDENCE`) writes one `<suite>.output.txt` per
+suite into DIR, and the JSON report carries the last 20 lines of each, so a
+failed run names the failing test and its traceback without a rerun.
 """
 
 import argparse
@@ -152,6 +166,80 @@ load_dotenv()  #v1.6
 GENERATION_RUNS = 5
 MAX_REPLY_WORDS = 60
 FIXED_TRANSCRIPT = "What time does the community centre open tomorrow morning?"
+
+# Suite output handling, shared by every unit and both tiers (v2.9). A one-line
+# tail loses the failing test's name, assertion and traceback, which is the
+# detail the owner needs from an evidence directory that cannot be rerun.
+SUITE_TAIL_LINES = 20  #v2.9
+# One assertion that prints a base64 data URL is a single 300 kB line, which
+# makes the JSON report unreadable. The tail truncates the line; the output
+# file keeps it whole.
+SUITE_TAIL_LINE_CHARS = 400  #v2.9
+EVIDENCE_DIRECTORY: Path | None = None  #v2.9
+
+
+def _evidence_directory() -> Path | None:  #v2.9
+    """Return the directory suite output is written to, or None when unset.
+
+    `--evidence` wins; `KAKI_WP_EVIDENCE` is the fallback, so a harness that
+    exports the run's evidence path needs no argument change.
+    """
+    if EVIDENCE_DIRECTORY is not None:
+        return EVIDENCE_DIRECTORY
+    configured = os.environ.get("KAKI_WP_EVIDENCE", "").strip()
+    return Path(configured) if configured else None
+
+
+def _tail_lines(text: str) -> list[str]:  #v2.9
+    """Return the last SUITE_TAIL_LINES lines, each capped at SUITE_TAIL_LINE_CHARS."""
+    lines = text.strip().splitlines()[-SUITE_TAIL_LINES:]
+    return [
+        line if len(line) <= SUITE_TAIL_LINE_CHARS
+        else f"{line[:SUITE_TAIL_LINE_CHARS]}... [{len(line)} chars; see the output file]"
+        for line in lines
+    ]
+
+
+def run_suite(name: str, command: list[str], *, cwd: Path | None = None,
+              timeout: int = 600) -> tuple[subprocess.CompletedProcess, dict[str, object]]:  #v2.9
+    """Run one test suite and keep all of its output.
+
+    Returns the completed process and the record to put in the JSON report:
+    exit code, tests run, the last `SUITE_TAIL_LINES` lines of the combined
+    output, and the path of the `<name>.output.txt` file written under the
+    evidence directory. Stdout and stderr stay separate on the returned
+    process, so a caller that parses a JSON stdout still can.
+
+    Side effect: writes one file per suite when an evidence directory is
+    configured. A directory that cannot be written is reported in
+    `output_error` rather than failing the check, because the suite result
+    matters more than its transcript.
+    """
+    completed = subprocess.run(command, capture_output=True, text=True,
+                               timeout=timeout, cwd=cwd)
+    combined = (
+        f"$ {' '.join(command)}\n"
+        f"exit code: {completed.returncode}\n"
+        f"--- stdout ---\n{completed.stdout}"
+        f"--- stderr ---\n{completed.stderr}"
+    )
+    ran = re.search(r"^Ran (\d+) tests?", completed.stderr, re.MULTILINE)
+    record: dict[str, object] = {
+        "exit_code": completed.returncode,
+        "tests_ran": int(ran.group(1)) if ran else 0,
+        "tail": _tail_lines(combined),
+        "output_path": None,
+    }
+    directory = _evidence_directory()
+    if directory is not None:
+        destination = directory / f"{name}.output.txt"
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            destination.write_text(combined, encoding="utf-8")
+            record["output_path"] = str(destination)
+        except OSError as error:
+            record["output_error"] = f"{destination}: {error}"
+    return completed, record
 
 
 def check_wp23_tier_b() -> tuple[dict[str, object], dict[str, bool]]:
@@ -1241,8 +1329,8 @@ def _check_backup_readability(data_root: Path) -> tuple[dict[str, object], dict[
 
 def _check_devset_actions() -> tuple[dict[str, object], dict[str, bool]]:  #v2.3
     """Run the devset regression and report the action-item result as a count and a rate."""
-    completed = subprocess.run(
-        [sys.executable, str(REGRESSION_CLI)], capture_output=True, text=True,
+    completed, suite_record = run_suite(  #v2.9
+        "run_regression.py", [sys.executable, str(REGRESSION_CLI)],
         timeout=WP45_REGRESSION_TIMEOUT_SECONDS,
     )
     try:
@@ -1250,7 +1338,9 @@ def _check_devset_actions() -> tuple[dict[str, object], dict[str, bool]]:  #v2.3
     except ValueError:
         print(f"FAIL: run_regression.py printed no JSON report:\n{completed.stderr}",
               file=sys.stderr)
-        return ({"regression_exit_code": completed.returncode},
+        return ({"regression_exit_code": completed.returncode,
+                 "regression_tail": suite_record["tail"],
+                 "regression_output": suite_record["output_path"]},
                 {"regression_report_readable": False})
     actions = [result for result in regression["results"]
                if result["expected_intent"] in WP45_ACTION_INTENTS]
@@ -1258,7 +1348,8 @@ def _check_devset_actions() -> tuple[dict[str, object], dict[str, bool]]:  #v2.3
     rate = correct / len(actions) if actions else 0.0
     report = {
         "regression_exit_code": completed.returncode,
-        "regression_stderr_tail": completed.stderr.strip().splitlines()[-1:],
+        "regression_stderr_tail": suite_record["tail"],  #v2.9
+        "regression_output": suite_record["output_path"],  #v2.9
         "items": regression["items"],
         "intent_accuracy": regression["intent_accuracy"],
         "action_items_result": f"{correct} of {len(actions)}, {rate:.2f}",
@@ -1585,19 +1676,19 @@ def check_wp61_tier_a() -> tuple[dict[str, object], dict[str, bool]]:  #v2.7
     hardware, no network.
     """
     findings = thin_client_findings()
-    suite = subprocess.run(
+    suite, suite_record = run_suite(  #v2.9
+        "device_tests",
         [sys.executable, "-m", "unittest", "discover", "-s", str(DEVICE_ROOT / "tests"),
          "-t", str(DEVICE_ROOT / "tests")],
-        capture_output=True, text=True, timeout=600,
     )
-    ran = re.search(r"^Ran (\d+) tests?", suite.stderr, re.MULTILINE)
     report = {
         "device_root": str(DEVICE_ROOT),
         "device_sources": [str(path.relative_to(DEVICE_ROOT)) for path in _device_sources()],
         "findings": findings,
         "suite_exit_code": suite.returncode,
-        "suite_tests_ran": int(ran.group(1)) if ran else 0,
-        "suite_tail": suite.stderr.strip().splitlines()[-1:],
+        "suite_tests_ran": suite_record["tests_ran"],
+        "suite_tail": suite_record["tail"],
+        "suite_output": suite_record["output_path"],
     }
     checks = {f"no_{rule}_findings": not found for rule, found in findings.items()}
     checks["device_suite_passed"] = suite.returncode == 0
@@ -1658,6 +1749,135 @@ def check_wp61_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.7
     }
 
 
+# ---------------------------------------------------------------------------
+# WP6.6: the demo admin surface.
+# ---------------------------------------------------------------------------
+
+WP66_SUITES = (  #v2.8
+    ("backend/tests/contract", "test_wp6_6.py"),
+    ("backend/tests/unit", "test_admin_store.py"),
+    ("backend/tests/unit", "test_language_override.py"),
+)
+WP66_SCHEMA_VERSION = 4  #v2.8
+WP66_MESSAGE_KEY = "cdc-vouchers-available"  #v2.8
+WP66_PUSH_FIXTURES = ("push_cdc_en.wav", "push_cdc_ms.wav")  #v2.8
+
+
+def check_wp66_tier_a() -> tuple[dict[str, object], dict[str, bool]]:  #v2.8
+    """Prove the admin surface deterministically (WP6-AT-15/16/17 at tier A).
+
+    Runs the three WP6.6 suites from the checkout root so `kaki_test_env`
+    sanitises the environment, re-runs the WP6-AT-13 inspection (the unit
+    must not have touched the device), and pins the packaged schema version.
+    """
+    root = Path(__file__).resolve().parent.parent
+    report: dict[str, object] = {"suites": {}}
+    checks: dict[str, bool] = {}
+    for directory, pattern in WP66_SUITES:
+        completed, record = run_suite(  #v2.9
+            pattern,
+            [sys.executable, "-m", "unittest", "discover", "-s", directory, "-p", pattern],
+            cwd=root,
+        )
+        report["suites"][pattern] = record
+        checks[f"{pattern}_passed"] = completed.returncode == 0
+        checks[f"{pattern}_ran_tests"] = record["tests_ran"] > 0
+    findings = thin_client_findings()
+    report["thin_client_findings"] = findings
+    checks["device_still_a_thin_client"] = not any(findings.values())
+    report["packaged_schema_version"] = packaged_schema_version()
+    checks["packaged_schema_version_is_4"] = packaged_schema_version() == WP66_SCHEMA_VERSION
+    report["push_fixtures_present"] = {
+        name: Path(str(files("kaki_backend").joinpath("fixtures", name))).is_file()
+        for name in WP66_PUSH_FIXTURES
+    }
+    return report, checks
+
+
+def _admin_request(client: httpx.Client, method: str, path: str, token: str | None,
+                   body: dict | None = None) -> httpx.Response:  #v2.8
+    """Send one admin request with or without the bearer token."""
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    return client.request(method, path, headers=headers, json=body)
+
+
+def check_wp66_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.8
+    """Prove the live admin flow on the running stack (WP6-AT-15/16/17).
+
+    Needs KAKI_ADMIN_TOKEN in the environment and the grounded stack. Uses a
+    scratch device_id throughout and restores its configuration to `auto`, so
+    the kiosk's own configuration is never touched. Posts one real turn, which
+    the backend stores like any other.
+    """
+    token = os.environ.get("KAKI_ADMIN_TOKEN", "").strip()
+    if not token:
+        raise ValueError("export KAKI_ADMIN_TOKEN before running WP6.6 tier B.")
+    for name in WP66_PUSH_FIXTURES:
+        if not Path(str(files("kaki_backend").joinpath("fixtures", name))).is_file():
+            raise ValueError(
+                f"the push fixture {name} is missing: run "
+                "scripts/wp6_6_evidence.sh --capture-fixtures first."
+            )
+    device_id = f"wp66-check-{uuid4().hex[:8]}"
+    report: dict[str, object] = {"device_id": device_id}
+    checks: dict[str, bool] = {}
+    with httpx.Client(base_url="http://127.0.0.1:8000", timeout=300) as client:
+        unauthenticated = _admin_request(
+            client, "POST", "/api/admin/config", None,
+            {"device_id": device_id, "reply_language": "ms"},
+        )
+        checks["unauthenticated_request_rejected"] = unauthenticated.status_code == 401
+        state = _admin_request(client, "GET", "/api/admin/state", token)
+        checks["state_readable_with_token"] = state.status_code == 200
+        checks["rejected_write_changed_nothing"] = device_id not in [
+            row["device_id"] for row in state.json().get("config", [])
+        ]
+
+        configured = _admin_request(client, "POST", "/api/admin/config", token,
+                                    {"device_id": device_id, "reply_language": "ms"})
+        checks["config_accepted"] = configured.status_code == 200
+
+        fixture = files("kaki_backend").joinpath("fixtures", "cdc_question.wav").read_bytes()
+        turn = client.post(
+            "/api/device/turn",
+            data={"device_id": device_id, "session_id": device_id,
+                  "turn_id": f"wp66-{uuid4().hex[:8]}"},
+            files={"audio": ("cdc_question.wav", fixture, "audio/wav")},
+        )
+        body = turn.json() if turn.status_code == 200 else {}
+        debug = client.get("/api/device/debug/last-turn").json()
+        report["turn"] = {"status": turn.status_code, "state": body.get("state"),
+                          "language": body.get("language"),
+                          "language_override": debug.get("language_override")}
+        checks["override_turn_answered"] = body.get("state") == "answered"
+        checks["override_turn_replied_in_ms_without_restart"] = body.get("language") == "ms"
+        checks["override_recorded_on_the_turn"] = debug.get("language_override") == "ms"
+
+        pushed = _admin_request(client, "POST", "/api/admin/push", token,
+                                {"device_id": device_id})
+        checks["push_accepted"] = pushed.status_code == 200
+        first = client.get(f"/api/device/pending?device_id={device_id}").json()
+        second = client.get(f"/api/device/pending?device_id={device_id}").json()
+        anonymous = client.get("/api/device/pending").json()
+        report["pending"] = {"first": len(first), "second": len(second),
+                             "anonymous": len(anonymous)}
+        checks["push_delivered_once"] = len(first) == 1 and second == []
+        checks["pending_empty_without_identity"] = anonymous == []
+        if first:
+            item = first[0]
+            report["nudge"] = {"id": item.get("id"), "language": item.get("language"),
+                               "text": item.get("text", "")[:60],
+                               "audio_bytes": len(item.get("audio") or "")}
+            checks["nudge_is_the_seeded_malay_message"] = (
+                item.get("id") == WP66_MESSAGE_KEY and item.get("language") == "ms"
+            )
+            checks["nudge_carries_presynthesised_audio"] = bool(item.get("audio"))
+        restore = _admin_request(client, "POST", "/api/admin/config", token,
+                                 {"device_id": device_id, "reply_language": "auto"})
+        checks["scratch_config_restored_to_auto"] = restore.status_code == 200
+    return report, checks
+
+
 REGISTRY = {
     ("WP2.3", "B"): check_wp23_tier_b,
     ("WP2.4", "B"): check_wp24_tier_b,
@@ -1671,6 +1891,8 @@ REGISTRY = {
     ("WP5.1", "B"): check_wp51_tier_b,  #v2.4
     ("WP6.1", "A"): check_wp61_tier_a,  #v2.7
     ("WP6.1", "B"): check_wp61_tier_b,  #v2.7
+    ("WP6.6", "A"): check_wp66_tier_a,  #v2.8
+    ("WP6.6", "B"): check_wp66_tier_b,  #v2.8
 }
 
 
@@ -1687,12 +1909,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--tier", required=True, choices=["A", "B"],
         help="Test tier: A deterministic developer checks, B Mac runtime checks",
     )
+    parser.add_argument(  #v2.9
+        "--evidence", metavar="DIR", default=None,
+        help="Directory to write each suite's full output to as <suite>.output.txt. "
+             "Created if absent. Defaults to $KAKI_WP_EVIDENCE, or nothing when unset.",
+    )
     return parser
 
 
 def main() -> int:
-    """Run the registered checks for the requested unit/tier and print a JSON report."""
+    """Run the registered checks for the requested unit/tier and print a JSON report.
+
+    Side effect: with `--evidence` (or `KAKI_WP_EVIDENCE`) set, each suite the
+    checks run leaves its full output in that directory.
+    """
+    global EVIDENCE_DIRECTORY  #v2.9
     args = build_parser().parse_args()
+    if args.evidence:
+        EVIDENCE_DIRECTORY = Path(args.evidence).expanduser()
     runner = REGISTRY.get((args.unit, args.tier))
     if runner is None:
         supported = ", ".join(f"{unit} tier {tier}" for unit, tier in sorted(REGISTRY))
@@ -1715,6 +1949,9 @@ def main() -> int:
         return 0
     failed = ", ".join(sorted(name for name, passed in checks.items() if not passed))
     print(f"FAIL: {failed}", file=sys.stderr)
+    directory = _evidence_directory()  #v2.9
+    if directory is not None:
+        print(f"Suite output: {directory}/<suite>.output.txt", file=sys.stderr)
     return 1
 
 

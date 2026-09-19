@@ -2,7 +2,7 @@
 
 **Detailed installation and operational procedure**
 
-Version 1.5 | 16-Sep-2026 | SGLN Group 10
+Version 1.7 | 19-Sep-2026 | SGLN Group 10
 
 Suggested repository location: `infra/macos/setup.md`
 
@@ -1078,6 +1078,32 @@ Secrets such as Cloudflare service credentials, future Telegram credentials, or 
 
 `.env.example` contains variable names only.
 
+#### Admin surface token (WP6.6)
+
+The `/api/admin/*` routes require the application's own bearer token and fail
+closed without one (`design.md` 5.5). Generate it once and add it to the
+untracked project-root `.env`, which the backend loads at startup:
+
+[WEBSVC]
+
+```bash
+python3 -c "import secrets; print('KAKI_ADMIN_TOKEN=' + secrets.token_urlsafe(32))" >> ~/projects/kaki-talkie/.env
+chmod 600 ~/projects/kaki-talkie/.env
+```
+
+Restart the backend afterwards; the startup log prints
+`admin surface enabled`. Two optional companions in the same file:
+
+```text
+KAKI_ADMIN_TOKEN            required; admin routes answer 403 while unset
+KAKI_ADMIN_DEFAULT_DEVICE   the target the /admin page offers
+                            (default kaki-pi-01)
+```
+
+The token is a human-operator secret for the admin page and the loopback
+`curl` fallback (`scripts/wp6_6_admin.sh`). It is never the device service
+credential (15.4), and it never appears in Git.
+
 ### 11.5 FastAPI acceptance gate
 
 The WP1 gate closed on 05-Sep-2026. Its contract behaviour is now a regression baseline. Validate through the runbook: section 6 for the WP1 regression reference and section 7.4 for the current full-stack gate.
@@ -1280,8 +1306,10 @@ Once the simulator is added, preserve the final public URL design:
 
 ```text
 https://talkie.lookieman.dev/sim
+https://talkie.lookieman.dev/admin
 https://talkie.lookieman.dev/api/device/turn
 https://talkie.lookieman.dev/api/device/pending
+https://talkie.lookieman.dev/api/admin/config
 ```
 
 Cloudflare Tunnel ingress rules can match by hostname and path. Use path-specific routing when the simulator and API need different local origins.
@@ -1293,6 +1321,7 @@ Example logical routing:
 | Public route                         | Local origin               |
 +--------------------------------------+----------------------------+
 | talkie.lookieman.dev/api/device/*    | http://127.0.0.1:8000      |
+| talkie.lookieman.dev/api/admin/*     | http://127.0.0.1:8000      |
 | talkie.lookieman.dev/api/health      | http://127.0.0.1:8000      |
 | talkie.lookieman.dev/*               | http://127.0.0.1:3000      |
 +--------------------------------------+----------------------------+
@@ -1308,9 +1337,15 @@ Protect human-facing routes such as:
 /sim
 /test
 /admin
+/api/admin/*
 ```
 
 Use Cloudflare Access human authentication.
+
+`/api/admin/*` carries the `/api` prefix but is a human route (WP6.6,
+`design.md` section 5.5). Do not attach the device service credential to
+it. Without a route of its own it falls through to the simulator origin
+on port 3000 and returns 404.
 
 For the MVP, allow only explicitly authorised users rather than making the simulator publicly available.
 
@@ -2024,6 +2059,13 @@ WP6.4 and are documented there when those units are prepared.
 |         |             | the shipped runtime and WP2.4 health readiness. Stages    |
 |         |             | from section 11 tagged with their owning work package.    |
 |         |             | Acceptance checklists moved to the validation runbook.    |
+| 1.7     | 19-Sep-2026 | Added the WP6.6 admin token step to 11.4:            |
+|         |             | KAKI_ADMIN_TOKEN generated into the project-root     |
+|         |             | .env, with KAKI_ADMIN_DEFAULT_DEVICE optional. The   |
+|         |             | admin routes fail closed without the token.          |
+| 1.6     | 18-Sep-2026 | Added the /api/admin/* Cloudflare route to 15.2 and  |
+|         |             | 15.3: a human route despite the /api prefix, never   |
+|         |             | carrying the device service credential (WP6.6).      |
 | 1.5     | 16-Sep-2026 | Added section 29, the Raspberry Pi thin client:      |
 |         |             | Pi 4B 8 GB, Bookworm 64-bit with desktop, Python    |
 |         |             | and apt dependencies, the Waveshare 1024x600 HDMI   |

@@ -1,3 +1,4 @@
+# v1.8 | 18-Sep-2026 | WP6.6: expose the admin language override.
 # v1.7 | 13-Sep-2026 | WP5.1: expose the reply language, mode, render outcome and rewrite audit.
 # v1.6 | 13-Sep-2026 | Expose the action's previous turn and its outcome.
 # v1.5 | 13-Sep-2026 | Read the newest stored turn and expose its replay history.
@@ -49,6 +50,7 @@ def last_turn(request: Request) -> dict[str, object]:
         "reply_language": log.reply_language,  #v1.7
         "reply_mode": log.reply_mode,  #v1.7
         "render_outcome": log.render_outcome,  #v1.7
+        "language_override": log.language_override,  #v1.8
         "cited_source_id": log.cited_source_id,  #v1.2
         "llm_cited_index": log.llm_cited_index,  #v1.2
         "retrieval_evidence": [  #v1.1

@@ -2,8 +2,21 @@
 
 **Final locked design for the voice pipeline, grounded retrieval, web simulator, and deployment architecture**
 
-Version 1.4 | 13-Sep-2026 | SGLN Group 10
+Version 1.7 | 18-Sep-2026 | SGLN Group 10
 
+> v1.7 tightens section 5.5 after the WP6.6 plan turn: admin routes carry
+> an application bearer token beneath human Access, every admin write
+> names its target device, and section 14 states the at-most-once
+> delivery rule.
+> v1.6 adds section 5.5, the presenter admin surface, and the
+> `pending_messages` table in section 14. During the pitch a colleague
+> switches the reply language and releases one canned push message. The
+> device contract does not change: the device still reads only
+> `/api/device/turn`, `/api/device/pending` and `/api/health`.
+> v1.5 adds section 4.3, physical device audio. Tier C testing on the
+> Jabra Speak 510 showed that its speaker plays 16 kHz audio too fast,
+> so the Pi client converts every sound to 48 kHz stereo before
+> playback. The backend contract does not change.
 > v1.4 defers the human handoff and calendar capabilities, and their
 > Telegram and Google Calendar integrations, beyond the MVP. The
 > `kaki_handoff` and `calendar_create` intents, the `cases` table and the
@@ -220,6 +233,32 @@ sequenceDiagram
     D->>D: Play, display and optionally print
 ```
 
+### 4.3 Physical device audio
+
+The Pi client uses a Jabra Speak 510 over USB for capture and playback. Tier C testing on 17-Sep-2026 found these device limits:
+
+```text
++-----------+-------------------------------+---------------------------------+
+| Direction | Device behaviour              | Client rule                     |
++-----------+-------------------------------+---------------------------------+
+| Capture   | Supports 16 kHz mono S16_LE   | Record 16 kHz mono S16_LE.      |
+|           | only.                         |                                 |
+| Playback  | Lists 8, 16 and 48 kHz        | Convert every sound to 48 kHz   |
+|           | stereo, but plays 16 kHz      | stereo S16_LE before playback.  |
+|           | audio too fast. 48 kHz stereo |                                 |
+|           | plays correctly.              |                                 |
++-----------+-------------------------------+---------------------------------+
+```
+
+Apply these rules in the device client:
+
+- The client reads the sample rate and channel count from each WAV header. It does not assume the TTS output format, because the TTS engine can change.
+- One playback function handles every sound: reply audio, repeat previous, canned-mode audio and the listening chime. No path bypasses the conversion.
+- The client selects the Jabra by its stable ALSA card name, not by card number. Card numbers change with boot order and other USB devices. Device names and rates live in the device configuration, not in code.
+- The client uses ALSA directly, not PipeWire, so the systemd service works without a desktop session.
+
+The backend contract does not change. The backend keeps returning its TTS output as it does for the simulator. Conversion is device I/O, so it does not breach the thin-client rule in section 18.1. Converting on the backend would enlarge the stored reply audio about four times and serve no other client.
+
 ---
 
 ## 5. Request and response contract
@@ -282,6 +321,52 @@ Retain the Genesis pending endpoint for follow-up and scheduled nudges. Scheduli
 A due follow-up is a backend-driven interaction, not text silently prepended to an unrelated new answer. The device/simulator polls pending, plays a due follow-up once, enters an awaiting-follow-up-response state, and the user's next turn resolves or keeps the case open. The backend must track delivery state so five-minute polling does not repeatedly replay the same prompt.
 
 The exact pending item schema may be finalised during the state/action work package, but it must carry enough identity, due-time and delivery state to make that behaviour deterministic.
+
+### 5.5 Admin surface
+
+The pitch needs a second operator. A colleague holds a phone, taps a
+button, and the kiosk reacts while the presenter keeps talking.
+
+```text
++--------------------------+---------------------------------------------+
+| Route                    | Effect                                      |
++--------------------------+---------------------------------------------+
+| POST /api/admin/config   | Sets reply_language for one device:         |
+|                          | en, ms or auto.                             |
+| POST /api/admin/push     | Marks one seeded canned message due for     |
+|                          | one device.                                 |
+| GET  /api/admin/state    | Returns the current config and the pending  |
+|                          | queue, so the operator sees what is live.   |
++--------------------------+---------------------------------------------+
+```
+
+Rules:
+
+- The admin surface writes state. It never enters the turn pipeline,
+  calls a model, or synthesises audio.
+- The device learns of a push through the existing
+  `GET /api/device/pending`. There is no new device route, and the
+  section 5.4 delivery-state rule still governs replay.
+- Canned messages are seeded rows carrying pre-synthesised audio.
+  `push` marks one due.
+- `reply_language` is a per-device override of the section 6.4 policy.
+  `auto` is the default and returns the decision to the router.
+- `/api/admin/*` uses human Access authentication (section 15.2), never
+  the device service credential.
+- The application also requires its own bearer token (`KAKI_ADMIN_TOKEN`)
+  on every admin route, and fails closed when the token is unset. Access
+  protects the tunnel path; the token protects the loopback path, which
+  exists for the times the tunnel is down.
+- Every admin write names its `device_id`. No route infers the target
+  from recent activity. The admin page sends a configured default and
+  shows it in the status line, so the operator always knows which
+  surface they are steering.
+- Every admin action must also run as a loopback `curl` on the Mac Mini.
+  The tunnel is the weakest link in the demo, and the fallback path must
+  not depend on it.
+
+The admin page is a static page at `/admin`, served by the simulator
+origin behind the same human Access session as `/sim`.
 
 ---
 
@@ -379,6 +464,7 @@ Hokkien TTS remains dependent on the quality of the text supplied to it. Native-
 
 - STT provides language evidence rather than being trusted as the only language decision.
 - The router determines the conversational reply language from transcript, STT evidence and configured preference.
+- A device may carry a reply-language override (section 5.5). Set to `en` or `ms`, it wins over STT evidence; `auto` returns the decision to the router.
 - For code-switched input, prefer the dominant conversational language rather than artificially switching every phrase.
 - Singapore English should sound natural, not caricatured. Do not force particles such as `lah`, `leh` or `lor` into every response.
 - Printed slips are always English in the MVP.
@@ -715,6 +801,7 @@ It uses the same `POST /api/device/turn` and pending contract as the Pi.
 | Display              | Renders display_text only.                          |
 | Speaker              | Plays reply_audio.                                  |
 | Thermal printer      | Renders the English slip as a 58 mm receipt mock.   |
+| Pending poll         | Polls pending; 3-5 seconds during a demo.           |
 | Canned mode          | Exercises rehearsed fallback behaviour.             |
 | Debug/test panel     | Optional protected view of transcript and timings.  |
 +----------------------+-----------------------------------------------------+
@@ -788,6 +875,27 @@ Recommended logical tables:
 - source update date where known;
 - content hash/chunk identifier.
 
+### pending_messages
+
+- message_id;
+- device_id;
+- canned message identifier;
+- display text;
+- pre-synthesised audio reference;
+- due state and due time;
+- delivery state and delivered timestamp.
+
+Seeded at deployment, released by `POST /api/admin/push` (section 5.5),
+read by `GET /api/device/pending`. Delivery state is what stops a
+3-second poll replaying the same message.
+
+Delivery is at-most-once and scoped to the calling `device_id`: the
+pending read selects and marks in one transaction, so a lost response
+drops the nudge rather than replaying it. A dropped nudge is recovered by
+pushing again, which is a button the operator already has. Two clients
+sharing one `device_id` would steal each other's messages, so the
+simulator and the Pi must carry different identities.
+
 ### cases (deferred beyond the MVP)
 
 The `cases` table served the handoff and follow-up capability, which v1.4
@@ -812,13 +920,14 @@ Cloudflare Tunnel routes the public hostname to the two localhost applications:
 
 ```text
 talkie.lookieman.dev/api/device/* -> 127.0.0.1:8000
+talkie.lookieman.dev/api/admin/*  -> 127.0.0.1:8000
 talkie.lookieman.dev/api/health   -> 127.0.0.1:8000
 talkie.lookieman.dev/*            -> 127.0.0.1:3000
 ```
 
 Use different Access identities for humans and physical devices without changing the API contract:
 
-- `/sim` and protected test/admin pages use the authenticated human Access session;
+- `/sim`, `/admin` and `/api/admin/*` use the authenticated human Access session;
 - browser simulator calls to `/api/device/*` may rely on that authenticated human session plus application-level simulator identity;
 - the physical Pi uses Cloudflare service authentication plus the application's per-device identity.
 
@@ -1281,6 +1390,17 @@ That is the software core of KaKi-Talkie. Hardware then becomes an alternative c
 +---------+-------------+--------------------------------------------------+
 | Version | Date        | Change                                           |
 +---------+-------------+--------------------------------------------------+
+| 1.7     | 18-Sep-2026 | Added the admin bearer token, the explicit       |
+|         |             | target device rule and the at-most-once          |
+|         |             | delivery statement after the WP6.6 plan turn.    |
+| 1.6     | 18-Sep-2026 | Added section 5.5, the presenter admin surface,  |
+|         |             | the pending_messages table in section 14, the    |
+|         |             | reply-language override in 6.4 and the           |
+|         |             | /api/admin/* tunnel and Access routes in 15.     |
+| 1.5     | 17-Sep-2026 | Added section 4.3, physical device audio: Jabra  |
+|         |             | capture at 16 kHz mono; client converts all      |
+|         |             | playback to 48 kHz stereo. Backend contract      |
+|         |             | unchanged.                                       |
 | 1.4     | 13-Sep-2026 | Deferred the handoff and calendar capabilities   |
 |         |             | and their Telegram and Google Calendar           |
 |         |             | integrations beyond the MVP. Removed the cases   |

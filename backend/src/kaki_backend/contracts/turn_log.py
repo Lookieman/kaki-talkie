@@ -1,3 +1,4 @@
+# v2.1 | 18-Sep-2026 | WP6.6: record when the admin override chose the reply language.
 # v2.0 | 13-Sep-2026 | WP5.1: record the reply-language decision, Malay reply mode and render outcome.
 # v1.9 | 13-Sep-2026 | Record the turn an action resolved to and whether it resolved.
 # v1.8 | 13-Sep-2026 | Record which evidence chunk stands behind each response source.
@@ -106,6 +107,10 @@ class TurnLog(BaseModel):
     reply_language: str | None = None  #v2.0
     reply_mode: str | None = None  #v2.0
     render_outcome: str | None = None  #v2.0
+    # WP6.6: 'en' or 'ms' when the per-device admin override, not the section
+    # 6.4 policy, chose the reply language; null otherwise. stt_language keeps
+    # Whisper's evidence untouched either way.
+    language_override: str | None = None  #v2.1
 
 
 class TurnExecution(BaseModel):

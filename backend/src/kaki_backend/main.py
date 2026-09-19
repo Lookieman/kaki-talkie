@@ -1,3 +1,4 @@
+# v2.2 | 18-Sep-2026 | WP6.6: mount the admin surface and the per-device language override.
 # v2.1 | 13-Sep-2026 | WP5.1: pass the language settings and log them at startup.
 # v2.0 | 13-Sep-2026 | Give the pipeline the turn store so WP4.2 actions resolve from it.
 # v1.9 | 13-Sep-2026 | Open and migrate the SQLite turn store at startup.
@@ -22,6 +23,7 @@ import sys  #v1.9
 from dotenv import load_dotenv  #v1.7
 from fastapi import FastAPI
 
+from kaki_backend.api.admin import router as admin_router  #v2.2
 from kaki_backend.api.debug import router as debug_router  #v1.5
 from kaki_backend.api.health import router as health_router
 from kaki_backend.api.pending import router as pending_router  #v1.1
@@ -30,8 +32,9 @@ from kaki_backend.orchestration.idempotency import TurnService  #v1.1
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline  #v1.1
 from kaki_backend.config import LlmSettings, RetrievalSettings, SttSettings, TtsSettings  #v1.6
 from kaki_backend.config import StorageSettings  #v1.9
-from kaki_backend.config import LanguageSettings  #v2.1
+from kaki_backend.config import AdminSettings, LanguageSettings  #v2.2
 from kaki_backend.persistence.database import Database  #v1.9
+from kaki_backend.persistence.admin_store import AdminStore  #v2.2
 from kaki_backend.persistence.repositories import TurnRepository  #v1.9
 
 # The grounded retriever embeds with a Hugging Face model, whose `HF_TOKEN`
@@ -47,6 +50,14 @@ print(  #v1.9
     file=sys.stderr, flush=True,
 )
 turn_repository = TurnRepository(app.state.database)  #v2.0
+app.state.admin_settings = AdminSettings.from_environment()  #v2.2
+app.state.admin_store = AdminStore(app.state.database)  #v2.2
+print(  #v2.2
+    "kaki_backend: admin surface "
+    + ("enabled" if app.state.admin_settings.enabled else "disabled (KAKI_ADMIN_TOKEN unset)")
+    + f", default device {app.state.admin_settings.default_device}",
+    file=sys.stderr, flush=True,
+)
 retrieval_settings = RetrievalSettings.from_environment()  #v1.6
 language_settings = LanguageSettings.from_environment()  #v2.1
 tts_settings = TtsSettings.from_environment()  #v2.1
@@ -75,11 +86,13 @@ app.state.turn_service = TurnService(TurnPipeline(  #v1.4
     history=turn_repository,  #v2.0
     language_preference=language_settings.preference,  #v2.1
     malay_reply_mode=language_settings.malay_reply_mode,  #v2.1
+    reply_language_for=app.state.admin_store.reply_language_for,  #v2.2
 ), turn_repository)  #v2.0
 app.include_router(health_router)
 app.include_router(pending_router)  #v1.1
 app.include_router(turn_router)
 app.include_router(debug_router)  #v1.5
+app.include_router(admin_router)  #v2.2
 
 
 def run() -> None:  #v1.2

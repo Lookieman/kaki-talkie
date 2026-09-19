@@ -1,3 +1,8 @@
+# v1.8 | 19-Sep-2026 | Load KAKI_ADMIN_TOKEN in common setup, so env-only mode
+#                      gets it too. It sat in the WP6.6 branch, which runs
+#                      after the env-only return, so `source kaki_env.sh env`
+#                      left the admin surface disabled.
+# v1.7 | 18-Sep-2026 | Add WP6.6: evidence directory, KAKI_DB and the admin token from .env.
 # v1.6 | 16-Sep-2026 | Add WP6.1: device evidence directory and mock fixture path.
 # v1.5 | 13-Sep-2026 | Add WP5.1: KAKI_DB, WP51_EVIDENCE at wp5.1/evidence.XXXXXX, WP51_AUDIO.
 # v1.4 | 13-Sep-2026 | Add WP4.5: KAKI_DB and WP45_EVIDENCE at wp4.5/evidence.XXXXXX.
@@ -37,10 +42,23 @@ export KAKI_TTS_TIMEOUT_SECONDS=30
 export KAKI_RETRIEVAL_MODE=rag
 export HF_HOME=/Users/websvc/models/huggingface
 
+# The admin surface fails closed without its token. Read it from the      #v1.8
+# untracked project-root .env when the shell has none, so every mode -    #v1.8
+# env-only included - can drive the admin endpoints.                      #v1.8
+if [ -z "${KAKI_ADMIN_TOKEN:-}" ] && [ -f "$KAKI_APP_ROOT/.env" ]; then    #v1.8
+    KAKI_ADMIN_TOKEN="$(sed -n 's/^KAKI_ADMIN_TOKEN=//p' "$KAKI_APP_ROOT/.env" | tail -1)"  #v1.8
+fi                                                                        #v1.8
+[ -z "${KAKI_ADMIN_TOKEN:-}" ] || export KAKI_ADMIN_TOKEN                 #v1.8
+
 # env-only mode: export variables and stop.                     #v1.1
 if [ "$1" = "env" ]; then                                       #v1.1
     printf 'App root: %s\n' "$KAKI_APP_ROOT"                    #v1.1
     printf 'Mode:     env-only (no unit, no evidence dir)\n'     #v1.1
+    if [ -n "${KAKI_ADMIN_TOKEN:-}" ]; then                      #v1.8
+        printf 'Admin:    KAKI_ADMIN_TOKEN set\n'                #v1.8
+    else                                                         #v1.8
+        printf 'Admin:    KAKI_ADMIN_TOKEN unset (admin surface disabled)\n'  #v1.8
+    fi                                                           #v1.8
     return 0                                                     #v1.1
 fi                                                               #v1.1
 
@@ -93,6 +111,13 @@ case "$KAKI_UNIT" in                                             #v1.2
         export KAKI_EVIDENCE WP51_EVIDENCE="$KAKI_EVIDENCE"      #v1.5
         export WP51_AUDIO="$KAKI_DATA_ROOT/wp5.1/audio"          #v1.5
         ;;                                                       #v1.5
+    WP6.6)                                                       #v1.7
+        # KAKI_ADMIN_TOKEN now loads in common setup above (runbook 11.1 WP6.6).
+        export KAKI_DB="${KAKI_SQLITE_PATH:-$KAKI_DATA_ROOT/sqlite/kaki.db}"  #v1.7
+        rmdir "$KAKI_EVIDENCE" || return 1                       #v1.7
+        KAKI_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp6.6/evidence.XXXXXX")" || return 1  #v1.7
+        export KAKI_EVIDENCE WP66_EVIDENCE="$KAKI_EVIDENCE"      #v1.7
+        ;;                                                       #v1.7
 esac                                                             #v1.2
 
 printf 'Unit:     %s\n' "$KAKI_UNIT"

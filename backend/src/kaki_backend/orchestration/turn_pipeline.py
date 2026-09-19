@@ -1,3 +1,4 @@
+# v2.5 | 18-Sep-2026 | WP6.6: per-device admin override of the reply language, read per turn.
 # v2.4 | 14-Sep-2026 | Keep the slip English: retry a non-English grounded answer with the English query.
 # v2.3 | 13-Sep-2026 | WP5.1: reply-language policy, Malay reply modes, speech language.
 # v2.2 | 13-Sep-2026 | Answer repeat_previous and print_previous from stored turns.
@@ -65,6 +66,7 @@ the limit the system can actually enforce.
 """
 
 from time import perf_counter  #v1.1
+from typing import Callable  #v2.5
 
 from kaki_backend.contracts.ports import LlmPort, RetrieverPort, SttPort, TtsPort  #v1.1
 from kaki_backend.contracts.ports import LlmError, SttError, Transcription, TtsError  #v1.6
@@ -207,6 +209,7 @@ class TurnPipeline:  #v1.1
         history: TurnHistory | None = None,  #v2.2
         language_preference: str = ENGLISH,  #v2.3
         malay_reply_mode: str = ReplyMode.ENGLISH.value,  #v2.3
+        reply_language_for: Callable[[str], str] | None = None,  #v2.5
     ) -> None:
         """Select supplied ports or the existing deterministic canned adapters.
 
@@ -231,6 +234,10 @@ class TurnPipeline:  #v1.1
         self._evidence_min_dense = evidence_min_dense  #v1.9
         self._history = history or NoTurnHistory()  #v2.2
         self._language_preference = language_preference  #v2.3
+        # WP6.6: the per-device admin override (design.md 5.5), consulted once
+        # per transcribed turn. None keeps the pre-WP6.6 behaviour exactly;
+        # 'auto' from the store returns the decision to the policy.
+        self._reply_language_for = reply_language_for  #v2.5
         self._reply_mode = ReplyMode(malay_reply_mode)  #v2.3
         if language_preference not in ("en", "ms"):  #v2.3
             raise ValueError("language_preference must be en or ms.")
@@ -278,6 +285,7 @@ class TurnPipeline:  #v1.1
         source_chunks: list[EvidenceChunk] = []  #v2.1
         action: ActionOutcome | None = None  #v2.2
         reply_language = None  #v2.3
+        language_override = None  #v2.5
         render_outcome = None  #v2.3
         speech_segments: tuple[tuple[str, str], ...] = ()  #v2.3
         slip_steps_english = True  #v2.4
@@ -289,6 +297,14 @@ class TurnPipeline:  #v1.1
             reply_language = decide_reply_language(  #v2.3
                 transcript, transcription.evidence, self._language_preference
             ).language
+            if self._reply_language_for is not None:  #v2.5
+                # The admin override wins over the policy; the policy's own
+                # decision stays visible in the evidence as what it would have
+                # said, and stt_language is never rewritten.
+                configured = self._reply_language_for(device_id)
+                if configured in ("en", "ms"):
+                    language_override = configured
+                    reply_language = configured
             fixed_language = fixed_wording_language(reply_language, self._reply_mode)  #v2.3
             # Layer 1: refuse a credential action before any downstream stage.
             routing = route(transcript)  #v2.0
@@ -489,6 +505,9 @@ class TurnPipeline:  #v1.1
             previous_turn_id=action.previous_turn_id if action else None,  #v2.2
             action_outcome=action.kind.value if action else None,  #v2.2
             reply_language=reply_language if response.state is not TurnState.FAILED else None,  #v2.3
+            language_override=(  #v2.5
+                language_override if response.state is not TurnState.FAILED else None
+            ),
             reply_mode=(  #v2.3
                 self._reply_mode.value if response.state is not TurnState.FAILED else None
             ),

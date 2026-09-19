@@ -1,3 +1,4 @@
+# v1.2 | 18-Sep-2026 | Core-table check is a subset; migration owners assert their own tables.
 # v1.1 | 13-Sep-2026 | Assert at least schema version 1; WP4.2 owns the exact value.
 # v1.0 | 13-Sep-2026 | Cover WP4.1 storage settings, migrations, pragmas and the turn store.
 """SQLite persistence with disposable databases and fake ports; no models or network.
@@ -163,7 +164,7 @@ class StorageSettingsTests(unittest.TestCase):
 
 
 class DatabaseTests(TemporaryDatabaseMixin, unittest.TestCase):
-    def test_open_creates_a_private_file_with_the_four_tables(self) -> None:
+    def test_open_creates_a_private_file_with_the_core_tables(self) -> None:  #v1.1
         database = Database.open(self.path)
         self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o600)
         with database.connect() as connection:
@@ -172,7 +173,10 @@ class DatabaseTests(TemporaryDatabaseMixin, unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type = 'table'"
                 )
             }
-        self.assertEqual(tables, {"devices", "sessions", "turns", "turn_sources"})
+        # The WP4.1 core tables must exist; later migrations may add their
+        # own (WP6.6 added device_config and pending_messages), and each is
+        # asserted exactly by the unit that owns its migration.
+        self.assertLessEqual({"devices", "sessions", "turns", "turn_sources"}, tables)
         # Later migrations raise the version; the exact value is asserted by
         # the unit that adds the migration (WP4.2: test_actions.py).
         self.assertGreaterEqual(database.schema_version(), 1)
