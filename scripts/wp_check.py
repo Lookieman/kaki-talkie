@@ -1,3 +1,5 @@
+# v3.2 | 20-Sep-2026 | WP6.1 tier B builds its BackendClient with KAKI_DEVICE_TOKEN; it was the one live device client v3.1 missed.
+# v3.1 | 20-Sep-2026 | Add WP6.4 (tier A auth/retry/systemd checks, tier B live auth and replay); live tier B clients carry the device bearer token.
 # v3.0 | 20-Sep-2026 | Add WP6.2 (tier A hardware-layer checks, tier C Pi service checks) and tier C; allow gpiozero on the device.
 # v2.9 | 19-Sep-2026 | Keep every suite's full output: --evidence writes <suite>.output.txt; JSON tails hold 20 lines.
 # v2.8 | 18-Sep-2026 | Add WP6.6: admin-surface suites (tier A) and the live admin flow (tier B).
@@ -85,8 +87,9 @@ Currently registered:
   forbidden model/retrieval/prompt/SQL tokens, request paths and environment
   names. Needs no backend, no hardware and no network.
 - WP6.1 tier B - one scripted mock turn against the running stack. Requires
-  the grounded stack; posts one fixture turn through the device loop with mock
-  I/O and checks the loop rendered, spoke and printed from the response alone.
+  the grounded stack and KAKI_DEVICE_TOKEN (WP6.4); posts one fixture turn
+  through the device loop with mock I/O and checks the loop rendered, spoke
+  and printed from the response alone.
 - WP6.2 tier A - the hardware layer without hardware: the device suite (GPIO
   and ALSA fakes, debounce, cap/release, countdown), the WP6-AT-13 inspection
   and a direct conversion golden (16 kHz mono in, 48 kHz stereo S16_LE out).
@@ -95,6 +98,20 @@ Currently registered:
   configured ALSA card resolvable, the kiosk process running, the backend
   reachable and its newest stored turn from this device. Owner actions are
   never simulated; the physical proofs stay in runbook 11.2 WP6.2.
+- WP6.4 tier A - device auth, same-turn_id retry and recovery, deterministically
+  (WP6-AT-04/05/10). Runs the WP6.4 backend contract suite (fail-closed
+  bearer auth, rejection before any state change, the in-flight duplicate
+  turn_id race) and the device suite (token header, retry, retrying frame,
+  placeholder copy), re-runs the WP6-AT-13 inspection, pins the WP6.8
+  placeholder copy and statically checks infra/pi/kaki-device.service
+  (Restart=always, StartLimitIntervalSec=0). No backend, no network.
+- WP6.4 tier B - live device auth and the single-answer replay on the running
+  stack. Requires KAKI_DEVICE_TOKEN (runbook 11.2 WP6.4). An unauthenticated
+  and a wrong-token turn are refused with no state change, an authenticated
+  turn answers, and its turn_id replayed with different audio returns the
+  identical stored answer with replay_count 1. Tier C (systemd kill and
+  power-cycle recovery, WP6-AT-10) is manual owner validation at the Pi and
+  is deliberately not scripted here.
 - WP6.6 tier A - the admin-surface suites (auth, config, push, override) run
   hermetically from the checkout root, the thin-client inspection stays clean
   and the packaged schema version is 4. No backend, no network.
@@ -127,7 +144,10 @@ live database. WP4.5 tier B writes nothing: it reads the newest backup set
 and runs the devset regression, which uses its own disposable database. WP5.1
 tier B synthesises one Malay sentence locally, sends three rewrite requests and
 one Malay turn's completions to the local LLM, reads the Chroma index and
-writes only a disposable database under the system temporary directory.
+writes only a disposable database under the system temporary directory. WP6.4
+tier B submits one fixture turn (fresh turn_id), its replay and two requests
+the backend refuses before any state change; the executed turn is stored in
+the live database.
 Exit status is zero only when every check passes; 2 indicates a
 usage or configuration error.
 
@@ -320,6 +340,18 @@ def check_wp23_tier_b() -> tuple[dict[str, object], dict[str, bool]]:
 
 
 BACKEND_URL = "http://127.0.0.1:8000"
+
+
+def _device_headers() -> dict[str, str]:  #v3.1
+    """Return the WP6.4 device bearer header from KAKI_DEVICE_TOKEN, or nothing.
+
+    Every /api/device/* route requires it since WP6.4; /api/health does not,
+    and sending it there is harmless. Live tier B checks attach it as their
+    client's default headers, so a stack without the token configured still
+    fails with a readable 401/403 rather than a crash here.
+    """
+    token = os.environ.get("KAKI_DEVICE_TOKEN", "").strip()
+    return {"Authorization": f"Bearer {token}"} if token else {}
 FIXED_SPEECH_SENTENCE = "KaKi-Talkie text to speech is working."
 POSITIVE_STAGES = ("audio_preparation_ms", "stt_ms", "routing_ms", "llm_ms", "tts_ms",
                    "overall_ms")
@@ -376,7 +408,8 @@ def check_wp24_tier_b() -> tuple[dict[str, object], dict[str, bool]]:
     canned_reply = CannedLlmPort().generate("")
     canned_transcript = CannedSttPort().transcribe(b"x").text
     try:
-        with httpx.Client(timeout=180, trust_env=False, follow_redirects=False) as client:
+        with httpx.Client(timeout=180, trust_env=False, follow_redirects=False,
+                          headers=_device_headers()) as client:  #v3.1
             health = client.get(BACKEND_URL + "/api/health").json()
             turn_started = perf_counter()
             turn = client.post(
@@ -714,6 +747,7 @@ def check_wp33_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v1.5
     try:
         with httpx.Client(
             timeout=GROUNDED_TURN_TIMEOUT_SECONDS, trust_env=False, follow_redirects=False,
+            headers=_device_headers(),  #v3.1
         ) as client:
             health = client.get(BACKEND_URL + "/api/health").json()
             turn = client.post(
@@ -870,6 +904,7 @@ def check_wp34_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v1.8
     try:
         with httpx.Client(
             timeout=GROUNDED_TURN_TIMEOUT_SECONDS, trust_env=False, follow_redirects=False,
+            headers=_device_headers(),  #v3.1
         ) as client:
             health = client.get(BACKEND_URL + "/api/health").json()
             turns = {
@@ -1014,6 +1049,7 @@ def check_wp41_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.0
     try:
         with httpx.Client(
             timeout=GROUNDED_TURN_TIMEOUT_SECONDS, trust_env=False, follow_redirects=False,
+            headers=_device_headers(),  #v3.1
         ) as client:
             health = client.get(BACKEND_URL + "/api/health").json()
             started = perf_counter()
@@ -1139,6 +1175,7 @@ def check_wp42_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.1
     try:
         with httpx.Client(
             timeout=GROUNDED_TURN_TIMEOUT_SECONDS, trust_env=False, follow_redirects=False,
+            headers=_device_headers(),  #v3.1
         ) as client:
             health = client.get(BACKEND_URL + "/api/health").json()
             answer, answer_debug, answer_id, answer_ms = _wp42_post(
@@ -1726,7 +1763,14 @@ def check_wp61_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.7
     Uses the mock button, microphone, speaker and printer, so it needs no
     hardware, and posts one committed fixture to the running backend. Writes
     nothing except the turn the backend stores, as any device turn does.
+    Needs KAKI_DEVICE_TOKEN since WP6.4: this check builds the BackendClient
+    directly rather than through load_config, so it passes the token
+    explicitly, exactly as the kiosk's own entry point does (#v3.2).
     """
+    token = os.environ.get("KAKI_DEVICE_TOKEN", "").strip()  #v3.2
+    if not token:  #v3.2
+        raise ValueError("export KAKI_DEVICE_TOKEN before running WP6.1 tier B "
+                         "(runbook 11.1 WP6.1; the device path fails closed since WP6.4).")
     sys.path.insert(0, str(DEVICE_ROOT / "src"))
     from kaki_device.api_client import BackendClient
     from kaki_device.config import DeviceConfig, MockSettings
@@ -1744,7 +1788,7 @@ def check_wp61_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.7
     )
     display, printer, speaker = CollectingDisplay(), LoggingPrinter(), RecordingSpeaker()
     loop = TurnLoop(
-        config, BackendClient(config.backend_url, timeout_seconds=300),
+        config, BackendClient(config.backend_url, timeout_seconds=300, token=token),  #v3.2
         button=ScriptedButton(), microphone=FixtureMicrophone(config.mock.audio_path),
         speaker=speaker, printer=printer, display=display, measure=fixed_measure(),
     )
@@ -1877,7 +1921,9 @@ def check_wp62_tier_c() -> tuple[dict[str, object], dict[str, bool]]:  #v3.0
     checks["kiosk_process_running"] = kiosk.returncode == 0
     report["kiosk_pids"] = kiosk.stdout.split()
 
-    with httpx.Client(base_url=config.backend_url, timeout=30) as client:
+    with httpx.Client(base_url=config.backend_url, timeout=30,
+                      headers=({"Authorization": f"Bearer {config.token}"}
+                               if config.token else {})) as client:  #v3.1
         try:
             health = client.get("/api/health")
             checks["backend_reachable"] = health.status_code == 200
@@ -1970,7 +2016,8 @@ def check_wp66_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.8
     device_id = f"wp66-check-{uuid4().hex[:8]}"
     report: dict[str, object] = {"device_id": device_id}
     checks: dict[str, bool] = {}
-    with httpx.Client(base_url="http://127.0.0.1:8000", timeout=300) as client:
+    with httpx.Client(base_url="http://127.0.0.1:8000", timeout=300,
+                      headers=_device_headers()) as client:  #v3.1
         unauthenticated = _admin_request(
             client, "POST", "/api/admin/config", None,
             {"device_id": device_id, "reply_language": "ms"},
@@ -2027,6 +2074,160 @@ def check_wp66_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.8
     return report, checks
 
 
+# ---------------------------------------------------------------------------
+# WP6.4: device service auth, same-turn_id retry, systemd recovery.
+# ---------------------------------------------------------------------------
+
+WP64_SERVICE_UNIT = "infra/pi/kaki-device.service"  #v3.1
+# The WP6.8 ergonomics pass replaces this placeholder copy; tier A pins the
+# exact strings so a silent rewrite cannot slip past the owner sign-off.
+WP64_RETRYING_TITLE = "Checking again..."  #v3.1
+WP64_CONNECTION_ERROR_BODY = "Cannot connect. Press the button to try again."  #v3.1
+
+
+def check_wp64_tier_a() -> tuple[dict[str, object], dict[str, bool]]:  #v3.1
+    """Prove auth, retry and recovery deterministically (WP6-AT-04/05/10 at tier A).
+
+    Runs the WP6.4 backend contract suite (auth boundaries, fail-closed, the
+    in-flight duplicate turn_id race) and the device suite (bearer header,
+    same-turn_id retry, retrying frame, placeholder copy), re-runs the
+    WP6-AT-13 inspection, checks the placeholder screen copy carries its
+    WP6.8 replacement marker, and statically checks the systemd unit:
+    Restart=always with StartLimitIntervalSec=0, running kaki_device.main
+    against /etc/kaki/device.toml. No backend, no hardware, no network.
+    """
+    root = Path(__file__).resolve().parent.parent
+    report: dict[str, object] = {"suites": {}}
+    checks: dict[str, bool] = {}
+    contract, contract_record = run_suite(
+        "test_wp6_4.py",
+        [sys.executable, "-m", "unittest", "discover", "-s", "backend/tests/contract",
+         "-p", "test_wp6_4.py"],
+        cwd=root,
+    )
+    report["suites"]["test_wp6_4.py"] = contract_record
+    checks["backend_wp64_suite_passed"] = contract.returncode == 0
+    checks["backend_wp64_suite_ran_tests"] = contract_record["tests_ran"] > 0
+    device, device_record = run_suite(
+        "device_tests",
+        [sys.executable, "-m", "unittest", "discover", "-s", str(DEVICE_ROOT / "tests"),
+         "-t", str(DEVICE_ROOT / "tests")],
+    )
+    report["suites"]["device_tests"] = device_record
+    checks["device_suite_passed"] = device.returncode == 0
+    checks["device_suite_ran_tests"] = device_record["tests_ran"] > 0
+
+    findings = thin_client_findings()
+    report["thin_client_findings"] = findings
+    checks["device_still_a_thin_client"] = not any(findings.values())
+
+    _import_kaki_device()
+    from kaki_device.display import layout as device_layout
+    layout_source = (DEVICE_ROOT / "src/kaki_device/display/layout.py").read_text(
+        encoding="utf-8"
+    )
+    report["placeholder_copy"] = {
+        "retrying_title": device_layout.RETRYING_TITLE,
+        "connection_error_body": device_layout.CONNECTION_ERROR_BODY,
+    }
+    checks["retrying_copy_is_the_agreed_placeholder"] = (
+        device_layout.RETRYING_TITLE == WP64_RETRYING_TITLE
+    )
+    checks["failure_copy_is_the_agreed_placeholder"] = (
+        device_layout.CONNECTION_ERROR_BODY == WP64_CONNECTION_ERROR_BODY
+    )
+    checks["placeholder_copy_marked_for_wp68"] = "TODO(WP6.8)" in layout_source
+
+    unit_path = root / WP64_SERVICE_UNIT
+    unit_text = unit_path.read_text(encoding="utf-8") if unit_path.is_file() else ""
+    report["service_unit"] = WP64_SERVICE_UNIT
+    checks["service_unit_present"] = bool(unit_text)
+    checks["service_unit_restarts_always"] = "Restart=always" in unit_text
+    checks["service_unit_never_exhausts_restarts"] = "StartLimitIntervalSec=0" in unit_text
+    checks["service_unit_runs_the_device_main"] = "-m kaki_device.main" in unit_text
+    checks["service_unit_reads_etc_kaki_device_toml"] = "/etc/kaki/device.toml" in unit_text
+    checks["service_unit_enabled_at_boot"] = "WantedBy=graphical.target" in unit_text
+    return report, checks
+
+
+def check_wp64_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v3.1
+    """Prove auth and the single-answer retry on the running stack (WP6-AT-04/05).
+
+    Needs KAKI_DEVICE_TOKEN in the environment and the grounded stack. An
+    unauthenticated and a wrongly-authenticated turn are refused with no
+    state change; an authenticated turn answers; a replay of its turn_id
+    with different audio returns the identical stored response and the debug
+    view records the replay. Posts two real turns' worth of requests, of
+    which the backend executes one.
+    """
+    token = os.environ.get("KAKI_DEVICE_TOKEN", "").strip()
+    if not token:
+        raise ValueError("export KAKI_DEVICE_TOKEN before running WP6.4 tier B.")
+    fixture = files("kaki_backend").joinpath("fixtures", "cdc_question.wav").read_bytes()
+    turn_id = f"wp64-check-{uuid4().hex[:12]}"
+    fields = {"device_id": "wp64-check", "session_id": "wp64-check", "turn_id": turn_id}
+    report: dict[str, object] = {"turn_id": turn_id}
+    checks: dict[str, bool] = {}
+
+    def post_turn(client: httpx.Client, audio_name: str, audio: bytes,
+                  headers: dict[str, str] | None = None) -> httpx.Response:
+        return client.post(
+            "/api/device/turn", data=fields,
+            files={"audio": (audio_name, audio, "audio/wav")},
+            headers=headers,
+        )
+
+    try:
+        with httpx.Client(
+            base_url=BACKEND_URL, timeout=300, trust_env=False, follow_redirects=False,
+            headers=_device_headers(),
+        ) as client:
+            checks["health_open_without_a_token"] = (
+                httpx.get(BACKEND_URL + "/api/health", timeout=30).status_code == 200
+            )
+            before = client.get("/api/device/debug/last-turn")
+            before_id = before.json().get("turn_id") if before.status_code == 200 else None
+
+            unauthenticated = post_turn(client, "cdc_question.wav", fixture,
+                                        headers={"Authorization": ""})
+            wrong = post_turn(client, "cdc_question.wav", fixture,
+                              headers={"Authorization": "Bearer wrong-token"})
+            checks["unauthenticated_turn_rejected"] = unauthenticated.status_code == 401
+            checks["wrong_token_rejected"] = wrong.status_code == 401
+            after = client.get("/api/device/debug/last-turn")
+            after_id = after.json().get("turn_id") if after.status_code == 200 else None
+            checks["rejection_changed_no_state"] = before_id == after_id
+            checks["pending_needs_the_token_too"] = (
+                httpx.get(BACKEND_URL + "/api/device/pending", timeout=30).status_code
+                == 401
+            )
+
+            first = post_turn(client, "cdc_question.wav", fixture)
+            checks["authenticated_turn_answered"] = (
+                first.status_code == 200 and first.json().get("state") == "answered"
+            )
+            # WP6-AT-04, server half: the same turn_id with different audio is
+            # served the single stored answer; re-execution would differ.
+            replay = post_turn(client, "different.wav", b"")
+            checks["replay_returns_the_identical_answer"] = (
+                replay.status_code == 200 and replay.json() == first.json()
+            )
+            debug = client.get("/api/device/debug/last-turn").json()
+            report["replayed_turn"] = {
+                "turn_id": debug.get("turn_id"),
+                "replay_count": debug.get("replay_count"),
+                "state": debug.get("state"),
+            }
+            checks["replay_recorded_not_reexecuted"] = (
+                debug.get("turn_id") == turn_id and debug.get("replay_count") == 1
+            )
+    except (httpx.HTTPError, ValueError):
+        print("FAIL: the backend stack is not reachable; start it first "
+              "(runbook 11.2 WP6.4).", file=sys.stderr)
+        return report, {"stack_reachable": False}
+    return report, checks
+
+
 REGISTRY = {
     ("WP2.3", "B"): check_wp23_tier_b,
     ("WP2.4", "B"): check_wp24_tier_b,
@@ -2042,6 +2243,8 @@ REGISTRY = {
     ("WP6.1", "B"): check_wp61_tier_b,  #v2.7
     ("WP6.2", "A"): check_wp62_tier_a,  #v3.0
     ("WP6.2", "C"): check_wp62_tier_c,  #v3.0
+    ("WP6.4", "A"): check_wp64_tier_a,  #v3.1
+    ("WP6.4", "B"): check_wp64_tier_b,  #v3.1
     ("WP6.6", "A"): check_wp66_tier_a,  #v2.8
     ("WP6.6", "B"): check_wp66_tier_b,  #v2.8
 }

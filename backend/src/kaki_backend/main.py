@@ -1,3 +1,4 @@
+# v2.3 | 20-Sep-2026 | WP6.4: carry the device service token; the device path fails closed.
 # v2.2 | 18-Sep-2026 | WP6.6: mount the admin surface and the per-device language override.
 # v2.1 | 13-Sep-2026 | WP5.1: pass the language settings and log them at startup.
 # v2.0 | 13-Sep-2026 | Give the pipeline the turn store so WP4.2 actions resolve from it.
@@ -33,6 +34,7 @@ from kaki_backend.orchestration.turn_pipeline import TurnPipeline  #v1.1
 from kaki_backend.config import LlmSettings, RetrievalSettings, SttSettings, TtsSettings  #v1.6
 from kaki_backend.config import StorageSettings  #v1.9
 from kaki_backend.config import AdminSettings, LanguageSettings  #v2.2
+from kaki_backend.config import DeviceAuthSettings  #v2.3
 from kaki_backend.persistence.database import Database  #v1.9
 from kaki_backend.persistence.admin_store import AdminStore  #v2.2
 from kaki_backend.persistence.repositories import TurnRepository  #v1.9
@@ -56,6 +58,13 @@ print(  #v2.2
     "kaki_backend: admin surface "
     + ("enabled" if app.state.admin_settings.enabled else "disabled (KAKI_ADMIN_TOKEN unset)")
     + f", default device {app.state.admin_settings.default_device}",
+    file=sys.stderr, flush=True,
+)
+app.state.device_settings = DeviceAuthSettings.from_environment()  #v2.3
+print(  #v2.3
+    "kaki_backend: device path "
+    + ("enabled" if app.state.device_settings.enabled
+       else "disabled (KAKI_DEVICE_TOKEN unset)"),
     file=sys.stderr, flush=True,
 )
 retrieval_settings = RetrievalSettings.from_environment()  #v1.6

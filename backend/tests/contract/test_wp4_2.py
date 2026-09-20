@@ -24,7 +24,7 @@ from kaki_backend.orchestration.idempotency import TurnService
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline
 from kaki_backend.persistence.database import Database
 from kaki_backend.persistence.repositories import TurnRepository
-from kaki_test_env import canned_backend
+from kaki_test_env import DEVICE_AUTH, canned_backend
 
 app = canned_backend().app
 
@@ -42,7 +42,7 @@ class Wp42ContractTests(unittest.TestCase):
         original = app.state.turn_service
         self.addCleanup(setattr, app.state, "turn_service", original)
         self.build_service(Database.open(app.state.database.path))
-        self.client = TestClient(app)
+        self.client = TestClient(app, headers=DEVICE_AUTH)  # WP6.4
         self.addCleanup(self.client.close)
 
     def build_service(self, database: Database) -> None:

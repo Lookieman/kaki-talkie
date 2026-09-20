@@ -27,7 +27,7 @@ from kaki_backend.orchestration.idempotency import TurnService
 from kaki_backend.persistence.database import Database  #v1.3
 from kaki_backend.persistence.repositories import TurnRepository  #v1.3
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline
-from kaki_test_env import canned_backend  #v1.2
+from kaki_test_env import DEVICE_AUTH, canned_backend  #v1.2
 
 # This module posts a turn through the real application, which is built at
 # import time from the environment; without the canned sanitiser a validation
@@ -117,7 +117,7 @@ class AudioNormalisationTests(unittest.TestCase):
     def test_malformed_http_turn_does_not_invoke_inference(self) -> None:
         """Return the existing failed response shape and close the turn cleanly."""
         app.state.turn_service.reset()
-        with TestClient(app) as client:
+        with TestClient(app, headers=DEVICE_AUTH) as client:  # WP6.4
             response = client.post("/api/device/turn",
                                    data=dict(device_id="test", session_id="test", turn_id="bad"),
                                    files={"audio": ("fake.wav", b"invalid", "audio/wav")})

@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from kaki_test_env import canned_backend
+from kaki_test_env import DEVICE_AUTH, canned_backend
 
 app = canned_backend().app
 
@@ -38,7 +38,7 @@ def synthetic_audio() -> bytes:
 
 class Wp51DebugContractTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.client = TestClient(app)
+        self.client = TestClient(app, headers=DEVICE_AUTH)  # WP6.4
 
     def test_response_keeps_nine_fields_and_debug_reports_language_diagnostics(self):
         response = self.client.post(

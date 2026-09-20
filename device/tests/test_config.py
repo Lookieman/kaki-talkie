@@ -1,3 +1,4 @@
+# v1.2 | 20-Sep-2026 | WP6.4: the service token, retry schedule and retuned timeout.
 # v1.1 | 20-Sep-2026 | WP6.2: the [audio] and [button] tables, overrides and bounds.
 # v1.0 | 16-Sep-2026 | WP6.1 device configuration: defaults, overrides and rejection.
 """Verify the device refuses to start on bad configuration, and its defaults.
@@ -12,6 +13,9 @@ from pathlib import Path
 
 from kaki_device.config import (
     DEFAULT_PRINT_POLICY,
+    DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_RETRY_ATTEMPTS,
+    DEFAULT_RETRY_BACKOFF_SECONDS,
     DEFAULT_RECORD_SECONDS,
     DEFAULT_SESSION_IDLE_MINUTES,
     MAX_RECORD_SECONDS,
@@ -46,6 +50,34 @@ class DefaultsTests(unittest.TestCase):
         self.assertEqual(config.audio.playback_rate, 48000)
         self.assertEqual(config.button.pin, 17)
         self.assertEqual(config.button.debounce_seconds, 0.05)
+
+    def test_wp64_defaults_token_empty_timeout_30_and_bounded_retries(self):
+        # WP6.4: the timeout comfortably exceeds the worst observed live turn
+        # (~12 s), so retries fire on stalls, never on slow LLM turns.
+        config = load_config(None, {})
+        self.assertEqual(config.token, "")
+        self.assertEqual(DEFAULT_REQUEST_TIMEOUT_SECONDS, 30.0)
+        self.assertEqual(config.request_timeout_seconds, 30.0)
+        self.assertEqual(config.retry_attempts, DEFAULT_RETRY_ATTEMPTS)
+        self.assertEqual(config.retry_backoff_seconds, DEFAULT_RETRY_BACKOFF_SECONDS)
+
+    def test_wp64_token_and_retry_settings_load_from_file_and_environment(self):
+        path = write_config(
+            'token = "device-secret"\nretry_attempts = 2\nretry_backoff_seconds = 0.5\n'
+        )
+        config = load_config(path, {})
+        self.assertEqual(config.token, "device-secret")
+        self.assertEqual(config.retry_attempts, 2)
+        self.assertEqual(config.retry_backoff_seconds, 0.5)
+        overridden = load_config(path, {"KAKI_DEVICE_TOKEN": "rotated-secret"})
+        self.assertEqual(overridden.token, "rotated-secret")
+
+    def test_wp64_retry_attempts_outside_bounds_refuse_startup(self):
+        for body in ("retry_attempts = 0\n", "retry_attempts = 99\n",
+                     "retry_backoff_seconds = -1\n"):
+            with self.subTest(body=body.strip()):
+                with self.assertRaises(ConfigError):
+                    load_config(write_config(body), {})
 
     def test_missing_file_falls_back_to_defaults(self):
         config = load_config(Path("/nonexistent/device.toml"), {})

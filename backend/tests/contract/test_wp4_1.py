@@ -27,7 +27,7 @@ from kaki_backend.orchestration.idempotency import TurnService
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline
 from kaki_backend.persistence.database import Database
 from kaki_backend.persistence.repositories import TurnRepository
-from kaki_test_env import canned_backend
+from kaki_test_env import DEVICE_AUTH, canned_backend
 
 # The application is built at import time from the environment, so it must be
 # imported through the canned sanitiser rather than directly.
@@ -39,10 +39,13 @@ from test_persistence import grounded_pipeline  # noqa: E402
 # Run in a child process: build the application from its environment, report
 # the debug view before any request, submit one turn and report the result.
 RESTART_CHILD = """
-import json, sys
+import json, os, sys
 from fastapi.testclient import TestClient
 from kaki_backend.main import app
-client = TestClient(app)
+# WP6.4: the child inherits the canned KAKI_DEVICE_TOKEN from the parent.
+client = TestClient(
+    app, headers={"Authorization": "Bearer " + os.environ["KAKI_DEVICE_TOKEN"]},
+)
 debug = client.get("/api/device/debug/last-turn")
 response = client.post(
     "/api/device/turn",
@@ -84,7 +87,7 @@ class Wp41ContractTests(unittest.TestCase):
         app.state.turn_service.reset()
         original = app.state.turn_service
         self.addCleanup(setattr, app.state, "turn_service", original)
-        self.client = TestClient(app)
+        self.client = TestClient(app, headers=DEVICE_AUTH)  # WP6.4
         self.addCleanup(self.client.close)
 
     def post_turn(self, turn_id: str, audio: bytes) -> dict:

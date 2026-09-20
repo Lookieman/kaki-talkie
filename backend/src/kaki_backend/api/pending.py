@@ -1,3 +1,4 @@
+# v1.2 | 20-Sep-2026 | WP6.4: require the device bearer token before delivery.
 # v1.1 | 18-Sep-2026 | WP6.6: deliver queued admin pushes to the named device, once.
 # v1.0 | 04-Sep-2026 | Expose the empty WP1 pending-item placeholder.
 
@@ -17,12 +18,17 @@ must carry different identities, or one will consume the other's nudge
 (runbook 11.1 WP6.6).
 """
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request  #v1.2
+
+from kaki_backend.api.device_auth import require_device_token  #v1.2
 
 router = APIRouter()
 
 
-@router.get("/api/device/pending", response_model=list[dict[str, object]])
+@router.get(
+    "/api/device/pending", response_model=list[dict[str, object]],
+    dependencies=[Depends(require_device_token)],  #v1.2
+)
 def pending_items(
     request: Request, device_id: str | None = Query(default=None, max_length=128),
 ) -> list[dict[str, object]]:

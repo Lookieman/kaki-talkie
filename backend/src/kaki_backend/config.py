@@ -1,3 +1,4 @@
+# v1.8 | 20-Sep-2026 | WP6.4: device service bearer token for /api/device/*.
 # v1.7 | 18-Sep-2026 | WP6.6: admin bearer token and the admin default device.
 # v1.6 | 13-Sep-2026 | WP5.1: language preference, Malay reply mode, Malay voice, rewrite timeout.
 # v1.5 | 13-Sep-2026 | Require KAKI_DATA_ROOT everywhere and locate the SQLite database.
@@ -205,6 +206,34 @@ class AdminSettings:  #v1.7
         if not default_device:
             raise ValueError("KAKI_ADMIN_DEFAULT_DEVICE must not be blank when set.")
         return cls(env.get("KAKI_ADMIN_TOKEN", "").strip(), default_device)
+
+    @property
+    def enabled(self) -> bool:
+        """True when a token is configured; without one the routes refuse."""
+        return bool(self.token)
+
+
+@dataclass(frozen=True)
+class DeviceAuthSettings:  #v1.8
+    """Guard the device service path (design.md 5.1, WP6-AT-05).
+
+    `token` is the shared secret every `/api/device/*` request must carry as a
+    bearer header; an empty token means the device path fails closed. It is a
+    machine credential the Pi reads from /etc/kaki/device.toml, is distinct
+    from `KAKI_ADMIN_TOKEN`, and is never accepted on `/api/admin/*` (nor the
+    admin token here). The network boundary is Tailscale; this token is the
+    application's own check on top of it.
+    """
+
+    token: str = ""
+
+    @classmethod
+    def from_environment(
+        cls, environment: Mapping[str, str] | None = None
+    ) -> "DeviceAuthSettings":
+        """Read KAKI_DEVICE_TOKEN; absence means the device path refuses everyone."""
+        env = os.environ if environment is None else environment
+        return cls(env.get("KAKI_DEVICE_TOKEN", "").strip())
 
     @property
     def enabled(self) -> bool:

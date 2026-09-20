@@ -1,3 +1,4 @@
+# v1.2 | 20-Sep-2026 | WP6.4: drive the retrying frame and the connection-failure copy.
 # v1.1 | 20-Sep-2026 | WP6.2: the recording frame counts down live via the microphone's progress.
 # v1.0 | 16-Sep-2026 | WP6.1 turn loop: idle, record, wait, speak, print, error.
 """Run the kiosk's turn loop against ports, deciding nothing the backend owns.
@@ -131,9 +132,10 @@ class TurnLoop:
         self._show(frame)
         return frame
 
-    def _show_error(self) -> None:
+    def _show_error(self, body: str = layout.ERROR_BODY) -> None:  #v1.2
         self._show(layout.error_frame(
-            self._config.display_width, self._config.display_height, self._measure
+            self._config.display_width, self._config.display_height, self._measure,
+            body,
         ))
 
     # -- sessions ---------------------------------------------------------
@@ -172,12 +174,20 @@ class TurnLoop:
 
         self._show_thinking()
         try:
+            # WP6-AT-04: the client retries a stall with the same turn_id; the
+            # display shows the retrying frame while it does.
             result = self._client.submit_turn(
                 device_id=self._config.device_id, session_id=session_id,
                 turn_id=turn_id, audio=audio,
+                on_retry=lambda attempt: self._show_thinking(DisplayState.RETRYING),  #v1.2
             )
         except ApiError as error:
-            self._show_error()
+            # A backend the retries could not reach gets the connection
+            # wording; every other failure keeps the generic message.
+            self._show_error(
+                layout.CONNECTION_ERROR_BODY
+                if error.code in {"timeout", "unavailable"} else layout.ERROR_BODY
+            )  #v1.2
             return self._record_outcome(TurnOutcome(
                 turn_id=turn_id, session_id=session_id, error_code=error.code,
             ))

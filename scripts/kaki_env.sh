@@ -1,3 +1,4 @@
+# v2.0 | 20-Sep-2026 | WP6.4: load KAKI_DEVICE_TOKEN from .env; add the WP6.4 branch.
 # v1.9 | 20-Sep-2026 | Add WP6.2: Mac-side evidence directory for tier A and the reruns.
 # v1.8 | 19-Sep-2026 | Load KAKI_ADMIN_TOKEN in common setup, so env-only mode
 #                      gets it too. It sat in the WP6.6 branch, which runs
@@ -50,6 +51,14 @@ if [ -z "${KAKI_ADMIN_TOKEN:-}" ] && [ -f "$KAKI_APP_ROOT/.env" ]; then    #v1.8
     KAKI_ADMIN_TOKEN="$(sed -n 's/^KAKI_ADMIN_TOKEN=//p' "$KAKI_APP_ROOT/.env" | tail -1)"  #v1.8
 fi                                                                        #v1.8
 [ -z "${KAKI_ADMIN_TOKEN:-}" ] || export KAKI_ADMIN_TOKEN                 #v1.8
+
+# The device path fails closed without its token too (WP6.4). Same        #v2.0
+# pattern: the untracked project-root .env feeds the shell when it has    #v2.0
+# none. It is a different secret from the admin token.                    #v2.0
+if [ -z "${KAKI_DEVICE_TOKEN:-}" ] && [ -f "$KAKI_APP_ROOT/.env" ]; then   #v2.0
+    KAKI_DEVICE_TOKEN="$(sed -n 's/^KAKI_DEVICE_TOKEN=//p' "$KAKI_APP_ROOT/.env" | tail -1)"  #v2.0
+fi                                                                        #v2.0
+[ -z "${KAKI_DEVICE_TOKEN:-}" ] || export KAKI_DEVICE_TOKEN               #v2.0
 
 # env-only mode: export variables and stop.                     #v1.1
 if [ "$1" = "env" ]; then                                       #v1.1
@@ -121,6 +130,14 @@ case "$KAKI_UNIT" in                                             #v1.2
         KAKI_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp6.2/evidence.XXXXXX")" || return 1  #v1.9
         export KAKI_EVIDENCE WP62_EVIDENCE="$KAKI_EVIDENCE"      #v1.9
         ;;                                                       #v1.9
+    WP6.4)                                                       #v2.0
+        # Tier A and B run on the Mac; KAKI_DEVICE_TOKEN loads in common
+        # setup above. Tier C is the owner at the Pi (runbook 11.2 WP6.4).
+        export KAKI_DB="${KAKI_SQLITE_PATH:-$KAKI_DATA_ROOT/sqlite/kaki.db}"  #v2.0
+        rmdir "$KAKI_EVIDENCE" || return 1                       #v2.0
+        KAKI_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp6.4/evidence.XXXXXX")" || return 1  #v2.0
+        export KAKI_EVIDENCE WP64_EVIDENCE="$KAKI_EVIDENCE"      #v2.0
+        ;;                                                       #v2.0
     WP6.6)                                                       #v1.7
         # KAKI_ADMIN_TOKEN now loads in common setup above (runbook 11.1 WP6.6).
         export KAKI_DB="${KAKI_SQLITE_PATH:-$KAKI_DATA_ROOT/sqlite/kaki.db}"  #v1.7

@@ -1,5 +1,12 @@
-# v1.0 | 16-Sep-2026 | WP6.1 backend client for the three device HTTP routes.
+# v1.1 | 20-Sep-2026 | WP6.4: bearer token on every call; same-turn_id retry for turns.
 """Call the backend's device contract and nothing else.
+
+Since WP6.4 every request carries the device service token as a bearer
+header (WP6-AT-05), and `submit_turn` retries a stalled or unreachable
+backend with the *same* `turn_id` (WP6-AT-04). The backend holds a duplicate
+turn_id request until the first execution commits and then serves the single
+stored answer, so a retry against a slow backend still yields exactly one
+answer; only `timeout` and `unavailable` are retried, never a rejection.
 
 Three routes exist for this client (design.md 5): `POST /api/device/turn`,
 `GET /api/device/pending` and `GET /api/health`. Their paths are module
@@ -27,7 +34,8 @@ import wave
 from base64 import b64decode
 from binascii import Error as BinasciiError
 from dataclasses import dataclass
-from typing import Any
+from time import sleep as time_sleep  #v1.1
+from typing import Any, Callable  #v1.1
 
 import httpx
 
@@ -40,6 +48,10 @@ AUDIO_DATA_URL_PREFIX = "data:audio/wav;base64,"
 # is about 2.6 MB, and base64 adds a third.
 MAX_AUDIO_BYTES = 8 * 1024 * 1024
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+
+# Only a stall or an unreachable backend is retried: the request may never
+# have arrived. A rejection or a malformed body would only repeat (#v1.1).
+RETRYABLE_CODES = frozenset({"timeout", "unavailable"})
 
 RESPONSE_FIELDS = (
     "turn_id", "reply_audio", "reply_text", "display_text", "slip_text",
@@ -147,13 +159,21 @@ class BackendClient:
     """Speak the device contract over HTTP with bounded waits and safe errors."""
 
     def __init__(
-        self, base_url: str, *, timeout_seconds: float = 120.0,
+        self, base_url: str, *, timeout_seconds: float = 30.0,  #v1.1
+        token: str = "",  #v1.1
+        retry_attempts: int = 1,  #v1.1
+        retry_backoff_seconds: float = 0.0,  #v1.1
         transport: httpx.BaseTransport | None = None,
+        sleep: Callable[[float], None] = time_sleep,  #v1.1
     ) -> None:
-        """Bind to one backend origin; transport injection supports offline tests."""
+        """Bind to one backend origin; transport and sleep injection support offline tests."""
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout_seconds
+        self._token = token.strip()  #v1.1
+        self._retry_attempts = max(1, int(retry_attempts))  #v1.1
+        self._retry_backoff = max(0.0, retry_backoff_seconds)  #v1.1
         self._transport = transport
+        self._sleep = sleep  #v1.1
 
     def health(self, timeout_seconds: float = 10.0) -> dict[str, Any]:
         """Return the health payload, or raise ApiError; used for boot readiness."""
@@ -171,27 +191,45 @@ class BackendClient:
 
     def submit_turn(
         self, *, device_id: str, session_id: str, turn_id: str, audio: bytes,
+        on_retry: Callable[[int], None] | None = None,  #v1.1
     ) -> TurnResult:
         """Post one recorded utterance and return the parsed nine-field response.
 
-        `turn_id` is the client's idempotency key (design.md 5.1): a retry of
-        the same turn returns the stored result instead of repeating the work.
-        Raises ApiError for transport failures, a non-200 status or a body
-        that does not match the contract.
+        `turn_id` is the client's idempotency key (design.md 5.1): every
+        attempt reuses it, so the backend executes the turn once and serves
+        each retry the single stored answer (WP6-AT-04). Only `timeout` and
+        `unavailable` are retried, after the configured backoff; `on_retry`
+        is called with the attempt number about to be sent, so the display
+        can show the retrying frame. Raises ApiError with the final failure's
+        code once the attempts are exhausted, and immediately for a rejection
+        or a malformed body.
         """
         files = {"audio": ("turn.wav", audio, "audio/wav")}
         data = {"device_id": device_id, "session_id": session_id, "turn_id": turn_id}
-        return _parsed_turn(
-            self._request("POST", TURN_PATH, self._timeout, data=data, files=files)
-        )
+        for attempt in range(1, self._retry_attempts + 1):  #v1.1
+            try:
+                return _parsed_turn(
+                    self._request("POST", TURN_PATH, self._timeout, data=data, files=files)
+                )
+            except ApiError as error:
+                if error.code not in RETRYABLE_CODES or attempt == self._retry_attempts:
+                    raise
+                if on_retry is not None:
+                    on_retry(attempt + 1)
+                self._sleep(self._retry_backoff)
+        raise ApiError("unavailable")  # unreachable; the loop returns or raises
 
     def _request(self, method: str, path: str, timeout: float, **kwargs: Any) -> object:
         """Send one bounded request to an allowlisted path and decode its JSON."""
         if path not in {TURN_PATH, PENDING_PATH, HEALTH_PATH}:
             raise ApiError("rejected")
+        headers = (
+            {"Authorization": f"Bearer {self._token}"} if self._token else {}
+        )  #v1.1
         try:
             with httpx.Client(
                 timeout=httpx.Timeout(timeout, connect=min(5.0, timeout)),
+                headers=headers,  #v1.1
                 trust_env=False, follow_redirects=False, transport=self._transport,
             ) as client:
                 response = client.request(method, self._base_url + path, **kwargs)

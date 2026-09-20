@@ -1,3 +1,4 @@
+# v1.1 | 20-Sep-2026 | WP6.4: retrying copy and the connection-failure body (placeholders).
 # v1.0 | 16-Sep-2026 | WP6.1 display states and pure layout for the 1024x600 kiosk panel.
 """Turn device state into a frame of positioned text, with no drawing here.
 
@@ -50,14 +51,19 @@ THINKING_SUBTITLE = "Sila tunggu sebentar"
 ERROR_TITLE = "Something went wrong"
 ERROR_SUBTITLE = "Sila cuba lagi"
 ERROR_BODY = "Please press the button and try again."
+# TODO(WP6.8): placeholder WP6.4 copy, to be replaced during the ergonomics
+# pass. RETRYING_TITLE shows while a timed-out turn is retried with the same
+# turn_id; CONNECTION_ERROR_BODY shows once the retries are exhausted.
+RETRYING_TITLE = "Checking again..."  #v1.1
+CONNECTION_ERROR_BODY = "Cannot connect. Press the button to try again."  #v1.1
 
 
 class DisplayState(str, Enum):
     """What the kiosk is doing, as far as the user can see.
 
-    `RETRYING` renders exactly like `THINKING` today. WP6.4 drives it when a
-    timed-out turn is retried with the same `turn_id`, so the state exists now
-    and the renderer needs no change then.
+    `RETRYING` is driven by the WP6.4 retry: a timed-out turn resubmitted
+    with the same `turn_id` shows its own title so the user knows the kiosk
+    is still working on the same question.
     """
 
     IDLE = "idle"
@@ -182,10 +188,11 @@ def thinking_frame(
 ) -> Frame:
     """Show that the backend is working.
 
-    `RETRYING` renders identically for now; only the frame's state differs, so
-    tests and WP6.4 can tell the two apart without a visible change.
+    `RETRYING` carries its own (placeholder) title so the user sees the kiosk
+    is checking again rather than stuck; the subtitle stays the same.
     """
-    return _simple_frame(state, THINKING_TITLE, THINKING_SUBTITLE, None, height)
+    title = RETRYING_TITLE if state is DisplayState.RETRYING else THINKING_TITLE  #v1.1
+    return _simple_frame(state, title, THINKING_SUBTITLE, None, height)
 
 
 def answer_frame(width: int, height: int, measure: Measure, display_text: str) -> Frame:
@@ -204,9 +211,15 @@ def answer_frame(width: int, height: int, measure: Measure, display_text: str) -
     )
 
 
-def error_frame(width: int, height: int, measure: Measure) -> Frame:
-    """Show a calm fixed message; stage error codes never reach the display."""
+def error_frame(
+    width: int, height: int, measure: Measure, body: str = ERROR_BODY,  #v1.1
+) -> Frame:
+    """Show a calm fixed message; stage error codes never reach the display.
+
+    `body` lets the caller pick the connection-failure wording after the
+    WP6.4 retries are exhausted; the default stays the generic message.
+    """
     return _simple_frame(
-        DisplayState.ERROR, ERROR_TITLE, ERROR_SUBTITLE, ERROR_BODY, height,
+        DisplayState.ERROR, ERROR_TITLE, ERROR_SUBTITLE, body, height,
         colour=COLOUR_ALERT,
     )

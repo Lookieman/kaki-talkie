@@ -1,3 +1,4 @@
+# v1.2 | 20-Sep-2026 | WP6.4: retrying frame during client retries; connection copy.
 # v1.1 | 20-Sep-2026 | WP6.2: countdown frames from microphone progress ticks.
 # v1.0 | 16-Sep-2026 | WP6.1 turn loop: turn ids, recording cap, interruption, print, recovery.
 """Drive the whole kiosk loop with mock ports and a fake clock.
@@ -17,6 +18,7 @@ from time import monotonic
 
 from kaki_device.api_client import AUDIO_DATA_URL_PREFIX, ApiError, TurnResult
 from kaki_device.config import DeviceConfig, MockSettings
+from kaki_device.display import layout  # WP6.4 error copy
 from kaki_device.display.layout import DisplayState
 from kaki_device.io_ports import AudioCaptureError, PrinterError
 from kaki_device.mock_io import (
@@ -59,7 +61,8 @@ class FakeClient:
         self.submissions: list[dict] = []
         self.pending_calls = 0
 
-    def submit_turn(self, *, device_id: str, session_id: str, turn_id: str, audio: bytes):
+    def submit_turn(self, *, device_id: str, session_id: str, turn_id: str, audio: bytes,
+                    on_retry=None):  # WP6.4: the loop passes its retry callback
         self.submissions.append({
             "device_id": device_id, "session_id": session_id,
             "turn_id": turn_id, "audio": audio,
@@ -285,6 +288,43 @@ class FailureTests(unittest.TestCase):
                 self.assertEqual(ports["display"].frames[-1].state, DisplayState.ERROR)
                 self.assertEqual(ports["speaker"].played, [])
                 self.assertEqual(ports["printer"].slips, [])
+
+    def test_a_connection_failure_shows_the_connection_wording(self):
+        # WP6.4: exhausted retries get the "Cannot connect" placeholder copy;
+        # a non-connection failure keeps the generic message.
+        for code, expected_body in (
+            ("timeout", layout.CONNECTION_ERROR_BODY),
+            ("unavailable", layout.CONNECTION_ERROR_BODY),
+            ("invalid_response", layout.ERROR_BODY),
+            ("rejected", layout.ERROR_BODY),
+        ):
+            with self.subTest(code=code):
+                loop, ports, _ = build_loop(client=FakeClient(error=ApiError(code)))
+                loop.run_turn()
+                error = ports["display"].frames[-1]
+                self.assertEqual(error.state, DisplayState.ERROR)
+                self.assertIn(expected_body, error.text)
+
+    def test_a_client_retry_shows_the_retrying_frame_and_keeps_the_turn_id(self):
+        # WP6.4 (WP6-AT-04): the loop hands the client an on_retry callback;
+        # a retrying client shows RETRYING and the answer still arrives.
+        class RetryingClient(FakeClient):
+            def submit_turn(self, *, device_id, session_id, turn_id, audio,
+                            on_retry=None):
+                if on_retry is not None:
+                    on_retry(2)  # the client decided to retry the same turn_id
+                return super().submit_turn(
+                    device_id=device_id, session_id=session_id,
+                    turn_id=turn_id, audio=audio,
+                )
+
+        loop, ports, _ = build_loop(client=RetryingClient())
+        outcome = loop.run_turn()
+        self.assertEqual(outcome.state, "answered")
+        states = [frame.state for frame in ports["display"].frames]
+        self.assertIn(DisplayState.RETRYING, states)
+        self.assertLess(states.index(DisplayState.RETRYING),
+                        states.index(DisplayState.ANSWER))
 
     def test_a_capture_failure_shows_the_error_frame_without_submitting(self):
         class BrokenMicrophone:

@@ -1,3 +1,4 @@
+# v1.2 | 20-Sep-2026 | WP6.4: service token, retry schedule; timeout retuned for retries.
 # v1.1 | 20-Sep-2026 | WP6.2: [audio] card and rates, [button] pin and debounce.
 # v1.0 | 16-Sep-2026 | WP6.1 device configuration from a TOML file and KAKI_DEVICE_* overrides.
 """Read the device's own settings; the backend keeps its configuration separate.
@@ -25,10 +26,15 @@ from urllib.parse import urlsplit
 # enforces the same bound so a held button cannot post an unbounded upload.
 DEFAULT_RECORD_SECONDS = 15.0
 MAX_RECORD_SECONDS = 15.0
-# A turn covers speech recognition, retrieval, generation and speech, so the
-# client waits longer than a normal HTTP call would (runbook 10.2 WP5.1
-# measured 2-8 s per turn; a cold model is slower).
-DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
+# A turn covers speech recognition, retrieval, generation and speech. The
+# bound comfortably exceeds the worst observed live turn (~12 s; runbook 10.2
+# WP5.1 measured 2-8 s) so a retry fires only on a genuine stall, never on a
+# merely slow LLM turn (WP6.4, owner amendment 20-Sep-2026).
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 30.0
+# The WP6-AT-04 retry: total attempts per turn and the pause between them.
+# Every attempt reuses the same turn_id, so the backend answers exactly once.
+DEFAULT_RETRY_ATTEMPTS = 3
+DEFAULT_RETRY_BACKOFF_SECONDS = 2.0
 # design.md 9.3: the backend always produces slip_text; the device decides
 # whether to print it. `auto` is the demo baseline (execution-plan.md 9).
 PRINT_POLICIES = ("auto", "on_request")
@@ -97,8 +103,14 @@ class DeviceConfig:
 
     backend_url: str = "http://127.0.0.1:8000"
     device_id: str = "kaki-pi-01"
+    # The WP6.4 service credential, sent as a bearer header on every backend
+    # call. Lives in /etc/kaki/device.toml (mode 0640); empty means the
+    # backend will refuse every request, which the error frame reports.
+    token: str = ""
     record_seconds: float = DEFAULT_RECORD_SECONDS
     request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
+    retry_attempts: int = DEFAULT_RETRY_ATTEMPTS
+    retry_backoff_seconds: float = DEFAULT_RETRY_BACKOFF_SECONDS
     session_idle_minutes: float = DEFAULT_SESSION_IDLE_MINUTES
     print_policy: str = DEFAULT_PRINT_POLICY
     display_width: int = DEFAULT_DISPLAY_WIDTH
@@ -278,11 +290,18 @@ def load_config(
     return DeviceConfig(
         backend_url=_validated_backend_url(values.get("backend_url", "http://127.0.0.1:8000")),
         device_id=_non_empty_text(values, "device_id", "kaki-pi-01"),
+        token=str(values.get("token", "")).strip(),
         record_seconds=_bounded_number(
             values, "record_seconds", DEFAULT_RECORD_SECONDS, 1.0, MAX_RECORD_SECONDS
         ),
         request_timeout_seconds=_bounded_number(
             values, "request_timeout_seconds", DEFAULT_REQUEST_TIMEOUT_SECONDS, 1.0, 600.0
+        ),
+        retry_attempts=int(_bounded_number(
+            values, "retry_attempts", DEFAULT_RETRY_ATTEMPTS, 1, 5
+        )),
+        retry_backoff_seconds=_bounded_number(
+            values, "retry_backoff_seconds", DEFAULT_RETRY_BACKOFF_SECONDS, 0.0, 30.0
         ),
         session_idle_minutes=_bounded_number(
             values, "session_idle_minutes", DEFAULT_SESSION_IDLE_MINUTES, 1.0, 240.0

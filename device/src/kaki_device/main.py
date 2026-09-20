@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# v1.2 | 20-Sep-2026 | WP6.4: pass the service token and retry schedule to the client.
 # v1.1 | 20-Sep-2026 | WP6.2: real mode drives the GPIO button, ALSA audio and the panel.
 # v1.0 | 16-Sep-2026 | WP6.1 device entry point; mock I/O runs the loop on the Mac.
 """Start the kiosk loop, with real or mock hardware.
@@ -130,7 +131,10 @@ def run(arguments: argparse.Namespace) -> int:
         return 2
 
     client = BackendClient(
-        config.backend_url, timeout_seconds=config.request_timeout_seconds
+        config.backend_url, timeout_seconds=config.request_timeout_seconds,
+        token=config.token,  #v1.2
+        retry_attempts=config.retry_attempts,  #v1.2
+        retry_backoff_seconds=config.retry_backoff_seconds,  #v1.2
     )
     try:
         health = client.health()

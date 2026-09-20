@@ -1,3 +1,4 @@
+# v1.4 | 20-Sep-2026 | WP6.4: require the device bearer token before the body is read.
 # v1.3 | 07-Sep-2026 | Close multipart resources before STT and share releasable audio.
 # v1.2 | 06-Sep-2026 | Bound the audio read before normalisation.
 # v1.1 | 04-Sep-2026 | Apply in-memory idempotency and timing to canned turns.
@@ -10,6 +11,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request  #v1.1
 
+from kaki_backend.api.device_auth import require_device_token  #v1.4
 from kaki_backend.contracts.requests import TurnRequest
 from kaki_backend.contracts.responses import TurnResponse
 from kaki_backend.orchestration.idempotency import TurnService  #v1.1
@@ -24,7 +26,10 @@ def get_turn_service(request: Request) -> TurnService:  #v1.1
     return request.app.state.turn_service  #v1.1
 
 
-@router.post("/api/device/turn", response_model=TurnResponse)
+@router.post(
+    "/api/device/turn", response_model=TurnResponse,
+    dependencies=[Depends(require_device_token)],  #v1.4
+)
 async def device_turn(  #v1.1
     request: Annotated[TurnRequest, Depends()],  #v1.1
     turn_service: Annotated[TurnService, Depends(get_turn_service)],  #v1.1

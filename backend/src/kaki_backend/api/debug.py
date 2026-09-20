@@ -1,3 +1,4 @@
+# v1.9 | 20-Sep-2026 | WP6.4: require the device bearer token on the debug view.
 # v1.8 | 18-Sep-2026 | WP6.6: expose the admin language override.
 # v1.7 | 13-Sep-2026 | WP5.1: expose the reply language, mode, render outcome and rewrite audit.
 # v1.6 | 13-Sep-2026 | Expose the action's previous turn and its outcome.
@@ -15,12 +16,16 @@ SQLite, so it answers after a backend restart. It never returns audio. FastAPI i
 through the protected `/api/device/*` path.
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request  #v1.9
+
+from kaki_backend.api.device_auth import require_device_token  #v1.9
 
 router = APIRouter()
 
 
-@router.get("/api/device/debug/last-turn")
+@router.get(
+    "/api/device/debug/last-turn", dependencies=[Depends(require_device_token)],  #v1.9
+)
 def last_turn(request: Request) -> dict[str, object]:
     """Return the newest turn's diagnostics or a controlled 404 before any turn."""
     stored = request.app.state.turn_service.last_turn()  #v1.5

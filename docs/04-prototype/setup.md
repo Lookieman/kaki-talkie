@@ -1986,8 +1986,11 @@ The device reads a TOML file, and `KAKI_DEVICE_*` exports override it.
 ```bash
 sudo mkdir -p /etc/kaki
 sudo tee /etc/kaki/device.toml >/dev/null <<'EOF'
-backend_url = "http://<mac-mini-host>:8000"
+backend_url = "http://100.102.82.45:8000"
 device_id = "kaki-pi-01"
+# WP6.4 device service token: the same value as KAKI_DEVICE_TOKEN in the
+# Mac's project-root .env. Generate once with `openssl rand -hex 32`.
+token = "replace-with-the-shared-device-token"
 record_seconds = 15
 session_idle_minutes = 10
 print_policy = "auto"
@@ -1995,12 +1998,15 @@ display_width = 1024
 display_height = 600
 
 [audio]
-card = "plughw:CARD=<jabra-card-name>"
+card = "plughw:CARD=USB"
 
 [button]
 pin = 17
 EOF
-sudo chmod 0644 /etc/kaki/device.toml
+# The file holds the WP6.4 service token, so it is not world-readable:
+# owned by root, readable by the kaki group the service user is in.
+sudo chown root:kaki /etc/kaki/device.toml
+sudo chmod 0640 /etc/kaki/device.toml
 ```
 
 Find the Jabra's stable ALSA card name first - the name, never the card
@@ -2015,8 +2021,8 @@ Expected: one `plughw:CARD=...` entry naming the Jabra (typically
 Verify capture and playback before first kiosk start:
 
 ```bash
-arecord -D "plughw:CARD=<jabra-card-name>" -f S16_LE -c 1 -r 16000 -d 2 /tmp/check.wav
-aplay   -D "plughw:CARD=<jabra-card-name>" /tmp/check.wav && rm /tmp/check.wav
+arecord -D "plughw:CARD=USB" -f S16_LE -c 1 -r 16000 -d 2 /tmp/check.wav
+aplay   -D "plughw:CARD=USB" /tmp/check.wav && rm /tmp/check.wav
 ```
 
 Expected: two seconds record without an error and play back audibly.
@@ -2027,6 +2033,8 @@ Expected: two seconds record without an error and play back audibly.
 +------------------------------------+--------------------------------------+
 | backend_url                        | Mac Mini origin; path-free           |
 | device_id                          | Identifies this kiosk to the backend |
+| token                              | WP6.4 service secret; matches the    |
+|                                    | Mac's KAKI_DEVICE_TOKEN              |
 | record_seconds                     | Recording cap; 15 is the maximum     |
 | session_idle_minutes               | Idle gap that starts a new session   |
 | print_policy                       | auto or on_request (design.md 9.3)   |
@@ -2034,12 +2042,20 @@ Expected: two seconds record without an error and play back audibly.
 | audio.card                         | Stable ALSA name of the Jabra        |
 | audio.capture_rate / playback_rate | Default 16000 / 48000 (design.md 4.3)|
 | button.pin / debounce_seconds      | Dome button GPIO; default 17 / 0.05  |
+| request_timeout_seconds            | Per-attempt turn bound; default 30   |
+| retry_attempts / retry_backoff_*   | WP6.4 same-turn_id retry; default    |
+|                                    | 3 attempts, 2 s apart                |
 +------------------------------------+--------------------------------------+
 ```
 
-Reaching the backend over the demo network, rather than over Cloudflare, is a
-WP6.4 decision together with service authentication (15.4). Until then the Pi
-and the Mac sit on the same network.
+WP6.4 decision (20-Sep-2026): the device path runs over the demo network /
+Tailscale boundary, not through Cloudflare Access (15.4). `KAKI_DEVICE_TOKEN`
+is the application's own check on every `/api/device/*` request; the backend
+fails that path closed without it. Generate the secret once on the Mac and
+put the same value in both places - the Mac's project-root `.env` (as
+`KAKI_DEVICE_TOKEN=...`, next to `KAKI_ADMIN_TOKEN` from 11.4; restart the
+backend after adding it) and the `token` field above. It is a different
+secret from the admin token, and neither is accepted on the other's routes.
 
 ### 29.6 What is not installed on the Pi
 
@@ -2066,6 +2082,44 @@ Pi fails WP6-AT-13.
 Buttons, audio devices, the printer and systemd services arrive with WP6.2 to
 WP6.4 and are documented there when those units are prepared.
 
+### 29.8 systemd kiosk service (WP6.4)
+
+The kiosk runs as a systemd service so it returns to service after a process
+kill and after a power cut without operator intervention (WP6-AT-10). The
+unit is committed at `infra/pi/kaki-device.service`: `Restart=always` with
+`RestartSec=3` covers a crash, `enable` plus `WantedBy=graphical.target`
+covers a boot, and `StartLimitIntervalSec=0` means systemd never gives up
+restarting - on demo day a retrying kiosk beats an abandoned one.
+
+[KAKI, on the Pi, from the cloned checkout]
+
+```bash
+sudo cp ~/kaki-talkie/infra/pi/kaki-device.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now kaki-device
+```
+
+Verify the service, the restart and the boot path:
+
+```bash
+systemctl status kaki-device --no-pager   # expect active (running)
+pkill -f kaki_device.main                 # kill the kiosk process
+sleep 5
+systemctl status kaki-device --no-pager   # expect active again, restarts +1
+systemctl show kaki-device -p NRestarts   # counts the restarts
+journalctl -u kaki-device -n 20 --no-pager
+```
+
+Expected: the service is active, returns to the idle screen within a few
+seconds of the kill, and after `sudo reboot` (or a pulled plug) the kiosk is
+back on the idle screen with no keyboard attached. The full owner validation
+- kill, power cycle, and the mid-turn cable pull that shows the retrying
+frame - is Tier C in the runbook (11.2 WP6.4).
+
+The service borrows the auto-login desktop session's X display (29.2), so
+the desktop session stays enabled; disabling it for boot time was considered
+and dropped with this unit.
+
 ---
 
 ## 30. Document history
@@ -2086,6 +2140,11 @@ WP6.4 and are documented there when those units are prepared.
 |         |             | the shipped runtime and WP2.4 health readiness. Stages    |
 |         |             | from section 11 tagged with their owning work package.    |
 |         |             | Acceptance checklists moved to the validation runbook.    |
+| 1.8     | 20-Sep-2026 | WP6.4: the device.toml token field, 0640          |
+|         |             | root:kaki permissions on /etc/kaki/device.toml,   |
+|         |             | KAKI_DEVICE_TOKEN in the Mac's .env, the WP6.4    |
+|         |             | retry settings in 29.5, and the new 29.8 systemd  |
+|         |             | kiosk service (kaki-device.service).              |
 | 1.7     | 19-Sep-2026 | Added the WP6.6 admin token step to 11.4:            |
 |         |             | KAKI_ADMIN_TOKEN generated into the project-root     |
 |         |             | .env, with KAKI_ADMIN_DEFAULT_DEVICE optional. The   |

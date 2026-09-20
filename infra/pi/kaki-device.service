@@ -1,0 +1,35 @@
+# v1.0 | 20-Sep-2026 | WP6.4 kiosk service: restart after a crash, return after a power cut.
+#
+# Install (setup.md 29.8):
+#   sudo cp infra/pi/kaki-device.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now kaki-device
+#
+# WP6-AT-10: the kiosk returns to service after a process kill and after a
+# power cycle without operator intervention. Restart=always covers the kill;
+# enable + graphical.target covers the boot. StartLimitIntervalSec=0 disables
+# restart-rate exhaustion: on demo day a crash-looping kiosk that keeps
+# retrying every few seconds is better than one systemd has given up on.
+
+[Unit]
+Description=KaKi-Talkie kiosk (thin client)
+# The first health probe needs the network, but the unit must not fail when
+# the Mac is unreachable at boot: main.py exits 1 then, and Restart=always
+# turns that into a bounded retry loop until the backend answers.
+Wants=network-online.target
+After=network-online.target graphical.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=kaki
+# The pygame display runs inside the auto-login desktop session (setup.md
+# 29.2); the service borrows that session's X display.
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/kaki/.Xauthority
+ExecStart=/home/kaki/.venvs/kaki-device/bin/python -m kaki_device.main --config /etc/kaki/device.toml
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target

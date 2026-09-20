@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from kaki_backend.contracts.ports import Transcription
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline  #v1.1
-from kaki_test_env import canned_backend  #v1.4
+from kaki_test_env import DEVICE_AUTH, canned_backend  #v1.4
 
 # The application is built at import time from the environment, so it must be
 # imported through the canned sanitiser rather than directly.
@@ -37,7 +37,7 @@ class Wp12ContractTests(unittest.TestCase):
     def setUp(self) -> None:
         """Reset application state and create an isolated HTTP test client."""  #v1.2
         app.state.turn_service.reset()
-        self.client = TestClient(app)
+        self.client = TestClient(app, headers=DEVICE_AUTH)  # WP6.4
         self.addCleanup(self.client.close)
         self.fields = {
             "device_id": "wp12-device",

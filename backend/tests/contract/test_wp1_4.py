@@ -17,7 +17,7 @@ from unittest.mock import patch  #v1.0
 from fastapi.testclient import TestClient  #v1.0
 
 from kaki_backend.orchestration.canned_ports import CannedTtsPort, canned_audio  #v1.0
-from kaki_test_env import canned_backend  #v1.3
+from kaki_test_env import DEVICE_AUTH, canned_backend  #v1.3
 
 # The application is built at import time from the environment, so it must be
 # imported through the canned sanitiser rather than directly.
@@ -30,7 +30,7 @@ class Wp14ContractTests(unittest.TestCase):  #v1.0
     def setUp(self) -> None:  #v1.0
         """Reset application state and create an isolated HTTP test client."""  #v1.1
         app.state.turn_service.reset()  #v1.0
-        self.client = TestClient(app)  #v1.0
+        self.client = TestClient(app, headers=DEVICE_AUTH)  # WP6.4
         self.addCleanup(self.client.close)  #v1.0
 
     def post_turn(self, turn_id: str, audio: bytes) -> dict:  #v1.0

@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from kaki_backend.contracts.responses import TurnResponse
-from kaki_test_env import canned_backend  #v1.4
+from kaki_test_env import DEVICE_AUTH, canned_backend  #v1.4
 
 # The application is built at import time from the environment, so it must be
 # imported through the canned sanitiser rather than directly.
@@ -34,7 +34,7 @@ def synthetic_audio() -> bytes:
 class ApiContractTests(unittest.TestCase):
     def setUp(self) -> None:
         app.state.turn_service.reset()  #v1.1
-        self.client = TestClient(app)
+        self.client = TestClient(app, headers=DEVICE_AUTH)  # WP6.4
         self.addCleanup(self.client.close)
         self.fields = {
             "device_id": "test-device",

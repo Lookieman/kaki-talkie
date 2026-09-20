@@ -1,3 +1,4 @@
+# v1.1 | 20-Sep-2026 | WP6.4: bearer token on every request; same-turn_id retry.
 # v1.0 | 16-Sep-2026 | WP6.1 backend client: contract fields, audio decoding, safe failures.
 """Exercise the device's HTTP client with an injected transport; no backend runs.
 
@@ -12,6 +13,7 @@ producer emits and refuses to guess at anything else.
 """
 
 import io
+import re  #v1.1
 import unittest
 import wave
 from base64 import b64encode
@@ -183,6 +185,103 @@ class RouteTests(unittest.TestCase):
         with self.assertRaises(ApiError) as raised:
             client_for(handler)._request("GET", "/v1/chat/completions", 1.0)
         self.assertEqual(raised.exception.code, "rejected")
+
+
+class AuthTests(unittest.TestCase):
+    """WP6-AT-05: the service token rides every request as a bearer header."""
+
+    def test_the_token_is_sent_on_every_route(self):
+        seen = []
+
+        def handler(request):
+            seen.append(request.headers.get("authorization"))
+            if request.url.path == TURN_PATH:
+                return httpx.Response(200, json=turn_payload())
+            if request.url.path == HEALTH_PATH:
+                return httpx.Response(200, json={"status": "ok"})
+            return httpx.Response(200, json=[])
+
+        client = BackendClient(
+            "http://127.0.0.1:8000", timeout_seconds=5, token="device-secret",
+            transport=httpx.MockTransport(handler),
+        )
+        client.submit_turn(device_id="d", session_id="s", turn_id="t", audio=wav_bytes())
+        client.health()
+        client.pending()
+        self.assertEqual(seen, ["Bearer device-secret"] * 3)
+
+    def test_without_a_token_no_authorization_header_is_invented(self):
+        seen = []
+
+        def handler(request):
+            seen.append(request.headers.get("authorization"))
+            return httpx.Response(200, json={"status": "ok"})
+
+        client_for(handler).health()
+        self.assertEqual(seen, [None])
+
+
+class RetryTests(unittest.TestCase):
+    """WP6-AT-04: a retried turn reuses its turn_id and yields exactly one answer."""
+
+    def retrying_client(self, handler, attempts=3) -> tuple[BackendClient, list]:
+        naps: list[float] = []
+        client = BackendClient(
+            "http://127.0.0.1:8000", timeout_seconds=5,
+            retry_attempts=attempts, retry_backoff_seconds=1.5,
+            transport=httpx.MockTransport(handler), sleep=naps.append,
+        )
+        return client, naps
+
+    def test_a_timeout_is_retried_with_the_same_turn_id(self):
+        turn_ids = []
+        retried_attempts = []
+
+        def handler(request):
+            turn_ids.append(re.search(rb'name="turn_id"\r\n\r\n([^\r]+)', request.content)
+                            .group(1).decode())
+            if len(turn_ids) < 3:
+                raise httpx.ReadTimeout("stall")
+            return httpx.Response(200, json=turn_payload())
+
+        client, naps = self.retrying_client(handler)
+        result = client.submit_turn(
+            device_id="d", session_id="s", turn_id="turn-1", audio=wav_bytes(),
+            on_retry=retried_attempts.append,
+        )
+        self.assertEqual(result.state, "answered")
+        self.assertEqual(turn_ids, ["turn-1", "turn-1", "turn-1"])
+        self.assertEqual(retried_attempts, [2, 3])
+        self.assertEqual(naps, [1.5, 1.5])
+
+    def test_a_rejection_is_never_retried(self):
+        calls = []
+
+        def handler(request):
+            calls.append(1)
+            return httpx.Response(401)
+
+        client, naps = self.retrying_client(handler)
+        with self.assertRaises(ApiError) as raised:
+            client.submit_turn(device_id="d", session_id="s", turn_id="t",
+                               audio=wav_bytes())
+        self.assertEqual(raised.exception.code, "rejected")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(naps, [])
+
+    def test_exhausted_retries_raise_the_final_code(self):
+        calls = []
+
+        def handler(request):
+            calls.append(1)
+            raise httpx.ConnectError("down")
+
+        client, _ = self.retrying_client(handler, attempts=3)
+        with self.assertRaises(ApiError) as raised:
+            client.submit_turn(device_id="d", session_id="s", turn_id="t",
+                               audio=wav_bytes())
+        self.assertEqual(raised.exception.code, "unavailable")
+        self.assertEqual(len(calls), 3)
 
 
 class ReplyAudioTests(unittest.TestCase):

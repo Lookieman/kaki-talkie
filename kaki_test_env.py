@@ -1,3 +1,4 @@
+# v1.2 | 20-Sep-2026 | Add the canned device token so /api/device/* tests authenticate.
 # v1.1 | 18-Sep-2026 | Add the canned admin token so WP6.6 contract tests authenticate.
 # v1.0 | 12-Sep-2026 | Make the deterministic suites hermetic against ambient KAKI_* exports.
 """Give the deterministic test suites a canned environment of their own.
@@ -44,9 +45,18 @@ CANNED_ENVIRONMENT = {
     # The WP6.6 admin routes fail closed without a token; the suites use a
     # fixed one so authentication is deterministic and tunnel-free.
     "KAKI_ADMIN_TOKEN": "kaki-test-admin-token",  #v1.1
+    # The WP6.4 device routes fail closed without a token; a fixed one keeps
+    # the contract suites deterministic. It differs from the admin token, and
+    # the suites prove neither is accepted on the other's routes.
+    "KAKI_DEVICE_TOKEN": "kaki-test-device-token",  #v1.2
 }
 
 CANNED_ADMIN_TOKEN = CANNED_ENVIRONMENT["KAKI_ADMIN_TOKEN"]  #v1.1
+CANNED_DEVICE_TOKEN = CANNED_ENVIRONMENT["KAKI_DEVICE_TOKEN"]  #v1.2
+
+# Every /api/device/* request needs this header since WP6.4; contract tests
+# construct their TestClient with it as the default.
+DEVICE_AUTH = {"Authorization": f"Bearer {CANNED_DEVICE_TOKEN}"}  #v1.2
 
 _disposable_root: str | None = None
 

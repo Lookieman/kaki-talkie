@@ -1,3 +1,4 @@
+# v1.1 | 20-Sep-2026 | WP6.4: retrying title and the connection-failure body.
 # v1.0 | 16-Sep-2026 | WP6.1 display layout: states, wrapping, shrink, truncation, austerity.
 """Prove the kiosk display without a screen, fonts or pygame.
 
@@ -10,6 +11,7 @@ design.md 9.2 forbids.
 
 import unittest
 
+from kaki_device.display import layout  # WP6.4 copy constants
 from kaki_device.display.layout import (
     BODY_SIZES,
     ELLIPSIS,
@@ -54,16 +56,26 @@ class FrameTests(unittest.TestCase):
                 seen.add(frame.state)
         self.assertEqual(seen, set(DisplayState))
 
-    def test_retrying_renders_identically_to_thinking_but_stays_distinct(self):
-        # WP6.4 drives RETRYING; today it looks the same, deliberately.
+    def test_retrying_shows_its_own_title_and_stays_distinct(self):
+        # WP6.4: the retry frame tells the user the kiosk is checking again.
+        # The wording is a placeholder for the WP6.8 ergonomics pass.
         thinking = thinking_frame(WIDTH, HEIGHT, MEASURE)
         retrying = thinking_frame(WIDTH, HEIGHT, MEASURE, DisplayState.RETRYING)
-        self.assertEqual(thinking.text, retrying.text)
-        self.assertEqual(
-            [(line.size, line.y, line.colour) for line in thinking.lines],
-            [(line.size, line.y, line.colour) for line in retrying.lines],
-        )
+        self.assertIn(layout.RETRYING_TITLE, retrying.text)
+        self.assertIn("Checking again", retrying.text)
+        self.assertIn(layout.THINKING_SUBTITLE, retrying.text)
+        self.assertNotIn(layout.THINKING_TITLE, retrying.text)
         self.assertNotEqual(thinking.state, retrying.state)
+
+    def test_the_connection_failure_body_replaces_the_generic_one(self):
+        # WP6.4: shown once the same-turn_id retries are exhausted; the
+        # wording is a placeholder for the WP6.8 ergonomics pass.
+        generic = error_frame(WIDTH, HEIGHT, MEASURE)
+        connection = error_frame(WIDTH, HEIGHT, MEASURE, layout.CONNECTION_ERROR_BODY)
+        self.assertIn(layout.ERROR_BODY, generic.text)
+        self.assertIn("Cannot connect. Press the button to try again.", connection.text)
+        self.assertNotIn(layout.ERROR_BODY, connection.text)
+        self.assertEqual(connection.state, DisplayState.ERROR)
 
     def test_idle_and_recording_show_english_and_malay(self):
         idle = idle_frame(WIDTH, HEIGHT, MEASURE).text

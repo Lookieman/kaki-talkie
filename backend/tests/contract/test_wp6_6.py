@@ -16,7 +16,7 @@ from uuid import uuid4
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from kaki_test_env import CANNED_ADMIN_TOKEN, canned_backend
+from kaki_test_env import CANNED_ADMIN_TOKEN, DEVICE_AUTH, canned_backend
 
 main = canned_backend()
 app = main.app
@@ -37,7 +37,7 @@ def synthetic_audio() -> bytes:
 
 class Wp66Base(unittest.TestCase):
     def setUp(self) -> None:
-        self.client = TestClient(app)
+        self.client = TestClient(app, headers=DEVICE_AUTH)  # WP6.4
         self.device_id = f"wp66-{uuid4().hex[:8]}"
 
     def tearDown(self) -> None:
