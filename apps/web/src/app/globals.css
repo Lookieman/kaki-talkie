@@ -1,3 +1,4 @@
+/* v1.2 | 19-Sep-2026 | Style the WP6.6 announcement banner inside the device. */
 /* v1.1 | 13-Sep-2026 | Style the WP4.2 print-policy control. */
 /* v1.0 | 04-Sep-2026 | Style the responsive WP1.3 simulator and receipt. */
 
@@ -107,6 +108,25 @@ button {
 .state-track li.active span {
   background: var(--coral);
   box-shadow: 0 0 0.8rem rgba(229, 105, 80, 0.5);
+}
+
+/* An admin push, shown on the kiosk while it is spoken. It sits above the
+   state track inside the device, so it reads as device output rather than
+   page text, and it clears when the next turn starts. */
+.nudge {
+  display: block;
+  margin: 0 0 1.1rem;
+  padding: 0.9rem 1.1rem;
+  border-left: 0.3rem solid var(--coral);
+  border-radius: 0.9rem;
+  color: var(--ink);
+  background: rgba(229, 105, 80, 0.14);
+  font-size: clamp(0.95rem, 1.8vw, 1.1rem);
+  line-height: 1.4;
+}
+
+.nudge > p {
+  margin: 0;
 }
 
 .display {

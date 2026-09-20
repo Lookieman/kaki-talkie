@@ -1,3 +1,4 @@
+// v1.6 | 19-Sep-2026 | WP6.6: show the nudge inside the device frame and clear it on the next turn.
 // v1.5 | 18-Sep-2026 | WP6.6: poll pending every 3 s while idle and play a nudge once.
 // v1.4 | 13-Sep-2026 | Apply the client print policy and keep the last printed slip (WP4.2).
 // v1.3 | 05-Sep-2026 | Support identifier generation in insecure browser contexts.
@@ -194,6 +195,9 @@ export function Simulator() {
     }
     setError(null);
     setResponse(null);
+    // An announcement belongs to the moment it arrived. Clear it as the next
+    // turn starts, so it never sits over someone else's answer.
+    setNudge(null); //v1.6
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!mounted.current) {
@@ -260,13 +264,13 @@ export function Simulator() {
         <p>Hold the button while speaking. Recording ends on release or automatically after 15 seconds.</p>
       </section>
 
-      {nudge ? ( //v1.5
-        <section className="nudge" role="status" aria-label="Announcement">
-          <p>{nudge.text}</p>
-        </section>
-      ) : null}
-
       <section className="device" aria-label="KaKi-Talkie simulator">
+        {nudge ? ( //v1.6
+          <section className="nudge" role="status" aria-label="Announcement">
+            <p>{nudge.text}</p>
+          </section>
+        ) : null}
+
         <ol className="state-track" aria-label="Device state">
           {DEVICE_STATES.map((state) => (
             <li key={state} className={state === deviceState ? "active" : ""} aria-current={state === deviceState ? "step" : undefined}>

@@ -1372,17 +1372,24 @@ token in `kaki_test_env.py`.
 
 `/admin` is a static page on the simulator origin (behind the same
 Access session as `/sim`), four large buttons - English, Bahasa Melayu,
-Auto, Push - and a status line. It asks for the token once per tab
-session. Every write names its `device_id`: the target is the backend's
-`KAKI_ADMIN_DEFAULT_DEVICE` (default `kaki-pi-01`), reported by
-`GET /api/admin/state` and shown in the status line. No route infers a
-target from recent activity.
+Auto, Push - and a status line. It asks for the token once per browser
+and keeps it in local storage. Every write names its `device_id`: the
+target is the backend's `KAKI_ADMIN_DEFAULT_DEVICE` (default
+`kaki-pi-01`), reported by `GET /api/admin/state` and shown in the
+status line. The page cannot change the target; the backend reads it at
+start, so rehearsing against the simulator means starting the backend
+with `KAKI_ADMIN_DEFAULT_DEVICE=web-simulator` (runbook 11.2 WP6.6,
+"Choose the demo target"). No route infers a target from recent
+activity.
 
 The simulator polls `GET /api/device/pending?device_id=web-simulator`
 every `PENDING_POLL_SECONDS` (a constant, 3) while idle, and surfaces
 each delivery once, keyed by message id plus `pushed_at`, so a re-pushed
-rehearsal plays again but a duplicate poll of one delivery does not. The
-device package is untouched; the Pi's pending behaviour is WP6.5's.
+rehearsal plays again but a duplicate poll of one delivery does not. It
+speaks the announcement and shows the same words inside the device
+frame, which is what a muted browser leaves the operator; the banner
+clears when the next turn starts, so it never sits over a later answer.
+The device package is untouched; the Pi's pending behaviour is WP6.5's.
 
 ##### Environment variables
 
@@ -1477,8 +1484,14 @@ Under `execution-plan.md` 1.1, two of the WP6.6 changes to
   `delivered` but nothing played, press Push again; a new push re-arms
   the same message. Nothing replays by itself.
 - One canned message. A second is scope creep with no demo value.
-- The admin token sits in the operator's browser session storage after
-  first entry; closing the tab forgets it. Access remains the outer gate.
+- The admin token persists in the operator's browser local storage after
+  first entry, so one entry serves the whole browser and a reload
+  mid-pitch does not stop to ask. It survives closing the tab and the
+  browser, and is forgotten only when the site data is cleared or the
+  backend rejects it. Treat the demo phone as holding a live credential:
+  it is the same secret the loopback path uses. A private window, or a
+  browser with site data blocked, keeps nothing and prompts on every
+  load - the page still works. Access remains the outer gate.
 - The simulator plays a nudge only while idle, so a push during a turn
   waits for the next idle poll.
 - `auto` pushes English: with no transcript there is nothing for the
@@ -1661,6 +1674,43 @@ scripts/wp6_6_evidence.sh --from-test 3    # resume at Test 3
 `--from-test N` (1-4, default 1) starts at test N and runs to the end.
 Tests 3 and 4 need an interactive terminal for the judgements.
 
+##### Choose the demo target before you start the backend
+
+The `/admin` page steers exactly one device: the backend's
+`KAKI_ADMIN_DEFAULT_DEVICE`. The backend reads it once, at start, so the
+target cannot be changed from the page, from a request or from a
+re-sourced shell. Changing it means restarting the backend. Choose it
+before the pitch, not during it.
+
+```text
++------------------+----------------------------------------------------+
+| Value            | When it is the right target                         |
++------------------+----------------------------------------------------+
+| kaki-pi-01       | The default. The physical kiosk is on stage and     |
+|                  | the operator steers it. This is demo day.           |
+| web-simulator    | The browser simulator stands in for the kiosk:      |
+|                  | rehearsal, Test 4, and any run before WP6.2 puts    |
+|                  | the Pi on stage.                                    |
++------------------+----------------------------------------------------+
+```
+
+Set it in the shell that starts the stack, because `dev_stack.py` hands
+the backend its whole environment:
+
+```sh
+export KAKI_ADMIN_DEFAULT_DEVICE=web-simulator   # or kaki-pi-01
+python scripts/dev_stack.py up
+```
+
+Confirm it two ways before you rely on it: `GET /api/admin/state`
+reports `default_device`, and the `/admin` status line opens with
+`Target <device_id>`. If the status line names a device you are not
+watching, nothing you press will reach the surface in front of you.
+
+The loopback curl script is the exception - `scripts/wp6_6_admin.sh
+--device <id>` names any target without a restart, which is why Test 2
+can rehearse against scratch devices while the page holds its default.
+
 ##### Test 1: deterministic gate and the WP6.1 rerun (WP6-AT-15, 16, 17 at tier A)
 
 **Objective:** prove the admin surface hermetically - authentication
@@ -1720,12 +1770,25 @@ announcement, clear and calm.
 buttons and a status line on a phone-sized screen, steering the
 simulator; then close the regression scope.
 
+The page steers one device: the backend's configured default, named in
+the status line. Rehearsing against the simulator therefore means
+pointing that default at the simulator's identity before the backend
+starts (see "Choose the demo target" above):
+
+```sh
+export KAKI_ADMIN_DEFAULT_DEVICE=web-simulator
+python scripts/dev_stack.py up
+```
+
 The harness prints the owner steps: open `/admin`, enter the token once,
-set the simulator's language to `ms`, ask the CDC question in `/sim`
-(Malay reply), push, and watch the simulator speak the announcement once
-within 3 seconds. On the phone, the same page rides the tunnel behind
-Access. Then `wp_check.py --unit WP6.1 --tier B` reruns the scripted
-mock turn - the WP6.6 regression scope (`execution-plan.md` v1.13).
+confirm the status line reads `Target web-simulator`, set the language
+to `ms`, ask the CDC question in `/sim` (Malay reply), push, and watch
+the simulator speak the announcement once within 3 seconds and show it
+inside the device frame. The push needs no `--device` argument: the page
+already names the simulator. On the phone, the same page rides the
+tunnel behind Access. Then `wp_check.py --unit WP6.1 --tier B` reruns
+the scripted mock turn - the WP6.6 regression scope
+(`execution-plan.md` v1.13).
 
 **Expected, machine-checked:** the WP6.1 tier B rerun exits 0.
 
