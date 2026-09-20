@@ -1,3 +1,4 @@
+# v3.0 | 20-Sep-2026 | Add WP6.2 (tier A hardware-layer checks, tier C Pi service checks) and tier C; allow gpiozero on the device.
 # v2.9 | 19-Sep-2026 | Keep every suite's full output: --evidence writes <suite>.output.txt; JSON tails hold 20 lines.
 # v2.8 | 18-Sep-2026 | Add WP6.6: admin-surface suites (tier A) and the live admin flow (tier B).
 # v2.7 | 16-Sep-2026 | Add WP6.1: thin-client static inspection (tier A) and a scripted mock turn (tier B).
@@ -86,6 +87,14 @@ Currently registered:
 - WP6.1 tier B - one scripted mock turn against the running stack. Requires
   the grounded stack; posts one fixture turn through the device loop with mock
   I/O and checks the loop rendered, spoke and printed from the response alone.
+- WP6.2 tier A - the hardware layer without hardware: the device suite (GPIO
+  and ALSA fakes, debounce, cap/release, countdown), the WP6-AT-13 inspection
+  and a direct conversion golden (16 kHz mono in, 48 kHz stereo S16_LE out).
+- WP6.2 tier C - service-level checks run ON THE PI from the cloned checkout
+  with the device venv: arecord/aplay present, gpiozero importable, the
+  configured ALSA card resolvable, the kiosk process running, the backend
+  reachable and its newest stored turn from this device. Owner actions are
+  never simulated; the physical proofs stay in runbook 11.2 WP6.2.
 - WP6.6 tier A - the admin-surface suites (auth, config, push, override) run
   hermetically from the checkout root, the thin-client inspection stays clean
   and the packaged schema version is 4. No backend, no network.
@@ -136,6 +145,7 @@ import io
 import json
 import os
 import re
+import shutil  #v3.0
 import sqlite3  #v2.0
 import stat  #v2.0
 import subprocess  #v2.3
@@ -151,17 +161,28 @@ from time import perf_counter
 from uuid import uuid4
 
 import httpx
-from dotenv import load_dotenv  #v1.6
 
-from kaki_backend.config import APPROVED_QWEN_MODEL, LlmSettings, TtsSettings
-from kaki_backend.config import StorageSettings  #v2.0
-from kaki_backend.config import LanguageSettings, RetrievalSettings  #v2.4
-from kaki_backend.contracts.ports import LlmError, TtsError
-from kaki_backend.orchestration.canned_ports import CannedLlmPort, CannedSttPort
+# The backend is installed on the development machines and the Mac, never on
+# the Pi (setup.md 29.6). Tier C runs on the Pi, so these imports are guarded:
+# every tier A and B check still fails loudly if run where they are missing,
+# because the names it needs are None (#v3.0).
+try:
+    from dotenv import load_dotenv  #v1.6
+    from kaki_backend.config import APPROVED_QWEN_MODEL, LlmSettings, TtsSettings
+    from kaki_backend.config import StorageSettings  #v2.0
+    from kaki_backend.config import LanguageSettings, RetrievalSettings  #v2.4
+    from kaki_backend.contracts.ports import LlmError, TtsError
+    from kaki_backend.orchestration.canned_ports import CannedLlmPort, CannedSttPort
+except ImportError:  #v3.0
+    load_dotenv = None
+    APPROVED_QWEN_MODEL = LlmSettings = TtsSettings = StorageSettings = None
+    LanguageSettings = RetrievalSettings = LlmError = TtsError = None
+    CannedLlmPort = CannedSttPort = None
 
 # The WP3.2/WP3.3 checks embed with a Hugging Face model, whose `HF_TOKEN`
 # lives in the untracked project-root .env; a real export wins.
-load_dotenv()  #v1.6
+if load_dotenv is not None:
+    load_dotenv()  #v1.6
 
 GENERATION_RUNS = 5
 MAX_REPLY_WORDS = 60
@@ -1582,8 +1603,11 @@ def check_wp51_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.4
 
 DEVICE_ROOT = Path(__file__).resolve().parent.parent / "device"  #v2.7
 # Everything the thin client may import: the standard library plus one HTTP
-# client, plus pygame for drawing and its own package.
-DEVICE_ALLOWED_IMPORTS = frozenset({"httpx", "pygame", "kaki_device"})  #v2.7
+# client, pygame for drawing, gpiozero for the dome button (WP6.2, from apt -
+# setup.md 29.3) and its own package. gpiozero is deliberately absent from
+# DEVICE_ALLOWED_DEPENDENCIES: it is never a pyproject dependency (owner
+# decision, 20-Sep-2026).
+DEVICE_ALLOWED_IMPORTS = frozenset({"httpx", "pygame", "gpiozero", "kaki_device"})  #v3.0
 DEVICE_ALLOWED_DEPENDENCIES = frozenset({"httpx", "pygame"})  #v2.7
 # Modules that would mean the Pi had started thinking for itself.
 DEVICE_FORBIDDEN_IMPORTS = frozenset({  #v2.7
@@ -1750,6 +1774,131 @@ def check_wp61_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.7
 
 
 # ---------------------------------------------------------------------------
+# WP6.2: physical I/O - button, audio, live countdown.
+# ---------------------------------------------------------------------------
+
+
+def _import_kaki_device():  #v3.0
+    """Make the device package importable from the checkout and return it."""
+    source = str(DEVICE_ROOT / "src")
+    if source not in sys.path:
+        sys.path.insert(0, source)
+    import kaki_device
+    return kaki_device
+
+
+def check_wp62_tier_a() -> tuple[dict[str, object], dict[str, bool]]:  #v3.0
+    """Prove the hardware layer deterministically (WP6-AT-01/02 at tier A).
+
+    Runs the device suite (which exercises the GPIO and ALSA fakes), re-runs
+    the WP6-AT-13 inspection with the WP6.2 allowlist, and converts one
+    16 kHz mono WAV directly, pinning the design.md 4.3 playback contract:
+    everything becomes 48 kHz stereo S16_LE. No hardware, no network.
+    """
+    _import_kaki_device()
+    from kaki_device.alsa_audio import convert_to_playback
+    from kaki_device.mock_io import silent_wav
+
+    findings = thin_client_findings()
+    suite, suite_record = run_suite(
+        "device_tests",
+        [sys.executable, "-m", "unittest", "discover", "-s", str(DEVICE_ROOT / "tests"),
+         "-t", str(DEVICE_ROOT / "tests")],
+    )
+    converted = convert_to_playback(silent_wav(seconds=1.0, framerate=16000))
+    with wave.open(io.BytesIO(converted), "rb") as playback:
+        playback_format = (
+            playback.getnchannels(), playback.getsampwidth(), playback.getframerate(),
+        )
+        playback_seconds = playback.getnframes() / playback.getframerate()
+    report = {
+        "findings": findings,
+        "suite_exit_code": suite.returncode,
+        "suite_tests_ran": suite_record["tests_ran"],
+        "suite_tail": suite_record["tail"],
+        "suite_output": suite_record["output_path"],
+        "playback_format": {
+            "channels": playback_format[0], "sample_width_bytes": playback_format[1],
+            "rate": playback_format[2], "seconds": round(playback_seconds, 3),
+        },
+    }
+    checks = {f"no_{rule}_findings": not found for rule, found in findings.items()}
+    checks["device_suite_passed"] = suite.returncode == 0
+    checks["device_suite_ran_tests"] = suite_record["tests_ran"] > 0
+    checks["playback_is_48k_stereo_s16"] = playback_format == (2, 2, 48000)
+    checks["playback_duration_preserved"] = abs(playback_seconds - 1.0) < 0.02
+    return report, checks
+
+
+def check_wp62_tier_c() -> tuple[dict[str, object], dict[str, bool]]:  #v3.0
+    """Service-level assertions on the Pi; no owner action is simulated.
+
+    Runs on the Raspberry Pi from the cloned checkout with the device venv
+    (runbook 11.2 WP6.2). Reads the device configuration from `KAKI_DEVICE_*`
+    exports and, when set, the file named by `KAKI_DEVICE_CONFIG`. The
+    physical proofs - press, rattle, hold, listen, read the panel - stay with
+    the owner; this checks only that the services those proofs need exist.
+    """
+    kaki_device = _import_kaki_device()
+    del kaki_device
+    from kaki_device.config import load_config
+
+    config = load_config(os.environ.get("KAKI_DEVICE_CONFIG") or None)
+    report: dict[str, object] = {
+        "device_id": config.device_id, "backend_url": config.backend_url,
+        "audio_card": config.audio.card, "button_pin": config.button.pin,
+    }
+    checks: dict[str, bool] = {
+        "arecord_installed": shutil.which("arecord") is not None,
+        "aplay_installed": shutil.which("aplay") is not None,
+        "audio_card_configured": bool(config.audio.card),
+    }
+    try:
+        import gpiozero  # noqa: F401
+        checks["gpiozero_importable"] = True
+    except ImportError:
+        checks["gpiozero_importable"] = False
+
+    if checks["arecord_installed"] and config.audio.card:
+        listing = subprocess.run(
+            ["arecord", "-L"], capture_output=True, text=True, timeout=30,
+        )
+        # `plughw:CARD=Speak` must resolve to a listed card name such as
+        # `plughw:CARD=Speak,DEV=0`; match on the CARD= identity.
+        identity = config.audio.card.split(":", 1)[-1].split(",", 1)[0]
+        checks["audio_card_resolvable"] = listing.returncode == 0 and identity in listing.stdout
+        report["alsa_identity_sought"] = identity
+    else:
+        checks["audio_card_resolvable"] = False
+
+    kiosk = subprocess.run(
+        ["pgrep", "-f", "kaki_device.main"], capture_output=True, text=True, timeout=30,
+    )
+    checks["kiosk_process_running"] = kiosk.returncode == 0
+    report["kiosk_pids"] = kiosk.stdout.split()
+
+    with httpx.Client(base_url=config.backend_url, timeout=30) as client:
+        try:
+            health = client.get("/api/health")
+            checks["backend_reachable"] = health.status_code == 200
+            report["backend_health"] = health.json() if health.status_code == 200 else None
+        except httpx.HTTPError as error:
+            checks["backend_reachable"] = False
+            report["backend_health"] = f"unreachable: {error}"
+        try:
+            debug = client.get("/api/device/debug/last-turn")
+            last_device = debug.json().get("device_id") if debug.status_code == 200 else None
+            report["last_turn_device_id"] = last_device
+            checks["backend_received_a_turn_from_this_device"] = (
+                last_device == config.device_id
+            )
+        except (httpx.HTTPError, ValueError):
+            report["last_turn_device_id"] = None
+            checks["backend_received_a_turn_from_this_device"] = False
+    return report, checks
+
+
+# ---------------------------------------------------------------------------
 # WP6.6: the demo admin surface.
 # ---------------------------------------------------------------------------
 
@@ -1891,6 +2040,8 @@ REGISTRY = {
     ("WP5.1", "B"): check_wp51_tier_b,  #v2.4
     ("WP6.1", "A"): check_wp61_tier_a,  #v2.7
     ("WP6.1", "B"): check_wp61_tier_b,  #v2.7
+    ("WP6.2", "A"): check_wp62_tier_a,  #v3.0
+    ("WP6.2", "C"): check_wp62_tier_c,  #v3.0
     ("WP6.6", "A"): check_wp66_tier_a,  #v2.8
     ("WP6.6", "B"): check_wp66_tier_b,  #v2.8
 }
@@ -1906,8 +2057,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--unit", required=True, help=f"Implementation unit to check (supported: {supported})"
     )
     parser.add_argument(
-        "--tier", required=True, choices=["A", "B"],
-        help="Test tier: A deterministic developer checks, B Mac runtime checks",
+        "--tier", required=True, choices=["A", "B", "C"],
+        help="Test tier: A deterministic developer checks, B Mac runtime checks, "
+             "C Raspberry Pi service checks (run on the Pi)",
     )
     parser.add_argument(  #v2.9
         "--evidence", metavar="DIR", default=None,

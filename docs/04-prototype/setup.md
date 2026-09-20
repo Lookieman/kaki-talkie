@@ -1993,9 +1993,33 @@ session_idle_minutes = 10
 print_policy = "auto"
 display_width = 1024
 display_height = 600
+
+[audio]
+card = "plughw:CARD=<jabra-card-name>"
+
+[button]
+pin = 17
 EOF
 sudo chmod 0644 /etc/kaki/device.toml
 ```
+
+Find the Jabra's stable ALSA card name first - the name, never the card
+number, because numbers change with boot order (design.md 4.3):
+
+```bash
+arecord -L | grep -A1 '^plughw:CARD='
+```
+
+Expected: one `plughw:CARD=...` entry naming the Jabra (typically
+`plughw:CARD=USB` or `plughw:CARD=Speak`). Put that value in `[audio] card`.
+Verify capture and playback before first kiosk start:
+
+```bash
+arecord -D "plughw:CARD=<jabra-card-name>" -f S16_LE -c 1 -r 16000 -d 2 /tmp/check.wav
+aplay   -D "plughw:CARD=<jabra-card-name>" /tmp/check.wav && rm /tmp/check.wav
+```
+
+Expected: two seconds record without an error and play back audibly.
 
 ```text
 +------------------------------------+--------------------------------------+
@@ -2007,6 +2031,9 @@ sudo chmod 0644 /etc/kaki/device.toml
 | session_idle_minutes               | Idle gap that starts a new session   |
 | print_policy                       | auto or on_request (design.md 9.3)   |
 | display_width / display_height     | Panel size in pixels                 |
+| audio.card                         | Stable ALSA name of the Jabra        |
+| audio.capture_rate / playback_rate | Default 16000 / 48000 (design.md 4.3)|
+| button.pin / debounce_seconds      | Dome button GPIO; default 17 / 0.05  |
 +------------------------------------+--------------------------------------+
 ```
 

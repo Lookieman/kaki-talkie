@@ -1,3 +1,4 @@
+# v1.1 | 20-Sep-2026 | WP6.2: the fixture microphone accepts the progress callback.
 # v1.0 | 16-Sep-2026 | WP6.1 mock button, microphone, speaker, printer and display.
 """Fake the kiosk hardware so the whole loop runs on the Mac.
 
@@ -88,8 +89,14 @@ class FixtureMicrophone:
         self._seconds = seconds
         self.recordings: list[float] = []
 
-    def record(self, max_seconds: float, stop_when_released: bool = True) -> bytes:
-        """Return the fixture bytes; raises AudioCaptureError for an unusable file."""
+    def record(self, max_seconds: float, stop_when_released: bool = True,
+               on_progress=None) -> bytes:
+        """Return the fixture bytes; raises AudioCaptureError for an unusable file.
+
+        A fixture returns instantly, so `on_progress` is accepted and never
+        called: the loop has already shown the full allowance, and a mock
+        turn's display sequence stays recording -> thinking -> answer.
+        """
         self.recordings.append(max_seconds)
         if self._audio_path is None:
             return silent_wav(min(self._seconds, max_seconds))

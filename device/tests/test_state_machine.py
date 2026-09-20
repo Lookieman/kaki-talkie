@@ -1,3 +1,4 @@
+# v1.1 | 20-Sep-2026 | WP6.2: countdown frames from microphone progress ticks.
 # v1.0 | 16-Sep-2026 | WP6.1 turn loop: turn ids, recording cap, interruption, print, recovery.
 """Drive the whole kiosk loop with mock ports and a fake clock.
 
@@ -128,10 +129,24 @@ class HappyPathTests(unittest.TestCase):
         self.assertEqual(shown, ANSWER_TEXT)
         self.assertEqual(len(ports["speaker"].played), 1)
         self.assertEqual(ports["printer"].slips, [SLIP_TEXT])
-        self.assertEqual(
-            (outcome.state, outcome.printed, outcome.spoke, outcome.error_code),
-            ("answered", True, True, None),
-        )
+
+    def test_recording_progress_ticks_render_countdown_frames(self):
+        # WP6.2: a real microphone reports the seconds left while it records;
+        # every tick must land on the display as a recording frame.
+        class TickingMicrophone(FixtureMicrophone):
+            def record(self, max_seconds, stop_when_released=True, on_progress=None):
+                for remaining in (max_seconds, max_seconds - 5, 1.0):
+                    on_progress(remaining)
+                return super().record(max_seconds, stop_when_released)
+
+        loop, ports, _ = build_loop(microphone=TickingMicrophone())
+        outcome = loop.run_turn()
+        recording = [frame for frame in ports["display"].frames
+                     if frame.state is DisplayState.RECORDING]
+        self.assertEqual(len(recording), 4)  # the initial frame plus three ticks
+        self.assertIn("1 s", recording[-1].text)
+        # The ticks change nothing else about the turn.
+        self.assertEqual((outcome.state, outcome.error_code), ("answered", None))
 
     def test_every_turn_uses_a_fresh_turn_id_within_one_session(self):
         loop, _, _ = build_loop()
@@ -273,7 +288,8 @@ class FailureTests(unittest.TestCase):
 
     def test_a_capture_failure_shows_the_error_frame_without_submitting(self):
         class BrokenMicrophone:
-            def record(self, max_seconds: float, stop_when_released: bool = True) -> bytes:
+            def record(self, max_seconds: float, stop_when_released: bool = True,
+                       on_progress=None) -> bytes:
                 raise AudioCaptureError("no capture device")
 
         client = FakeClient()

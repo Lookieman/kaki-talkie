@@ -1,3 +1,4 @@
+# v1.9 | 20-Sep-2026 | Add WP6.2: Mac-side evidence directory for tier A and the reruns.
 # v1.8 | 19-Sep-2026 | Load KAKI_ADMIN_TOKEN in common setup, so env-only mode
 #                      gets it too. It sat in the WP6.6 branch, which runs
 #                      after the env-only return, so `source kaki_env.sh env`
@@ -111,6 +112,15 @@ case "$KAKI_UNIT" in                                             #v1.2
         export KAKI_EVIDENCE WP51_EVIDENCE="$KAKI_EVIDENCE"      #v1.5
         export WP51_AUDIO="$KAKI_DATA_ROOT/wp5.1/audio"          #v1.5
         ;;                                                       #v1.5
+    WP6.2)                                                       #v1.9
+        # Mac-side WP6.2 work is the tier A gate and the WP6.1 regression
+        # reruns; the physical validation runs on the Pi (runbook 11.2 WP6.2)
+        # and its evidence is copied into this directory afterwards.
+        export KAKI_DB="${KAKI_SQLITE_PATH:-$KAKI_DATA_ROOT/sqlite/kaki.db}"  #v1.9
+        rmdir "$KAKI_EVIDENCE" || return 1                       #v1.9
+        KAKI_EVIDENCE="$(mktemp -d "$KAKI_DATA_ROOT/wp6.2/evidence.XXXXXX")" || return 1  #v1.9
+        export KAKI_EVIDENCE WP62_EVIDENCE="$KAKI_EVIDENCE"      #v1.9
+        ;;                                                       #v1.9
     WP6.6)                                                       #v1.7
         # KAKI_ADMIN_TOKEN now loads in common setup above (runbook 11.1 WP6.6).
         export KAKI_DB="${KAKI_SQLITE_PATH:-$KAKI_DATA_ROOT/sqlite/kaki.db}"  #v1.7

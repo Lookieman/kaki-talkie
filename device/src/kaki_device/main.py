@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
+# v1.1 | 20-Sep-2026 | WP6.2: real mode drives the GPIO button, ALSA audio and the panel.
 # v1.0 | 16-Sep-2026 | WP6.1 device entry point; mock I/O runs the loop on the Mac.
 """Start the kiosk loop, with real or mock hardware.
 
 Two ways to run it:
 
     python -m kaki_device.main --mock            # Mac or Pi, no hardware needed
-    python -m kaki_device.main --config /etc/kaki/device.toml
+    python -m kaki_device.main --config ~/kaki-device.toml   # Pi, real hardware
 
-WP6.1 ships mock I/O only, so `--mock` is currently the only working mode;
-without it the process explains which unit adds the real ports and exits 2.
-That keeps this file honest rather than pretending to drive hardware that
-does not exist yet.
+Real mode (WP6.2) needs the dome button on the configured GPIO pin, the Jabra
+Speak reachable under the configured ALSA card name, and the panel; it
+refuses to start with a clear message when any of those is not configured or
+present. There is no printer: the thermal printer was withdrawn on
+18-Sep-2026, so real mode ships a printer port that declines every slip,
+which the loop records and survives.
 
 `--mock` with `--headless` runs entirely without a display, which is what the
 evidence harness and `wp_check.py --unit WP6.1 --tier B` use to drive one
@@ -31,6 +34,7 @@ from kaki_device.mock_io import (
     ScriptedButton,
     fixed_measure,
 )
+from kaki_device.io_ports import PrinterError
 from kaki_device.state_machine import TurnLoop
 
 
@@ -63,6 +67,44 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+class WithdrawnPrinter:
+    """Decline every slip: the thermal printer was withdrawn on 18-Sep-2026.
+
+    Raising keeps the outcome honest - `printed` stays False - and the loop
+    already records and survives a refusing printer, so the spoken answer is
+    never affected.
+    """
+
+    def print_slip(self, slip_text: str) -> None:
+        """Refuse; no printer is fitted."""
+        raise PrinterError("the thermal printer was withdrawn; no slip is printed.")
+
+
+def _real_ports(config: DeviceConfig):
+    """Build the WP6.2 hardware port set: GPIO button, ALSA audio, the panel.
+
+    Imports the hardware-facing modules here so `--mock` never needs gpiozero
+    or a display. Raises ConfigError for missing configuration so `run` can
+    exit 2 with one clear message.
+    """
+    if not config.audio.card:
+        raise ConfigError(
+            "audio.card is not set. Find the stable ALSA name with `arecord -L` "
+            "and set [audio] card, or KAKI_DEVICE_AUDIO__CARD (runbook 11.1 WP6.2)."
+        )
+    from kaki_device.alsa_audio import AlsaMicrophone, AlsaSpeaker
+    from kaki_device.display.pygame_backend import PygameDisplay
+    from kaki_device.gpio_button import GpioButton
+
+    button = GpioButton(config.button.pin, config.button.debounce_seconds)
+    microphone = AlsaMicrophone(
+        config.audio.card, config.audio.capture_rate, held=button.is_pressed,
+    )
+    speaker = AlsaSpeaker(config.audio.card, config.audio.playback_rate)
+    screen = PygameDisplay(config.display_width, config.display_height)
+    return button, microphone, speaker, WithdrawnPrinter(), screen, screen.measure()
+
+
 def _mock_ports(config: DeviceConfig, headless: bool, slip_log: Path | None):
     """Build the mock port set and its text-measure function."""
     button = ScriptedButton(config.mock.button_presses)
@@ -86,13 +128,6 @@ def run(arguments: argparse.Namespace) -> int:
     except ConfigError as error:
         print(f"FAIL: {error}", file=sys.stderr)
         return 2
-    if not arguments.mock:
-        print(
-            "FAIL: real button, microphone, speaker and printer ports arrive in "
-            "WP6.2 and WP6.3. Run with --mock until then.",
-            file=sys.stderr,
-        )
-        return 2
 
     client = BackendClient(
         config.backend_url, timeout_seconds=config.request_timeout_seconds
@@ -105,9 +140,16 @@ def run(arguments: argparse.Namespace) -> int:
         return 1
     print(f"backend {config.backend_url} status {health.get('status')!r}", file=sys.stderr)
 
-    button, microphone, speaker, printer, display, measure = _mock_ports(
-        config, arguments.headless, arguments.slip_log
-    )
+    try:
+        if arguments.mock:
+            button, microphone, speaker, printer, display, measure = _mock_ports(
+                config, arguments.headless, arguments.slip_log
+            )
+        else:
+            button, microphone, speaker, printer, display, measure = _real_ports(config)
+    except (ConfigError, RuntimeError) as error:
+        print(f"FAIL: {error}", file=sys.stderr)
+        return 2
     loop = TurnLoop(
         config, client, button=button, microphone=microphone, speaker=speaker,
         printer=printer, display=display, measure=measure,

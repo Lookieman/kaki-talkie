@@ -1,8 +1,11 @@
+# v1.1 | 20-Sep-2026 | WP6.2: the microphone reports progress, for the live countdown.
 # v1.0 | 16-Sep-2026 | WP6.1 hardware ports: button, microphone, speaker, printer, display.
 """Describe the kiosk's hardware as ports the loop can talk to.
 
-WP6.1 ships the mock implementations only; WP6.2 adds the GPIO button and
-ALSA audio, and WP6.3 the ESC/POS printer. Keeping them behind protocols is
+WP6.1 shipped the mock implementations; WP6.2 adds the GPIO button and ALSA
+audio. The ESC/POS printer was withdrawn with WP6.3 on 18-Sep-2026, so no
+real printer port will ever exist: real mode ships a printer that refuses,
+which the loop already survives. Keeping the hardware behind protocols is
 what lets the whole turn loop run and be tested on the Mac, and it keeps the
 hardware details out of the state machine.
 
@@ -11,7 +14,11 @@ The LED ring is deliberately absent. The owner dropped it from the MVP on
 and no LED code anywhere in this package.
 """
 
-from typing import Protocol, runtime_checkable
+from typing import Callable, Protocol, runtime_checkable
+
+# Called with the seconds still available while a recording runs, so the
+# display can count down live (WP6.1 known limitation, closed by WP6.2).
+Progress = Callable[[float], None]
 
 
 class AudioCaptureError(RuntimeError):
@@ -45,10 +52,13 @@ class ButtonPort(Protocol):
 class MicrophonePort(Protocol):
     """Records one utterance as 16 kHz mono PCM WAV bytes."""
 
-    def record(self, max_seconds: float, stop_when_released: bool = True) -> bytes:
+    def record(self, max_seconds: float, stop_when_released: bool = True,
+               on_progress: Progress | None = None) -> bytes:
         """Return recorded WAV bytes, stopping at `max_seconds` at the latest.
 
-        Raises AudioCaptureError when the capture device is unusable.
+        `on_progress`, when given, receives the remaining seconds while the
+        recording runs; a mock may call it once or not at all. Raises
+        AudioCaptureError when the capture device is unusable.
         """
 
 

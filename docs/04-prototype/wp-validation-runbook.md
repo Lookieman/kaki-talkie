@@ -1009,7 +1009,8 @@ moves to WP5.2 at the owner's next plan update.
 Status: **WP6.1 READY - implemented 16-Sep-2026, owner validation pending
 (tier B blocked on hardware). WP6.3 WITHDRAWN, printer dropped
 18-Sep-2026. WP6.6 READY - implemented 19-Sep-2026, owner validation pending.
-WP6.2, WP6.4 and WP6.5 DRAFT; Prepare WPn.m fills in commands.**
+WP6.2 READY - implemented 20-Sep-2026, owner validation pending (tier C at
+the Pi). WP6.4 and WP6.5 DRAFT; Prepare WPn.m fills in commands.**
 
 Build order is WP6.1, WP6.6, WP6.2, WP6.4, WP6.5
 (`execution-plan.md` section 7).
@@ -1497,6 +1498,93 @@ Under `execution-plan.md` 1.1, two of the WP6.6 changes to
 - `auto` pushes English: with no transcript there is nothing for the
   language policy to judge.
 
+#### WP6.2 setup - physical I/O: button, audio, live countdown
+
+Owner level: **S**
+Status: **READY - implemented 20-Sep-2026; owner validation pending.**
+
+Machine: Raspberry Pi as `kaki`, cloned checkout `~/kaki-talkie`, with the
+Mac backend stack up and reachable. Tier A needs only the Mac (or CI): the
+GPIO and ALSA layers are proven against fakes.
+
+##### Prerequisites
+
+- `setup.md` 29 complete: OS, apt packages (`python3-gpiozero`, `alsa-utils`),
+  the device venv, the panel, and the device TOML with `[audio] card` set to
+  the Jabra's stable ALSA name (29.5 shows how to find and verify it).
+- The dome button wired GPIO 17 to ground (setup.md 29.1).
+- The Mac stack running (`python scripts/dev_stack.py up`).
+
+No new Mac stage, model, port or backend change. `wp_check.py` gains
+`--tier C`: service-level checks that run on the Pi itself.
+
+##### Scope
+
+WP6-AT-01 (debounce), WP6-AT-02 (recording stops at 15 s), and the real-port
+half of the WP6.1 loop. WP6-AT-03 is withdrawn (16-Sep-2026): there is no
+double-press gesture, and a press during playback interrupts into a new
+recording (the ratified 16-Sep-2026 behaviour, reconfirmed 20-Sep-2026).
+
+```text
++---------------------------+-----------------------------------------------+
+| Piece                     | Responsibility                                |
++---------------------------+-----------------------------------------------+
+| gpio_button.py            | ButtonPort over gpiozero: pull-up, debounce   |
+| alsa_audio.py             | arecord capture 16 kHz mono; one playback     |
+|                           | path converting all sound to 48 kHz stereo    |
+| config.py [audio][button] | Card name, rates, pin, debounce interval      |
+| state_machine.py          | Live recording countdown from progress ticks  |
+| main.py (real mode)       | Real ports; printer declines (WP6.3 withdrawn)|
++---------------------------+-----------------------------------------------+
+```
+
+Out of scope: systemd, retry and device authentication (WP6.4), canned mode
+and the demo freeze (WP6.5), any screen redesign (the EN/MS wording stays
+`TODO(ergonomics)` for owner sign-off before the demo freeze), the listening
+chime (deferred, owner decision 20-Sep-2026).
+
+##### Validation ground rules (owner decision, 20-Sep-2026)
+
+Owner-at-Pi validation is **tier C**, per `execution-plan.md` 1.6. Every
+human step is physical at the Pi: press, rattle, hold, speak, listen, read
+the panel. No script simulates an owner action from any machine. Scripted
+tier C checks are service-level only: arecord/aplay present, gpiozero
+importable, the configured card resolvable, the kiosk process running, the
+backend reachable, and the newest stored turn from this device.
+
+##### Files changed and created
+
+Created: `device/src/kaki_device/gpio_button.py`, `alsa_audio.py`,
+`device/tests/test_gpio_button.py`, `test_alsa_audio.py`,
+`scripts/wp6_2_evidence.sh` (runs on the Pi).
+
+Changed: `device/src/kaki_device/config.py`, `io_ports.py` (microphone
+progress callback), `mock_io.py`, `state_machine.py`, `main.py` (real mode);
+`scripts/wp_check.py` (tier C, WP6.2 branches, gpiozero on the import
+allowlist, backend imports guarded so the script loads on the Pi);
+`scripts/kaki_env.sh` (WP6.2 case, additive); `setup.md` 29.5.
+
+##### Shared-file changes
+
+Under `execution-plan.md` 1.1: the `kaki_env.sh` case and the `wp_check.py`
+WP6.2 branches are additions. Three `wp_check.py` changes touch shared code
+paths - the import-allowlist gains gpiozero, `--tier` gains C, and the
+backend imports are guarded for the Pi - and `state_machine.py`/`main.py`
+are WP6.1 code. WP6.1 therefore reruns at tier A and tier B; WP6.6 code is
+untouched, but its tier A gate reruns cheaply with the same shared file.
+
+##### Known limitations
+
+- gpiozero comes from apt only (owner decision, 20-Sep-2026); it is never a
+  `device/pyproject.toml` dependency, and the WP6-AT-13 dependency allowlist
+  still admits only httpx and pygame.
+- `audioop` (the sample-rate conversion) is removed in Python 3.13; the Pi
+  and CI run 3.11. Revisit before any Python upgrade past 3.12.
+- The printer port in real mode declines every slip: WP6.3 is withdrawn, so
+  `printed` is honestly false on every physical turn.
+- A user still holding the button when the loop returns to idle starts the
+  next recording at once: a real button reports level, not events.
+
 ### 11.2 Testing and validation
 
 #### WP6.1 tests - thin client, mock turn, frames and recovery
@@ -1848,12 +1936,112 @@ delivery rule: a nudge lost between backend and browser is not replayed;
 the operator sees `delivered` on the status line, hears nothing, and
 presses Push again. That is the whole recovery procedure.
 
-#### WP-level objectives (owned by WP6.2-WP6.5)
+#### WP6.2 tests - the physical kiosk: button, audio, panel
+
+Run at the Raspberry Pi as `kaki`. Tier A runs on the Mac or CI and needs no
+hardware; every tier C step is the owner's hands and ears at the device.
+
+##### Evidence harness
+
+Run `scripts/wp6_2_evidence.sh` ON THE PI from `~/kaki-talkie`, with the
+kiosk running in its own terminal; `--help` lists its side effects. It runs
+Tests 1-6, following the WP4.2+ harness rules: owner verdicts for
+judgements, `wp_check.py` for the scripted assertions, no teardown. Evidence
+goes to `~/kaki-evidence/wp6.2/evidence.XXXXXX`; the final message shows the
+`scp` command that copies it into `$KAKI_DATA_ROOT/wp6.2/` on the Mac.
+
+```sh
+# terminal 1 (Pi): the kiosk
+~/.venvs/kaki-device/bin/python -m kaki_device.main --config /etc/kaki/device.toml
+# terminal 2 (Pi): the harness
+cd ~/kaki-talkie
+export KAKI_DEVICE_CONFIG=/etc/kaki/device.toml
+scripts/wp6_2_evidence.sh                  # Tests 1-6
+scripts/wp6_2_evidence.sh --from-test 4    # resume at Test 4
+```
+
+`--from-test N` (1-6, default 1) starts at test N and runs to the end. Every
+test except Test 6 needs the owner at the device.
+
+##### Test 0 (tier A, Mac or CI): the hardware layer without hardware
+
+**Objective:** prove debounce wiring, the capture cap and release-stop, the
+countdown ticks and the 48 kHz stereo conversion hermetically, before
+touching the Pi.
+
+```sh
+source scripts/kaki_env.sh WP6.2
+python scripts/wp_check.py --unit WP6.2 --tier A --evidence "$WP62_EVIDENCE"
+```
+
+**Expected:** exit 0; the device suite passes with more than zero tests; the
+thin-client inspection is clean; `playback_is_48k_stereo_s16` true.
+
+##### Test 1: kiosk process and the idle screen
+
+**Objective:** the loop is up on real hardware and resting.
+**Expected:** `pgrep -f kaki_device.main` finds it; the panel shows the idle
+prompt (placeholder EN/MS wording, pending owner sign-off).
+
+##### Test 2: one full physical turn
+
+**Objective:** press, speak, watch, listen - the WP6.1 loop on the real
+button, microphone, speaker and panel.
+**Expected (owner judgement):** listening with a live countdown, then
+thinking, then the answer; the reply spoken once at normal speed and pitch
+(design.md 4.3, owner-by-ear per the 17-Sep-2026 decision); every screen
+readable at a metre.
+
+##### Test 3: debounce (WP6-AT-01)
+
+**Objective:** a deliberately sloppy press is one press.
+**Expected (owner judgement):** exactly one recording starts.
+
+##### Test 4: the recording cap and release-stop (WP6-AT-02)
+
+**Objective:** the two ways a recording ends.
+**Expected (owner judgement):** holding past 15 s, the countdown reaches 0
+and recording stops by itself; a short press-and-release ends the recording
+at once.
+
+##### Test 5: interruption
+
+**Objective:** the ratified 16-Sep-2026 behaviour on real hardware.
+**Expected (owner judgement):** a press during playback stops the speech and
+starts a new recording immediately.
+
+##### Test 6: service-level assertions (the only scripted tier C checks)
+
+**Objective:** prove the services the physical tests relied on, from the Pi.
+
+```sh
+~/.venvs/kaki-device/bin/python scripts/wp_check.py --unit WP6.2 --tier C
+```
+
+**Expected:** exit 0; arecord/aplay installed; gpiozero importable; the
+configured card resolvable in `arecord -L`; the kiosk process running; the
+backend reachable; the newest stored turn from this `device_id`.
+
+##### Regression scope
+
+WP6.2 changed WP6.1 code (`state_machine.py`, `main.py`) and shared
+`wp_check.py` paths, so WP6.1 reruns at tier A and tier B on the Mac:
+
+```sh
+source scripts/kaki_env.sh WP6.1
+python scripts/wp_check.py --unit WP6.1 --tier A --evidence "$WP61_EVIDENCE"
+python scripts/wp_check.py --unit WP6.1 --tier B --evidence "$WP61_EVIDENCE"
+```
+
+WP6.6's own code is untouched; its tier A gate reruns cheaply alongside.
+No earlier package reruns (`execution-plan.md` 1.1).
+
+#### WP-level objectives (owned by WP6.4-WP6.5)
 
 These are the scaffold objectives for the units still to come; each unit's
 Prepare fills in its own numbered test block, as WP6.1 did above.
 
-##### Canned-mode sequence (WP6.2, WP6.3, WP6.5)
+##### Canned-mode sequence (WP6.5; button/audio delivered by WP6.2, printer withdrawn)
 
 **Objective:** prove the button, display states, audio capture and playback,
 and the printer work against canned backend responses before real inference is

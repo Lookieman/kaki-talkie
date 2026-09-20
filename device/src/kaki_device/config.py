@@ -1,3 +1,4 @@
+# v1.1 | 20-Sep-2026 | WP6.2: [audio] card and rates, [button] pin and debounce.
 # v1.0 | 16-Sep-2026 | WP6.1 device configuration from a TOML file and KAKI_DEVICE_* overrides.
 """Read the device's own settings; the backend keeps its configuration separate.
 
@@ -39,8 +40,20 @@ DEFAULT_SESSION_IDLE_MINUTES = 10.0
 # The Waveshare 5DP-CAPLCD-H panel over HDMI (setup.md 30.4).
 DEFAULT_DISPLAY_WIDTH = 1024
 DEFAULT_DISPLAY_HEIGHT = 600
+# design.md 4.3: the Jabra Speak 510 captures 16 kHz mono S16_LE only, and
+# plays 16 kHz audio too fast, so every sound is converted to 48 kHz stereo
+# before playback. Rates live here, not in code, because the next speaker may
+# differ; the WAV header of each sound is still read, never assumed.
+DEFAULT_CAPTURE_RATE = 16000
+DEFAULT_PLAYBACK_RATE = 48000
+# The dome button wiring (setup.md 29.1): GPIO 17 to ground, internal pull-up.
+DEFAULT_BUTTON_PIN = 17
+DEFAULT_DEBOUNCE_SECONDS = 0.05
 
 ENVIRONMENT_PREFIX = "KAKI_DEVICE_"
+# Configuration tables that may be overridden with a double underscore, for
+# example KAKI_DEVICE_AUDIO__CARD or KAKI_DEVICE_MOCK__AUDIO_PATH.
+NESTED_SECTIONS = ("mock", "audio", "button")
 
 
 class ConfigError(ValueError):
@@ -57,6 +70,28 @@ class MockSettings:
 
 
 @dataclass(frozen=True)
+class AudioSettings:
+    """The Jabra Speak's ALSA identity and rates (design.md 4.3).
+
+    `card` is the stable ALSA device name (for example `plughw:CARD=USB`),
+    never a card number: numbers change with boot order. It defaults to empty
+    because mock mode needs no hardware; real mode refuses to start without it.
+    """
+
+    card: str = ""
+    capture_rate: int = DEFAULT_CAPTURE_RATE
+    playback_rate: int = DEFAULT_PLAYBACK_RATE
+
+
+@dataclass(frozen=True)
+class ButtonSettings:
+    """The dome button's GPIO pin and debounce interval (WP6-AT-01)."""
+
+    pin: int = DEFAULT_BUTTON_PIN
+    debounce_seconds: float = DEFAULT_DEBOUNCE_SECONDS
+
+
+@dataclass(frozen=True)
 class DeviceConfig:
     """Everything the device loop needs, validated once at startup."""
 
@@ -69,6 +104,8 @@ class DeviceConfig:
     display_width: int = DEFAULT_DISPLAY_WIDTH
     display_height: int = DEFAULT_DISPLAY_HEIGHT
     mock: MockSettings = field(default_factory=MockSettings)
+    audio: AudioSettings = field(default_factory=AudioSettings)
+    button: ButtonSettings = field(default_factory=ButtonSettings)
 
     @property
     def session_idle_seconds(self) -> float:
@@ -153,32 +190,66 @@ def _mock_settings(values: Mapping[str, Any]) -> MockSettings:
 def _environment_overrides(environment: Mapping[str, str]) -> dict[str, Any]:
     """Map `KAKI_DEVICE_*` exports onto configuration keys.
 
-    Nested mock settings use a double underscore: `KAKI_DEVICE_MOCK__AUDIO_PATH`.
+    Settings inside a table use a double underscore, for example
+    `KAKI_DEVICE_MOCK__AUDIO_PATH` or `KAKI_DEVICE_AUDIO__CARD`.
     """
     overrides: dict[str, Any] = {}
     for name, value in environment.items():
         if not name.startswith(ENVIRONMENT_PREFIX):
             continue
         key = name[len(ENVIRONMENT_PREFIX):].lower()
-        if key.startswith("mock__"):
-            mock = overrides.setdefault("mock", {})
-            mock[key[len("mock__"):]] = value
+        section, _, nested = key.partition("__")
+        if nested and section in NESTED_SECTIONS:
+            overrides.setdefault(section, {})[nested] = value
         else:
             overrides[key] = value
     return overrides
 
 
 def _merge(file_values: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[str, Any]:
-    """Overlay environment overrides on file values, one level deep for [mock]."""
+    """Overlay environment overrides on file values, one level deep for tables."""
     merged: dict[str, Any] = {**file_values}
     for key, value in overrides.items():
-        if key == "mock":
-            section = dict(merged.get("mock", {}))
+        if key in NESTED_SECTIONS:
+            section = dict(merged.get(key, {}))
             section.update(value)
-            merged["mock"] = section
+            merged[key] = section
         else:
             merged[key] = value
     return merged
+
+
+def _section(values: Mapping[str, Any], name: str) -> Mapping[str, Any]:
+    """Return one configuration table, or raise ConfigError when it is not one."""
+    section = values.get(name, {})
+    if not isinstance(section, Mapping):
+        raise ConfigError(f"[{name}] must be a table of {name} settings.")
+    return section
+
+
+def _audio_settings(values: Mapping[str, Any]) -> AudioSettings:
+    """Build the ALSA audio settings; an absent section means bare defaults."""
+    section = _section(values, "audio")
+    return AudioSettings(
+        card=str(section.get("card", "")).strip(),
+        capture_rate=int(_bounded_number(
+            section, "capture_rate", DEFAULT_CAPTURE_RATE, 8000, 192000
+        )),
+        playback_rate=int(_bounded_number(
+            section, "playback_rate", DEFAULT_PLAYBACK_RATE, 8000, 192000
+        )),
+    )
+
+
+def _button_settings(values: Mapping[str, Any]) -> ButtonSettings:
+    """Build the dome-button settings; an absent section means bare defaults."""
+    section = _section(values, "button")
+    return ButtonSettings(
+        pin=int(_bounded_number(section, "pin", DEFAULT_BUTTON_PIN, 0, 27)),
+        debounce_seconds=_bounded_number(
+            section, "debounce_seconds", DEFAULT_DEBOUNCE_SECONDS, 0.0, 1.0
+        ),
+    )
 
 
 def load_config(
@@ -220,4 +291,6 @@ def load_config(
         display_width=_positive_integer(values, "display_width", DEFAULT_DISPLAY_WIDTH),
         display_height=_positive_integer(values, "display_height", DEFAULT_DISPLAY_HEIGHT),
         mock=_mock_settings(values),
+        audio=_audio_settings(values),
+        button=_button_settings(values),
     )

@@ -1,3 +1,4 @@
+# v1.1 | 20-Sep-2026 | WP6.2: the recording frame counts down live via the microphone's progress.
 # v1.0 | 16-Sep-2026 | WP6.1 turn loop: idle, record, wait, speak, print, error.
 """Run the kiosk's turn loop against ports, deciding nothing the backend owns.
 
@@ -159,7 +160,10 @@ class TurnLoop:
 
         self._show_recording(self._config.record_seconds)
         try:
-            audio = self._microphone.record(max_seconds=self._config.record_seconds)
+            audio = self._microphone.record(
+                max_seconds=self._config.record_seconds,
+                on_progress=self._show_recording,
+            )
         except AudioCaptureError:
             self._show_error()
             return self._record_outcome(TurnOutcome(

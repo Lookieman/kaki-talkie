@@ -1,3 +1,4 @@
+# v1.1 | 20-Sep-2026 | WP6.2: the [audio] and [button] tables, overrides and bounds.
 # v1.0 | 16-Sep-2026 | WP6.1 device configuration: defaults, overrides and rejection.
 """Verify the device refuses to start on bad configuration, and its defaults.
 
@@ -38,6 +39,13 @@ class DefaultsTests(unittest.TestCase):
         self.assertEqual(config.session_idle_seconds, 600.0)
         self.assertEqual((config.display_width, config.display_height), (1024, 600))
         self.assertIsNone(config.mock.audio_path)
+        # WP6.2 hardware defaults (design.md 4.3, setup.md 29.1). The card has
+        # no default: real mode requires the owner to name the Jabra.
+        self.assertEqual(config.audio.card, "")
+        self.assertEqual(config.audio.capture_rate, 16000)
+        self.assertEqual(config.audio.playback_rate, 48000)
+        self.assertEqual(config.button.pin, 17)
+        self.assertEqual(config.button.debounce_seconds, 0.05)
 
     def test_missing_file_falls_back_to_defaults(self):
         config = load_config(Path("/nonexistent/device.toml"), {})
@@ -77,6 +85,28 @@ class FileAndOverrideTests(unittest.TestCase):
         self.assertEqual(config.record_seconds, 8.0)
         self.assertEqual(config.mock.audio_path, Path("/tmp/from-env.wav"))
 
+    def test_audio_and_button_tables_load_and_environment_overrides_them(self):
+        path = write_config(
+            "[audio]\n"
+            'card = "plughw:CARD=USB"\n'
+            "playback_rate = 44100\n"
+            "[button]\n"
+            "pin = 22\n"
+            "debounce_seconds = 0.1\n"
+        )
+        config = load_config(path, {})
+        self.assertEqual(config.audio.card, "plughw:CARD=USB")
+        self.assertEqual(config.audio.playback_rate, 44100)
+        self.assertEqual((config.button.pin, config.button.debounce_seconds), (22, 0.1))
+
+        overridden = load_config(path, {
+            "KAKI_DEVICE_AUDIO__CARD": "plughw:CARD=Speak",
+            "KAKI_DEVICE_BUTTON__PIN": "27",
+        })
+        self.assertEqual(overridden.audio.card, "plughw:CARD=Speak")
+        self.assertEqual(overridden.button.pin, 27)
+        self.assertEqual(overridden.audio.playback_rate, 44100)  # file value survives
+
     def test_unrelated_environment_variables_are_ignored(self):
         config = load_config(None, {"KAKI_LLM_MODE": "qwen", "PATH": "/usr/bin"})
         self.assertEqual(config.device_id, "kaki-pi-01")
@@ -104,6 +134,10 @@ class RejectionTests(unittest.TestCase):
             {"KAKI_DEVICE_SESSION_IDLE_MINUTES": "0"},
             {"KAKI_DEVICE_REQUEST_TIMEOUT_SECONDS": "soon"},
             {"KAKI_DEVICE_DISPLAY_WIDTH": "-1"},
+            {"KAKI_DEVICE_BUTTON__PIN": "40"},
+            {"KAKI_DEVICE_BUTTON__DEBOUNCE_SECONDS": "2"},
+            {"KAKI_DEVICE_AUDIO__CAPTURE_RATE": "300"},
+            {"KAKI_DEVICE_AUDIO__PLAYBACK_RATE": "fast"},
         )
         for environment in cases:
             with self.subTest(environment=environment), self.assertRaises(ConfigError):

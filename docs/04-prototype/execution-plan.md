@@ -2,8 +2,18 @@
 
 **Six work packages, decomposed into bounded implementation units with independent test checkpoints**
 
-Version 1.13 | 18-Sep-2026 | SGLN Group 10
+Version 1.14 | 20-Sep-2026 | SGLN Group 10
 
+> v1.14 records three owner decisions of 20-Sep-2026. The dome button
+> lamp is dropped, so the 5-inch screen is the only device state
+> indicator and WP6.2 GPIO is input-only. WP6-AT-03 is marked withdrawn,
+> reconciling the plan with the runbook entry of 16-Sep-2026. Two units
+> join WP6: WP6.8, the reply persona and spoken-text form, and WP6.7,
+> the deterministic booking intent and on-screen receipt that replace the
+> dropped printer. WP6-AT-19 to WP6-AT-22 are added. The tier table drops
+> the printer from Tier C. Known debt: the WP6.2 audio path resamples
+> with `audioop`, which the standard library removes in Python 3.13; the
+> Pi and CI run 3.11.
 > v1.13 corrects the WP6.6 regression scope after the plan turn. A
 > per-device reply-language override has to touch the turn pipeline, so
 > WP6.1 reruns at tier A and tier B. WP6.1 tier B runs against mock I/O on
@@ -167,13 +177,19 @@ flowchart LR
 +--------+---------------------+---------------------------------------------+
 | A      | Any machine + CI    | lint, unit, contract, schema, web build     |
 | B      | Mac Mini            | STT/LLM/TTS/RAG, regression, latency       |
-| C      | Raspberry Pi        | GPIO, audio, printer, boot/recovery        |
+| C      | Raspberry Pi        | GPIO, audio, boot/recovery                  |
 +--------+---------------------+---------------------------------------------+
 ```
 
 Tier A runs with the `KAKI_*` mode switches cleared, so it never reaches a live
 service. A Tier B/C test that the coding agent does not run is performed by the
 owner from the runbook.
+
+Tier C is owner-at-device validation. Every human step is performed
+physically at the Pi. No Tier C step simulates a human action from
+another machine or scripts what the owner does by hand. Scripted Tier C
+checks are limited to service-level assertions that exist in the unit
+under validation.
 
 ### 1.7 Golden-path suite
 
@@ -567,23 +583,33 @@ Goal: connect the working software MVP to the Raspberry Pi without changing the 
 | IU    | Build together                                | Owner |
 +-------+-----------------------------------------------+-------+
 | WP6.1 | thin Pi state loop/config/API/mock I/O       | S     |
-| WP6.2 | button/debounce/audio/LED integration        | S     |
+| WP6.2 | button/debounce/audio/on-screen state        | S     |
 | WP6.3 | WITHDRAWN - printer dropped 18-Sep-2026      | -     |
 | WP6.4 | service auth/retry same turn_id/systemd      | S     |
 | WP6.5 | pending/action regression/canned/demo freeze | G     |
 | WP6.6 | demo admin surface: language toggle + push   | S     |
+| WP6.7 | booking intent + on-screen receipt           | S     |
+| WP6.8 | reply persona + spoken-text form             | S     |
 +-------+-----------------------------------------------+-------+
+```
+
+Build order. Unit numbers are identity, not sequence:
+
+```text
+WP6.1 -> WP6.6 -> WP6.2 -> WP6.8 -> WP6.7 -> WP6.4 -> WP6.5
 ```
 
 Acceptance ownership:
 
 ```text
 WP6.1 -> WP6-AT-13
-WP6.2 -> WP6-AT-01, 02, 03 where enabled
+WP6.2 -> WP6-AT-01, 02
 WP6.3 -> WITHDRAWN
 WP6.4 -> WP6-AT-04, 05, 10
 WP6.5 -> WP6-AT-06, 07, 08, 11, 12, 14
 WP6.6 -> WP6-AT-15, 16, 17, 18
+WP6.7 -> WP6-AT-19, 20
+WP6.8 -> WP6-AT-21, 22
 ```
 
 Acceptance criteria:
@@ -591,7 +617,8 @@ Acceptance criteria:
 ```text
 WP6-AT-01 debounce -> one press
 WP6-AT-02 recording stops at 15 seconds
-WP6-AT-03 optional double-press repeat does not interfere with hold-to-talk
+WP6-AT-03 WITHDRAWN - double-press repeat withdrawn 16-Sep-2026;
+          one button does one thing at any moment
 WP6-AT-04 timed-out retry reuses same turn_id
 WP6-AT-05 unauthenticated device request denied before turn processing
 WP6-AT-06 WITHDRAWN - handoff and calendar deferred beyond MVP
@@ -612,9 +639,33 @@ WP6-AT-17 an unauthenticated /api/admin/* request is rejected before any
           state change
 WP6-AT-18 the same push and language change run from a loopback curl
           script on the Mac Mini when the tunnel is unavailable
+WP6-AT-19 a booking request returns the canned booking reply and calls
+          no LLM
+WP6-AT-20 a booking turn carries a receipt payload the simulator renders
+          as a 58 mm slip, within the WP1-AT-10 40-word limit
+WP6-AT-21 the persona is switchable by configuration, and the
+          'SOURCE: n' citation line survives it
+WP6-AT-22 display_text keeps the written form while reply_text carries
+          the spoken form
 ```
 
+### WP6.2 - physical I/O
+
 WP6.2 audio follows design section 4.3: capture at 16 kHz mono, and convert all playback to 48 kHz stereo. The owner checks playback by ear during the WP6.2 smoke test (level S). No separate acceptance test covers playback speed (owner decision, 17-Sep-2026).
+
+Owner decision, 20-Sep-2026: **the dome button lamp is dropped.** The
+5-inch display is the only device state indicator, as the LED ring was
+dropped before it. GPIO in WP6.2 is input-only: one button read on
+GPIO 17. WP6.2 designs no screens; it reuses the WP6.1 state frames and
+confirms their legibility at a metre during the smoke test. Final
+wording stays an owner decision.
+
+Interruption behaviour is unchanged from 16-Sep-2026. A press during
+playback stops the speech and starts a new recording.
+
+Owner validation is Tier C, under the rules in section 1.6. The evidence
+harness runs on the Pi and copies its evidence back to the Mac data
+root.
 
 ### WP6.6 - demo admin surface
 
@@ -622,13 +673,6 @@ WP6.6 gives the pitch a second operator. A colleague opens `/admin` on a
 phone, switches the reply language between English and Malay, and
 releases one canned push message: new CDC vouchers are available. The
 architecture is `design.md` section 5.5.
-
-Build order. Unit numbers are identity, not sequence. WP6.6 is numbered
-last and built early, because it needs no hardware:
-
-```text
-WP6.1 -> WP6.6 -> WP6.2 -> WP6.4 -> WP6.5
-```
 
 Two constraints bind the unit:
 
@@ -652,6 +696,55 @@ demo value: the pitch shows the mechanism once.
 WP6.3 is withdrawn, so no unit prints. The backend still produces
 `slip_text` and the simulator still renders the 58 mm mock, so the
 printed-slip story survives the hardware loss.
+
+### WP6.8 - reply persona + spoken-text form
+
+Owner decisions, 19-Sep-2026, recorded in the persona and speech brief.
+WP6.8 is built before WP6.7, because the booking reply depends on the
+text split it introduces.
+
+```text
+- the persona is a short instruction appended to GROUNDED_SYSTEM_PROMPT:
+  one LLM call, no render pass, no added latency;
+- the persona sits behind configuration so it can be switched off;
+- a deterministic normaliser in the TTS adapter produces the spoken form
+  of reply_text: strip numbered-list markers, spell URLs from a lookup,
+  wrap acronyms in literal-character mode, remove round brackets, insert
+  an explicit silence between sentences;
+- display_text keeps the written form;
+- voices are Jamie (Enhanced) for English and Amira (Enhanced) for
+  Malay, at 150 words per minute.
+```
+
+The normaliser is pure string handling, and its control sequences are
+specific to macOS `say`. A different speech engine needs it rewritten.
+
+Tier A only. The WP2.4 test asserting `display_text == reply_text` now
+asserts a deliberate difference, and is updated rather than deleted.
+
+### WP6.7 - booking intent + on-screen receipt
+
+WP6.7 replaces the dropped printer with a receipt the simulator draws on
+screen, in the 58 mm thermal-slip form.
+
+```text
+- a booking request routes through the WP3.4 intent router to a canned
+  reply, the same mechanism as the credential-action refusal. The LLM is
+  not called and is not grounded into saying the right thing;
+- the canned reply directs the user to the community centre main office,
+  level 1;
+- the reply carries a structured receipt payload: case identifier,
+  timestamp, the reminder line and the slip text;
+- the simulator renders it as a 58 mm slip, within the WP1-AT-10
+  40-word limit;
+- the canned text is authored in the WP6.8 persona voice, because it
+  bypasses the persona prompt, and it flows through the standard
+  reply_text/display_text split so the WP6.8 normaliser applies.
+```
+
+The QR code and the follow-up line on the slip are printed illustration.
+They create no case, no stored follow-up state and no live-pipeline
+branch, consistent with section 5.
 
 Tailscale Serve remains optional. Long-press reprint remains deferred. Caregiver UI remains out of scope.
 
@@ -683,12 +776,16 @@ X-AT-04 earlier acceptance tests are not weakened merely to obtain green
 | 4  | Calendar capability + channel        | deferred beyond MVP (13-Sep-2026)       |
 | 5  | LLM runtime baseline                 | MLX-LM                                  |
 | 6  | English TTS baseline                 | macOS say                               |
-| 7  | Pi print policy                      | auto for demo baseline                  |
+| 7  | Slip delivery                        | on-screen receipt (WP6.7); no printer   |
+|    |                                      | since 18-Sep-2026; device printer port  |
+|    |                                      | declines, so printed stays false        |
 | 8  | Caregiver application                | out of MVP                              |
 | 9  | Tailscale Serve                      | optional hardening                      |
 | 10 | Generated corpus snapshots           | KAKI_DATA_ROOT outside Git              |
 | 11 | Long-press reprint                    | deferred                                |
 | 12 | Browser acceptance                   | Chrome required; Safari best-effort     |
+| 13 | Device state indicator               | 5-inch screen only; lamp and LED ring   |
+|    |                                      | dropped (20-Sep-2026)                   |
 +----+--------------------------------------+-----------------------------------------+
 ```
 
@@ -723,7 +820,9 @@ Protect the date:
   Pi integration carries the remaining unknowns;
 - caregiver UI does not exist in this MVP schedule.
 
-Current execution point: **WP6.6**.
+Current execution point: **WP6.2**, implemented and awaiting owner
+validation. WP6.1 tier B is owed before WP6.2 closes: WP6.2 changed
+`state_machine.py` and `main.py`, which the WP6.1 check exercises.
 
 ---
 
@@ -751,6 +850,16 @@ The normal prompts are intentionally short because repository rules carry the de
 +---------+-------------+------------------------------------------------------+
 | Version | Date        | Change                                               |
 +---------+-------------+------------------------------------------------------+
+| 1.14    | 20-Sep-2026 | Dropped the dome button lamp; the 5-inch screen is  |
+|         |             | the only device state indicator and WP6.2 GPIO is   |
+|         |             | input-only. Marked WP6-AT-03 withdrawn, matching    |
+|         |             | the runbook entry of 16-Sep-2026. Added WP6.8       |
+|         |             | (reply persona and spoken-text form) and WP6.7      |
+|         |             | (booking intent and on-screen receipt), with        |
+|         |             | WP6-AT-19 to WP6-AT-22 and a revised build order.   |
+|         |             | Recorded the Tier C ground rules in 1.6 and dropped |
+|         |             | the printer from the tier table. Replaced baseline  |
+|         |             | item 7 with slip delivery; added item 13.           |
 | 1.13    | 18-Sep-2026 | Corrected the WP6.6 regression scope to rerun      |
 |         |             | WP6.1 at tier A and tier B, after the plan turn    |
 |         |             | showed the language override must sit in the turn  |
