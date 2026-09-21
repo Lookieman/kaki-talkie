@@ -1,3 +1,4 @@
+# v1.1 | 21-Sep-2026 | Speak acronyms as plain spaced letters; LTRL read "Capital C" aloud.
 # v1.0 | 21-Sep-2026 | WP6.8 deterministic spoken-form normaliser for macOS say.
 """Turn a written reply into the form macOS `say` should speak (WP6-AT-22).
 
@@ -12,8 +13,11 @@ Five deterministic rules, in this order (execution-plan.md 7, WP6.8):
    sentence, because `say` pronounces "1." as "one full stop";
 2. known URLs are replaced by their spoken wording from a lookup table,
    because a read-aloud URL is unusable to a listener;
-3. acronyms are wrapped in `[[char LTRL]]` ... `[[char NORM]]`, so CDC is
-   spelled out rather than pronounced as a word;
+3. acronyms are rewritten as plain spaced letters ("CDC" becomes "C D C"),
+   so they are spelled out rather than pronounced as a word. The earlier
+   `[[char LTRL]]` mode was withdrawn at the Pi (WP6.4 Tier C,
+   21-Sep-2026): literal mode announces case, reading "Capital C,
+   Capital D, Capital C" aloud;
 4. round brackets are removed, keeping their contents as ordinary speech;
 5. `[[slnc 400]]` is inserted between sentences, giving an elderly listener
    a beat to follow the step boundary.
@@ -34,8 +38,6 @@ import re
 # Between sentences: long enough to hear as a pause, short enough not to
 # sound like the kiosk has stopped working.
 SENTENCE_SILENCE_MS = 400
-LITERAL_ON = "[[char LTRL]]"
-LITERAL_OFF = "[[char NORM]]"
 
 # Spoken wording for the corpus's official addresses. Keys are matched
 # case-insensitively, longest first, so a longer path wins over its origin.
@@ -99,8 +101,13 @@ def spell_urls(text: str) -> str:
 
 
 def spell_acronyms(text: str) -> str:
-    """Wrap known acronyms so `say` spells them letter by letter."""
-    return _ACRONYM_PATTERN.sub(lambda m: f"{LITERAL_ON}{m.group(0)}{LITERAL_OFF}", text)
+    """Rewrite known acronyms as spaced letters so they are read "C D C".
+
+    Plain letters, not `[[char LTRL]]`: literal-character mode announces
+    case, so the Pi read "Capital C, Capital D, Capital C" (WP6.4 Tier C).
+    Spaced capitals are engine-neutral and `say` reads each as its letter.
+    """
+    return _ACRONYM_PATTERN.sub(lambda m: " ".join(m.group(0)), text)
 
 
 def remove_brackets(text: str) -> str:

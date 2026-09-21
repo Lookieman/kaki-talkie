@@ -1,3 +1,4 @@
+# v1.1 | 21-Sep-2026 | WP6.4 Tier C fixes folded back: lali user/paths, cwd for lgpio, pin factory.
 # v1.0 | 20-Sep-2026 | WP6.4 kiosk service: restart after a crash, return after a power cut.
 #
 # Install (setup.md 29.8):
@@ -22,12 +23,20 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-User=kaki
+# The Pi's actual account is `lali` (WP6.4 Tier C, 21-Sep-2026); the unit
+# matches what is installed and validated, not the earlier `kaki` draft.
+User=lali
+# lgpio writes its .lgd-nfy* notification pipe into the current working
+# directory, so the service needs one it can write to; without this the
+# GPIO factory fails at startup (WP6.4 Tier C finding).
+WorkingDirectory=/home/lali
+# gpiozero must not fall back to a slower/absent pin factory on Bookworm.
+Environment=GPIOZERO_PIN_FACTORY=lgpio
 # The pygame display runs inside the auto-login desktop session (setup.md
 # 29.2); the service borrows that session's X display.
 Environment=DISPLAY=:0
-Environment=XAUTHORITY=/home/kaki/.Xauthority
-ExecStart=/home/kaki/.venvs/kaki-device/bin/python -m kaki_device.main --config /etc/kaki/device.toml
+Environment=XAUTHORITY=/home/lali/.Xauthority
+ExecStart=/home/lali/.venvs/kaki-device/bin/python -m kaki_device.main --config /etc/kaki/device.toml
 Restart=always
 RestartSec=3
 

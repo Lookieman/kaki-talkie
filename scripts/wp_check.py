@@ -1,3 +1,4 @@
+# v3.4 | 21-Sep-2026 | WP6.8 step 5: pin the released Auntie retry/failure copy; acronyms spoken as plain letters.
 # v3.3 | 21-Sep-2026 | Add WP6.8 (persona, voices, spoken form) and WP6.7 (booking intent, receipt); WP6.7 tier A runs the simulator vitest suite.
 # v3.2 | 20-Sep-2026 | WP6.1 tier B builds its BackendClient with KAKI_DEVICE_TOKEN; it was the one live device client v3.1 missed.
 # v3.1 | 20-Sep-2026 | Add WP6.4 (tier A auth/retry/systemd checks, tier B live auth and replay); live tier B clients carry the device bearer token.
@@ -2106,10 +2107,11 @@ def check_wp66_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v2.8
 # ---------------------------------------------------------------------------
 
 WP64_SERVICE_UNIT = "infra/pi/kaki-device.service"  #v3.1
-# The WP6.8 ergonomics pass replaces this placeholder copy; tier A pins the
-# exact strings so a silent rewrite cannot slip past the owner sign-off.
-WP64_RETRYING_TITLE = "Checking again..."  #v3.1
-WP64_CONNECTION_ERROR_BODY = "Cannot connect. Press the button to try again."  #v3.1
+# The WP6.8 Auntie-register copy, released by the owner on 21-Sep-2026 after
+# WP6.4 Tier C passed; tier A pins the exact strings so a silent rewrite
+# cannot slip past the owner sign-off.
+WP64_RETRYING_TITLE = "Wait ah, checking again..."  #v3.4
+WP64_CONNECTION_ERROR_BODY = "Don't worry. Press the button and we try again."  #v3.4
 
 
 def check_wp64_tier_a() -> tuple[dict[str, object], dict[str, bool]]:  #v3.1
@@ -2157,13 +2159,14 @@ def check_wp64_tier_a() -> tuple[dict[str, object], dict[str, bool]]:  #v3.1
         "retrying_title": device_layout.RETRYING_TITLE,
         "connection_error_body": device_layout.CONNECTION_ERROR_BODY,
     }
-    checks["retrying_copy_is_the_agreed_placeholder"] = (
+    checks["retrying_copy_is_the_released_wording"] = (
         device_layout.RETRYING_TITLE == WP64_RETRYING_TITLE
     )
-    checks["failure_copy_is_the_agreed_placeholder"] = (
+    checks["failure_copy_is_the_released_wording"] = (
         device_layout.CONNECTION_ERROR_BODY == WP64_CONNECTION_ERROR_BODY
     )
-    checks["placeholder_copy_marked_for_wp68"] = "TODO(WP6.8)" in layout_source
+    # WP6.8 step 5 landed: the placeholder marker must be gone.
+    checks["no_placeholder_marker_remains"] = "TODO(WP6.8)" not in layout_source
 
     unit_path = root / WP64_SERVICE_UNIT
     unit_text = unit_path.read_text(encoding="utf-8") if unit_path.is_file() else ""
@@ -2274,7 +2277,7 @@ WP68_FILLER_ASSET = "apps/web/public/thinking-filler.wav"  #v3.3
 # suite (execution-plan.md 7, WP6.8).
 WP68_WRITTEN = "1. Open the SMS link. 2. Tap Accept (it is free). 3. Visit https://vouchers.cdc.gov.sg/."
 WP68_SPOKEN = (
-    "Open the [[char LTRL]]SMS[[char NORM]] link. [[slnc 400]] "
+    "Open the S M S link. [[slnc 400]] "
     "Tap Accept it is free. [[slnc 400]] "
     "Visit the C D C vouchers website."
 )
@@ -2358,7 +2361,11 @@ def check_wp68_tier_a() -> tuple[dict[str, object], dict[str, bool]]:  #v3.3
     checks["the_normaliser_matches_its_golden"] = produced == WP68_SPOKEN
     checks["list_markers_are_stripped"] = "1." not in produced
     checks["urls_are_spelled_from_the_lookup"] = "https://" not in produced
-    checks["acronyms_are_spelled_literally"] = "[[char LTRL]]" in produced
+    # WP6.4 Tier C: literal mode read "Capital C" aloud, so acronyms are
+    # plain spaced letters and the literal command must never reappear.
+    checks["acronyms_are_spelled_as_plain_letters"] = (
+        "S M S" in produced and "[[char" not in produced
+    )
     checks["brackets_are_removed"] = "(" not in produced and ")" not in produced
     checks["sentences_are_separated_by_silence"] = "[[slnc 400]]" in produced
 

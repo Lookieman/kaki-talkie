@@ -1,3 +1,4 @@
+# v1.3 | 21-Sep-2026 | Acronyms spoken as plain letters; literal mode read case aloud.
 # v1.2 | 21-Sep-2026 | WP6.8: English voice, speaking rate and the spoken form.
 # v1.1 | 13-Sep-2026 | WP5.1: Malay speech uses the configured voice; English stays unchanged.
 # v1.0 | 09-Sep-2026 | Cover say synthesis bounds, sanitised failures and TTS settings.
@@ -16,6 +17,7 @@ from kaki_backend.config import TtsSettings
 from kaki_backend.contracts.ports import TtsError
 from kaki_backend.orchestration.canned_ports import CannedTtsPort
 from kaki_say_tts.adapter import MAX_TEXT_CHARS, SayTts
+from kaki_say_tts.spoken_form import to_spoken_form
 
 
 def pcm_wav(channels: int = 1, frames: int = 220) -> bytes:
@@ -98,9 +100,23 @@ class SayAdapterTests(unittest.TestCase):
         written = "1. Open the SMS link. 2. Show your CDC card (it is free)."
         SayTts(runner=runner).synthesize(written)
         self.assertNotIn("1.", runner.text)
-        self.assertIn("[[char LTRL]]CDC[[char NORM]]", runner.text)
+        self.assertIn("C D C", runner.text)
         self.assertIn("[[slnc 400]]", runner.text)
         self.assertNotIn("(", runner.text)
+
+    def test_acronyms_are_spoken_as_plain_letters_never_literal_mode(self) -> None:
+        # WP6.4 Tier C, 21-Sep-2026: [[char LTRL]] announced case, so the Pi
+        # read "Capital C, Capital D, Capital C". Plain spaced letters are
+        # the fix; literal mode must never come back.
+        self.assertEqual(
+            to_spoken_form("Bring your CDC card and reply to the SMS."),
+            "Bring your C D C card and reply to the S M S.",
+        )
+        for written in ("CDC", "CHAS", "NRIC", "PIN", "OTP", "SMS", "ATM", "MRT"):
+            with self.subTest(acronym=written):
+                spoken = to_spoken_form(written)
+                self.assertEqual(spoken, " ".join(written))
+                self.assertNotIn("[[char", spoken)
 
     def test_malay_uses_the_configured_voice(self) -> None:  #v1.1
         runner = FakeRunner(output=pcm_wav())

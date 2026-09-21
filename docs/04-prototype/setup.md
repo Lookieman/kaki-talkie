@@ -2057,6 +2057,12 @@ put the same value in both places - the Mac's project-root `.env` (as
 backend after adding it) and the `token` field above. It is a different
 secret from the admin token, and neither is accepted on the other's routes.
 
+For the Pi to reach the backend at all, the Mac must not bind to loopback
+alone: export `KAKI_BACKEND_HOST=0.0.0.0` (in `.env` or the shell) before
+starting the backend. Unset, the launcher keeps the WP1-AT-11 default of
+`127.0.0.1` and the device path is loopback-only. The model services
+(8081/8082) keep their loopback binds either way (15.5).
+
 ### 29.6 What is not installed on the Pi
 
 ```text
@@ -2140,6 +2146,11 @@ and dropped with this unit.
 |         |             | the shipped runtime and WP2.4 health readiness. Stages    |
 |         |             | from section 11 tagged with their owning work package.    |
 |         |             | Acceptance checklists moved to the validation runbook.    |
+| 1.9     | 21-Sep-2026 | WP6.4 Tier C fixes folded back into                |
+|         |             | infra/pi/kaki-device.service (lali user and paths, |
+|         |             | WorkingDirectory for lgpio's pipe, lgpio pin       |
+|         |             | factory) and the KAKI_BACKEND_HOST bind note in    |
+|         |             | 29.5.                                              |
 | 1.8     | 20-Sep-2026 | WP6.4: the device.toml token field, 0640          |
 |         |             | root:kaki permissions on /etc/kaki/device.toml,   |
 |         |             | KAKI_DEVICE_TOKEN in the Mac's .env, the WP6.4    |

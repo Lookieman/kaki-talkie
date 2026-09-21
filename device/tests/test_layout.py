@@ -1,3 +1,4 @@
+# v1.2 | 21-Sep-2026 | WP6.8: the released Auntie-register retry and failure copy.
 # v1.1 | 20-Sep-2026 | WP6.4: retrying title and the connection-failure body.
 # v1.0 | 16-Sep-2026 | WP6.1 display layout: states, wrapping, shrink, truncation, austerity.
 """Prove the kiosk display without a screen, fonts or pygame.
@@ -57,23 +58,22 @@ class FrameTests(unittest.TestCase):
         self.assertEqual(seen, set(DisplayState))
 
     def test_retrying_shows_its_own_title_and_stays_distinct(self):
-        # WP6.4: the retry frame tells the user the kiosk is checking again.
-        # The wording is a placeholder for the WP6.8 ergonomics pass.
+        # WP6.4 added the frame; WP6.8 released the Auntie-register wording.
         thinking = thinking_frame(WIDTH, HEIGHT, MEASURE)
         retrying = thinking_frame(WIDTH, HEIGHT, MEASURE, DisplayState.RETRYING)
         self.assertIn(layout.RETRYING_TITLE, retrying.text)
-        self.assertIn("Checking again", retrying.text)
+        self.assertIn("Wait ah, checking again", retrying.text)
         self.assertIn(layout.THINKING_SUBTITLE, retrying.text)
         self.assertNotIn(layout.THINKING_TITLE, retrying.text)
         self.assertNotEqual(thinking.state, retrying.state)
 
     def test_the_connection_failure_body_replaces_the_generic_one(self):
         # WP6.4: shown once the same-turn_id retries are exhausted; the
-        # wording is a placeholder for the WP6.8 ergonomics pass.
+        # wording is WP6.8's Auntie register (owner release, 21-Sep-2026).
         generic = error_frame(WIDTH, HEIGHT, MEASURE)
         connection = error_frame(WIDTH, HEIGHT, MEASURE, layout.CONNECTION_ERROR_BODY)
         self.assertIn(layout.ERROR_BODY, generic.text)
-        self.assertIn("Cannot connect. Press the button to try again.", connection.text)
+        self.assertIn("Don't worry. Press the button and we try again.", connection.text)
         self.assertNotIn(layout.ERROR_BODY, connection.text)
         self.assertEqual(connection.state, DisplayState.ERROR)
 

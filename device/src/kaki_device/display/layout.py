@@ -1,3 +1,4 @@
+# v1.2 | 21-Sep-2026 | WP6.8: retry and connection-failure copy in the Auntie register.
 # v1.1 | 20-Sep-2026 | WP6.4: retrying copy and the connection-failure body (placeholders).
 # v1.0 | 16-Sep-2026 | WP6.1 display states and pure layout for the 1024x600 kiosk panel.
 """Turn device state into a frame of positioned text, with no drawing here.
@@ -51,11 +52,13 @@ THINKING_SUBTITLE = "Sila tunggu sebentar"
 ERROR_TITLE = "Something went wrong"
 ERROR_SUBTITLE = "Sila cuba lagi"
 ERROR_BODY = "Please press the button and try again."
-# TODO(WP6.8): placeholder WP6.4 copy, to be replaced during the ergonomics
-# pass. RETRYING_TITLE shows while a timed-out turn is retried with the same
-# turn_id; CONNECTION_ERROR_BODY shows once the retries are exhausted.
-RETRYING_TITLE = "Checking again..."  #v1.1
-CONNECTION_ERROR_BODY = "Cannot connect. Press the button to try again."  #v1.1
+# WP6.8 copy in the Auntie register (owner release, 21-Sep-2026), matching
+# the "Wait ah" filler and the booking reply so the kiosk speaks with one
+# voice. RETRYING_TITLE shows while a timed-out turn is retried with the
+# same turn_id; CONNECTION_ERROR_BODY shows once the retries are exhausted.
+# wp_check --unit WP6.4 --tier A pins both strings; change them together.
+RETRYING_TITLE = "Wait ah, checking again..."  #v1.2
+CONNECTION_ERROR_BODY = "Don't worry. Press the button and we try again."  #v1.2
 
 
 class DisplayState(str, Enum):
