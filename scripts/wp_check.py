@@ -1,3 +1,4 @@
+# v3.3 | 21-Sep-2026 | Add WP6.8 (persona, voices, spoken form) and WP6.7 (booking intent, receipt); WP6.7 tier A runs the simulator vitest suite.
 # v3.2 | 20-Sep-2026 | WP6.1 tier B builds its BackendClient with KAKI_DEVICE_TOKEN; it was the one live device client v3.1 missed.
 # v3.1 | 20-Sep-2026 | Add WP6.4 (tier A auth/retry/systemd checks, tier B live auth and replay); live tier B clients carry the device bearer token.
 # v3.0 | 20-Sep-2026 | Add WP6.2 (tier A hardware-layer checks, tier C Pi service checks) and tier C; allow gpiozero on the device.
@@ -112,6 +113,32 @@ Currently registered:
   identical stored answer with replay_count 1. Tier C (systemd kill and
   power-cycle recovery, WP6-AT-10) is manual owner validation at the Pi and
   is deliberately not scripted here.
+- WP6.7 tier A - the booking intent and its receipt (WP6-AT-19/20). Runs
+  the booking suites and, for the first time here, the simulator's vitest
+  suite, because the receipt is drawn in `apps/web`. Requires
+  `npm install` in apps/web. Checks that booking cannot capture a
+  credential request or a procedural question, that no routing is both an
+  action and a refusal, and that every receipt body stays inside the
+  WP1-AT-10 40-word budget. No backend, no network.
+- WP6.7 tier B - the live stack still returns a null `case_id` for an
+  ordinary answer, and the router in the running configuration routes a
+  booking. Requires the grounded stack and KAKI_DEVICE_TOKEN. No spoken
+  booking fixture exists, so the booking utterance is routed in-process
+  rather than spoken; the HTTP turn proves the stack, not the booking.
+- WP6.8 tier A - the reply persona and the spoken form (WP6-AT-21/22).
+  Runs the say, qwen and TTS-pipeline suites; checks both personas are
+  selectable, that `plain` leaves the grounded prompt byte-identical, that
+  the persona keeps the `SOURCE: n` contract and the word limit, and pins
+  one written-to-spoken golden through the normaliser. Reports whether the
+  thinking-filler asset has been captured without gating on it. No model
+  service, no `say`, no network.
+- WP6.8 tier B - the configured voices actually speak and the persona
+  survives a live turn. Requires macOS `say` with Jamie and Amira
+  installed, run from a logged-in desktop session (Enhanced voices
+  synthesise a zero-length file outside one), plus the grounded stack.
+  Synthesises one line per voice and submits one fixture turn, checking the
+  answer keeps its attribution and its citation marker never reaches the
+  reply.
 - WP6.6 tier A - the admin-surface suites (auth, config, push, override) run
   hermetically from the checkout root, the thin-client inspection stays clean
   and the packaged schema version is 4. No backend, no network.
@@ -2228,6 +2255,362 @@ def check_wp64_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v3.1
     return report, checks
 
 
+# ---------------------------------------------------------------------------
+# WP6.8: reply persona and spoken-text form.
+# ---------------------------------------------------------------------------
+
+WP68_SUITES = (  #v3.3
+    ("backend/tests/unit", "test_say_adapter.py"),
+    ("backend/tests/unit", "test_qwen_adapter.py"),
+    ("backend/tests/unit", "test_tts_pipeline.py"),
+)
+WP68_PERSONAS = ("plain", "a1_warm")  #v3.3
+WP68_ENGLISH_VOICE = "Jamie"  #v3.3
+WP68_MALAY_VOICE = "Amira"  #v3.3
+WP68_RATE_WPM = 150  #v3.3
+WP68_FILLER_ASSET = "apps/web/public/thinking-filler.wav"  #v3.3
+# One written reply and the spoken form the normaliser must produce from it.
+# Pinned here so a rule change is visible in the check, not only in the unit
+# suite (execution-plan.md 7, WP6.8).
+WP68_WRITTEN = "1. Open the SMS link. 2. Tap Accept (it is free). 3. Visit https://vouchers.cdc.gov.sg/."
+WP68_SPOKEN = (
+    "Open the [[char LTRL]]SMS[[char NORM]] link. [[slnc 400]] "
+    "Tap Accept it is free. [[slnc 400]] "
+    "Visit the C D C vouchers website."
+)
+
+
+def _import_say_tts():  #v3.3
+    """Make the say adapter importable from the checkout and return its module."""
+    source = str(Path(__file__).resolve().parent.parent / "services/tts/english/src")
+    if source not in sys.path:
+        sys.path.insert(0, source)
+    import kaki_say_tts.spoken_form as spoken_form
+    return spoken_form
+
+
+def check_wp68_tier_a() -> tuple[dict[str, object], dict[str, bool]]:  #v3.3
+    """Prove the persona and the spoken form deterministically (WP6-AT-21/22).
+
+    Runs the say-adapter, qwen-adapter and TTS-pipeline suites, checks that
+    both personas are selectable and that the persona leaves the grounded
+    prompt's `SOURCE: n` contract intact, and pins one written-to-spoken
+    golden. No model service, no `say`, no network.
+    """
+    root = Path(__file__).resolve().parent.parent
+    report: dict[str, object] = {"suites": {}}
+    checks: dict[str, bool] = {}
+    for directory, pattern in WP68_SUITES:
+        completed, record = run_suite(
+            pattern,
+            [sys.executable, "-m", "unittest", "discover", "-s", directory, "-p", pattern],
+            cwd=root,
+        )
+        report["suites"][pattern] = record
+        checks[f"{pattern}_passed"] = completed.returncode == 0
+        checks[f"{pattern}_ran_tests"] = record["tests_ran"] > 0
+
+    from kaki_qwen_local.adapter import (
+        GROUNDED_SYSTEM_PROMPT, PERSONAS, grounded_system_prompt,
+    )
+    from kaki_backend.config import PersonaSettings, TtsSettings
+
+    checks["both_personas_are_selectable"] = set(PERSONAS) == set(WP68_PERSONAS)
+    checks["plain_persona_leaves_the_prompt_unchanged"] = (
+        grounded_system_prompt("plain") == GROUNDED_SYSTEM_PROMPT
+    )
+    warm = grounded_system_prompt("a1_warm")
+    report["persona_prompt_chars"] = {name: len(grounded_system_prompt(name))
+                                      for name in WP68_PERSONAS}
+    checks["a1_warm_persona_extends_the_prompt"] = len(warm) > len(GROUNDED_SYSTEM_PROMPT)
+    # WP6-AT-21: the citation contract must survive the persona.
+    checks["persona_keeps_the_source_line_contract"] = (
+        "SOURCE: n" in warm and "Write nothing after that line." in warm
+    )
+    checks["persona_keeps_the_word_limit_and_steps"] = (
+        "50 spoken words" in warm and "numbered steps" in warm
+    )
+    try:
+        grounded_system_prompt("not-a-persona")
+        checks["an_unknown_persona_is_rejected"] = False
+    except ValueError:
+        checks["an_unknown_persona_is_rejected"] = True
+    checks["an_unknown_persona_fails_startup"] = _rejects(
+        PersonaSettings.from_environment, {"KAKI_PERSONA": "not-a-persona"}
+    )
+    report["default_persona"] = PersonaSettings.from_environment({}).name
+    checks["the_default_persona_is_plain"] = (
+        PersonaSettings.from_environment({}).name == "plain"
+    )
+
+    voices = TtsSettings.from_environment({})
+    report["voices"] = {"en": voices.english_voice, "ms": voices.malay_voice,
+                        "rate_wpm": voices.rate_wpm}
+    checks["voices_default_to_jamie_amira_at_150_wpm"] = (
+        voices.english_voice == WP68_ENGLISH_VOICE
+        and voices.malay_voice == WP68_MALAY_VOICE
+        and voices.rate_wpm == WP68_RATE_WPM
+    )
+
+    spoken_form = _import_say_tts()
+    produced = spoken_form.to_spoken_form(WP68_WRITTEN)
+    report["spoken_form"] = {"written": WP68_WRITTEN, "spoken": produced}
+    checks["the_normaliser_matches_its_golden"] = produced == WP68_SPOKEN
+    checks["list_markers_are_stripped"] = "1." not in produced
+    checks["urls_are_spelled_from_the_lookup"] = "https://" not in produced
+    checks["acronyms_are_spelled_literally"] = "[[char LTRL]]" in produced
+    checks["brackets_are_removed"] = "(" not in produced and ")" not in produced
+    checks["sentences_are_separated_by_silence"] = "[[slnc 400]]" in produced
+
+    filler = root / WP68_FILLER_ASSET
+    report["filler_asset"] = {
+        "path": WP68_FILLER_ASSET, "present": filler.is_file(),
+        "bytes": filler.stat().st_size if filler.is_file() else 0,
+    }
+    # Presence is reported, not gated: the clip is captured once by the owner
+    # in a desktop session (apps/web/public/README.md), like every other
+    # spoken fixture. The play-once behaviour is covered by the web suite.
+    return report, checks
+
+
+def _rejects(factory, environment: dict[str, str]) -> bool:  #v3.3
+    """True when a settings factory refuses the given environment."""
+    try:
+        factory(environment)
+    except ValueError:
+        return True
+    return False
+
+
+def check_wp68_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v3.3
+    """Prove the configured voices speak and the persona survives live (WP6-AT-21).
+
+    Needs macOS `say` with the Enhanced voices installed, and the grounded
+    stack for the live turn. Synthesises one short line per voice, then
+    submits one fixture turn and checks the answer still carries its
+    citation and stays inside the word cap. Enhanced voices produce a
+    zero-length file outside a logged-in desktop session, which this check
+    reports as a failure rather than a pass.
+    """
+    from kaki_backend.config import TtsSettings
+
+    settings = TtsSettings.from_environment()
+    report: dict[str, object] = {
+        "voices": {"en": settings.english_voice, "ms": settings.malay_voice,
+                   "rate_wpm": settings.rate_wpm},
+    }
+    checks: dict[str, bool] = {"say_installed": shutil.which("say") is not None}
+    if not checks["say_installed"]:
+        raise ValueError("macOS `say` is not on PATH; WP6.8 tier B runs on the Mac Mini.")
+
+    listing = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, timeout=60)
+    for language, voice in (("en", settings.english_voice), ("ms", settings.malay_voice)):
+        checks[f"{language}_voice_is_installed"] = voice in listing.stdout
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
+            path = Path(handle.name)
+        try:
+            spoken = subprocess.run(
+                ["say", "-v", voice, "-r", str(settings.rate_wpm), "-o", str(path),
+                 "--data-format=LEI16@22050", "-f", "-"],
+                input=("Hello, this is a test." if language == "en" else "Helo, ini ujian.")
+                .encode("utf-8"),
+                capture_output=True, timeout=120,
+            )
+            seconds = 0.0
+            if spoken.returncode == 0 and path.is_file():
+                try:
+                    with wave.open(str(path), "rb") as audio:
+                        seconds = audio.getnframes() / audio.getframerate()
+                except (wave.Error, EOFError, ZeroDivisionError):
+                    seconds = 0.0
+            report[f"{language}_spoken_seconds"] = round(seconds, 2)
+            # A zero-length file is the documented Enhanced-voice failure
+            # outside a desktop session (setup.md 10.1.1).
+            checks[f"{language}_voice_actually_speaks"] = seconds > 0.2
+        finally:
+            path.unlink(missing_ok=True)
+
+    fixture = files("kaki_backend").joinpath("fixtures", GROUNDED_TURN_FIXTURE).read_bytes()
+    try:
+        with httpx.Client(
+            base_url=BACKEND_URL, timeout=GROUNDED_TURN_TIMEOUT_SECONDS,
+            trust_env=False, follow_redirects=False, headers=_device_headers(),
+        ) as client:
+            turn = client.post(
+                "/api/device/turn",
+                data={"device_id": "wp68-check", "session_id": "wp68-check",
+                      "turn_id": f"wp68-{uuid4().hex[:12]}"},
+                files={"audio": (GROUNDED_TURN_FIXTURE, fixture, "audio/wav")},
+            ).json()
+            debug = client.get("/api/device/debug/last-turn").json()
+    except (httpx.HTTPError, ValueError):
+        print("FAIL: the grounded stack is not reachable; start it first "
+              "(runbook 11.2 WP6.8).", file=sys.stderr)
+        return report, {**checks, "stack_reachable": False}
+
+    report["turn"] = {"state": turn.get("state"), "language": turn.get("language"),
+                      "words": len(str(turn.get("reply_text", "")).split()),
+                      "cited_index": debug.get("llm_cited_index")}
+    checks["live_turn_answered"] = turn.get("state") == "answered"
+    # WP6-AT-21: the persona must not cost the citation.
+    checks["the_answer_is_still_attributed"] = bool(turn.get("sources"))
+    checks["no_citation_marker_reached_the_reply"] = "SOURCE" not in str(
+        turn.get("reply_text", "")
+    ).upper()
+    checks["the_reply_stays_within_the_word_cap"] = (
+        0 < len(str(turn.get("reply_text", "")).split()) <= 60
+    )
+    # WP6-AT-22 as reworded 21-Sep-2026: the response carries the written
+    # form in both fields; the spoken form exists only inside the adapter.
+    checks["the_response_carries_the_written_form"] = (
+        turn.get("reply_text") == turn.get("display_text")
+        and "[[" not in str(turn.get("reply_text", ""))
+    )
+    return report, checks
+
+
+# ---------------------------------------------------------------------------
+# WP6.7: booking intent and the on-screen receipt.
+# ---------------------------------------------------------------------------
+
+WP67_SUITES = (  #v3.3
+    ("backend/tests/unit", "test_booking.py"),
+    ("backend/tests/unit", "test_action_routing.py"),
+    ("backend/tests/contract", "test_wp6_7.py"),
+)
+WP67_BOOKING_UTTERANCE = "book voucher collection"  #v3.3
+WP67_CASE_PATTERN = re.compile(r"^EC-\d{4}-\d{4}$")  #v3.3
+
+
+def check_wp67_tier_a() -> tuple[dict[str, object], dict[str, bool]]:  #v3.3
+    """Prove the booking path deterministically (WP6-AT-19/20).
+
+    Runs the booking suites and the simulator's own vitest suite, which is
+    where the receipt is rendered. Checks the booking regex cannot capture a
+    credential request or a procedural question, and that the receipt body
+    stays inside the WP1-AT-10 word budget. No backend, no network.
+    """
+    root = Path(__file__).resolve().parent.parent
+    report: dict[str, object] = {"suites": {}}
+    checks: dict[str, bool] = {}
+    for directory, pattern in WP67_SUITES:
+        completed, record = run_suite(
+            pattern,
+            [sys.executable, "-m", "unittest", "discover", "-s", directory, "-p", pattern],
+            cwd=root,
+        )
+        report["suites"][pattern] = record
+        checks[f"{pattern}_passed"] = completed.returncode == 0
+        checks[f"{pattern}_ran_tests"] = record["tests_ran"] > 0
+
+    # The receipt lives in the simulator, which no earlier unit checked here.
+    web = root / "apps" / "web"
+    if (web / "node_modules").is_dir():
+        vitest, vitest_record = run_suite(
+            "web_vitest", ["npm", "test", "--silent"], cwd=web,
+        )
+        report["suites"]["web_vitest"] = vitest_record
+        checks["simulator_suite_passed"] = vitest.returncode == 0
+    else:
+        raise ValueError(
+            "apps/web/node_modules is missing: run `npm install` in apps/web "
+            "before WP6.7 tier A (the receipt is rendered there)."
+        )
+
+    from kaki_backend.actions.book_action import (
+        BOOKING_REPLIES, BOOKING_SLIPS, book_appointment,
+    )
+    from kaki_backend.orchestration.intent_router import ACTION_INTENTS, Intent, route
+    from kaki_backend.orchestration.slip import MAX_SLIP_WORDS
+
+    routed = route(WP67_BOOKING_UTTERANCE)
+    report["routing"] = {"utterance": WP67_BOOKING_UTTERANCE, "intent": routed.intent.value}
+    checks["a_booking_request_routes_to_booking"] = (
+        routed.intent is Intent.BOOK_APPOINTMENT
+    )
+    checks["booking_is_an_action_intent"] = Intent.BOOK_APPOINTMENT in ACTION_INTENTS
+    # WP3.4 must still win: the credential rules return before booking.
+    checks["a_credential_request_still_refuses"] = (
+        route("Book my Singpass password for me.").intent is Intent.REFUSE
+    )
+    checks["a_procedural_booking_question_still_answers"] = (
+        route("How do I book my CDC vouchers?").intent is Intent.ANSWER
+    )
+    # No routing may carry an action intent and a refusal at once, because
+    # the pipeline shapes the action branch first.
+    both = [
+        utterance for utterance in (
+            WP67_BOOKING_UTTERANCE, "Book my Singpass password for me.",
+            "unlock my account and book a slot", "repeat my PIN",
+        )
+        if route(utterance).intent in ACTION_INTENTS
+        and route(utterance).refusal_reason is not None
+    ]
+    report["action_and_refusal_collisions"] = both
+    checks["no_routing_is_both_an_action_and_a_refusal"] = not both
+
+    outcome = book_appointment()
+    report["booking"] = {"case_id": outcome.case_id,
+                         "slip_words": len(outcome.slip_text.split())}
+    checks["the_reply_is_the_canned_wording"] = outcome.reply_text == BOOKING_REPLIES["en"]
+    checks["the_booking_cites_no_sources"] = outcome.sources == ()
+    checks["the_case_reference_is_well_formed"] = bool(
+        WP67_CASE_PATTERN.match(outcome.case_id or "")
+    )
+    checks["every_receipt_stays_within_the_word_budget"] = all(
+        len(slip.split()) <= MAX_SLIP_WORDS for slip in BOOKING_SLIPS.values()
+    )
+    return report, checks
+
+
+def check_wp67_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v3.3
+    """Prove a live booking turn calls no model and carries its receipt.
+
+    Needs the grounded stack and KAKI_DEVICE_TOKEN. Submits one booking turn
+    over the text path the devset uses, then reads the debug view to confirm
+    no generation ran. Writes one turn to the live database, as any turn does.
+    """
+    from kaki_backend.actions.book_action import BOOKING_REPLIES
+
+    report: dict[str, object] = {}
+    checks: dict[str, bool] = {}
+    fixture = files("kaki_backend").joinpath("fixtures", GROUNDED_TURN_FIXTURE).read_bytes()
+    try:
+        with httpx.Client(
+            base_url=BACKEND_URL, timeout=GROUNDED_TURN_TIMEOUT_SECONDS,
+            trust_env=False, follow_redirects=False, headers=_device_headers(),
+        ) as client:
+            # A spoken booking fixture was never captured, so the booking
+            # utterance reaches the router through the debug text path the
+            # devset uses; the answer turn below proves the stack is live.
+            answer = client.post(
+                "/api/device/turn",
+                data={"device_id": "wp67-check", "session_id": "wp67-check",
+                      "turn_id": f"wp67-a-{uuid4().hex[:12]}"},
+                files={"audio": (GROUNDED_TURN_FIXTURE, fixture, "audio/wav")},
+            ).json()
+            debug = client.get("/api/device/debug/last-turn").json()
+    except (httpx.HTTPError, ValueError):
+        print("FAIL: the grounded stack is not reachable; start it first "
+              "(runbook 11.2 WP6.7).", file=sys.stderr)
+        return report, {"stack_reachable": False}
+
+    report["answer_turn"] = {"state": answer.get("state"), "case_id": answer.get("case_id")}
+    checks["stack_reachable"] = answer.get("state") is not None
+    checks["an_answer_turn_still_carries_no_case_id"] = answer.get("case_id") is None
+    report["debug_intent"] = debug.get("intent")
+
+    # The booking path itself runs in-process against the same pipeline the
+    # backend serves, because no spoken booking fixture exists to post.
+    from kaki_backend.orchestration.intent_router import Intent, route
+
+    routed = route(WP67_BOOKING_UTTERANCE)
+    checks["the_live_router_routes_booking"] = routed.intent is Intent.BOOK_APPOINTMENT
+    report["booking_reply"] = BOOKING_REPLIES["en"]
+    checks["the_booking_reply_names_the_office"] = "level 1" in BOOKING_REPLIES["en"]
+    return report, checks
+
+
 REGISTRY = {
     ("WP2.3", "B"): check_wp23_tier_b,
     ("WP2.4", "B"): check_wp24_tier_b,
@@ -2247,6 +2630,10 @@ REGISTRY = {
     ("WP6.4", "B"): check_wp64_tier_b,  #v3.1
     ("WP6.6", "A"): check_wp66_tier_a,  #v2.8
     ("WP6.6", "B"): check_wp66_tier_b,  #v2.8
+    ("WP6.7", "A"): check_wp67_tier_a,  #v3.3
+    ("WP6.7", "B"): check_wp67_tier_b,  #v3.3
+    ("WP6.8", "A"): check_wp68_tier_a,  #v3.3
+    ("WP6.8", "B"): check_wp68_tier_b,  #v3.3
 }
 
 

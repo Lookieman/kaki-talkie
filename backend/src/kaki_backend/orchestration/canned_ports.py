@@ -1,3 +1,4 @@
+# v1.8 | 21-Sep-2026 | WP6.8: accept and ignore the persona argument.
 # v1.7 | 13-Sep-2026 | WP5.1: canned render returns its input; canned speech accepts a language.
 # v1.6 | 12-Sep-2026 | Return a typed grounded reply for the shared port protocol.
 # v1.5 | 11-Sep-2026 | Match the WP3.3 port shapes: rewrite, evidence and readiness.
@@ -50,8 +51,14 @@ class CannedLlmPort:
         """Ignore recognised text and keep the prerecorded reply contract."""
         return "This is a KaKi-Talkie test reply. Your audio has not been interpreted."
 
-    def generate_grounded(self, transcript: str, *, evidence: str) -> GroundedReply:  #v1.6
-        """Return the canned reply with no citation; canned mode cites nothing."""
+    def generate_grounded(  #v1.8
+        self, transcript: str, *, evidence: str, persona: str = "plain",
+    ) -> GroundedReply:
+        """Return the canned reply with no citation; canned mode cites nothing.
+
+        `persona` is accepted and ignored: the canned reply is a fixed
+        contract string, so no register can apply to it (WP6.8).
+        """
         return GroundedReply(text=self.generate(transcript), cited_index=None)
 
     def rewrite_query(self, transcript: str) -> str:  #v1.5

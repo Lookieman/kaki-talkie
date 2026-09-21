@@ -55,8 +55,12 @@ class ActionRoutingTests(unittest.TestCase):
                     self.assertEqual(routing.intent, Intent.PRINT_PREVIOUS)
                     self.assertIsNone(routing.refusal_reason)
 
-    def test_action_intents_are_exactly_repeat_and_print(self):
-        self.assertEqual(ACTION_INTENTS, {Intent.REPEAT_PREVIOUS, Intent.PRINT_PREVIOUS})
+    def test_action_intents_are_exactly_repeat_print_and_booking(self):
+        # WP6.7 added booking to the set; repeat and print are unchanged.
+        self.assertEqual(
+            ACTION_INTENTS,
+            {Intent.REPEAT_PREVIOUS, Intent.PRINT_PREVIOUS, Intent.BOOK_APPOINTMENT},
+        )
 
 
 class ProceduralGuardTests(unittest.TestCase):

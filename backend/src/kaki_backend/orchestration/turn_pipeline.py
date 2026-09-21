@@ -1,3 +1,5 @@
+# v2.7 | 21-Sep-2026 | WP6.7: dispatch the booking action and carry its case reference.
+# v2.6 | 21-Sep-2026 | WP6.8: pass the configured reply persona to grounded generation.
 # v2.5 | 18-Sep-2026 | WP6.6: per-device admin override of the reply language, read per turn.
 # v2.4 | 14-Sep-2026 | Keep the slip English: retry a non-English grounded answer with the English query.
 # v2.3 | 13-Sep-2026 | WP5.1: reply-language policy, Malay reply modes, speech language.
@@ -76,9 +78,11 @@ from kaki_backend.contracts.responses import SourceRecord, TurnResponse, TurnSta
 from kaki_backend.contracts.turn_log import EvidenceScore, TurnExecution, TurnLog, TurnTimings  #v1.7
 from kaki_backend.contracts.turn_log import SourceLink  #v2.1
 from kaki_backend.actions import ActionOutcome, NoTurnHistory, TurnHistory  #v2.2
+from kaki_backend.actions.book_action import book_appointment  #v2.7
 from kaki_backend.actions.print_action import print_previous  #v2.2
 from kaki_backend.actions.repeat_action import repeat_previous  #v2.2
 from kaki_backend.config import DEFAULT_EVIDENCE_MIN_DENSE  #v1.9
+from kaki_backend.config import DEFAULT_PERSONA_NAME  #v2.6
 from kaki_backend.orchestration.citation import select_cited_evidence  #v1.8
 from kaki_backend.orchestration.language_policy import ENGLISH, decide_reply_language  #v2.3
 from kaki_backend.orchestration.language_policy import is_english_text  #v2.4
@@ -210,6 +214,7 @@ class TurnPipeline:  #v1.1
         language_preference: str = ENGLISH,  #v2.3
         malay_reply_mode: str = ReplyMode.ENGLISH.value,  #v2.3
         reply_language_for: Callable[[str], str] | None = None,  #v2.5
+        persona: str = DEFAULT_PERSONA_NAME,  #v2.6
     ) -> None:
         """Select supplied ports or the existing deterministic canned adapters.
 
@@ -238,6 +243,10 @@ class TurnPipeline:  #v1.1
         # per transcribed turn. None keeps the pre-WP6.6 behaviour exactly;
         # 'auto' from the store returns the decision to the policy.
         self._reply_language_for = reply_language_for  #v2.5
+        # WP6.8: the reply register appended to the grounded system prompt.
+        # It reaches the port per call, not at construction, so the persona
+        # can later become a per-turn decision without rebuilding the port.
+        self._persona = persona  #v2.6
         self._reply_mode = ReplyMode(malay_reply_mode)  #v2.3
         if language_preference not in ("en", "ms"):  #v2.3
             raise ValueError("language_preference must be en or ms.")
@@ -314,11 +323,16 @@ class TurnPipeline:  #v1.1
 
             if routing.intent in ACTION_INTENTS:  #v2.2
                 # Actions answer from the store: no retrieval, gate or model.
-                previous = self._history.previous_content_turn(session_id)
-                if routing.intent is Intent.REPEAT_PREVIOUS:
-                    action = repeat_previous(previous, fixed_language)  #v2.3
+                if routing.intent is Intent.BOOK_APPOINTMENT:  #v2.7
+                    # WP6.7: a booking stands on its own, so it reads no
+                    # previous turn and cannot fail to resolve one.
+                    action = book_appointment(fixed_language)
                 else:
-                    action = print_previous(previous, fixed_language)  #v2.3
+                    previous = self._history.previous_content_turn(session_id)
+                    if routing.intent is Intent.REPEAT_PREVIOUS:
+                        action = repeat_previous(previous, fixed_language)  #v2.3
+                    else:
+                        action = print_previous(previous, fixed_language)  #v2.3
 
             if refusal_reason is None and action is None and self._retrieval_active:  #v2.2
                 if self._query_normalise and _needs_rewrite(  #v2.3
@@ -361,13 +375,14 @@ class TurnPipeline:  #v1.1
                     if evidence:  #v1.8
                         evidence_text = _format_evidence(evidence)  #v2.4
                         grounded = self._llm.generate_grounded(
-                            transcript, evidence=evidence_text
+                            transcript, evidence=evidence_text, persona=self._persona,  #v2.6
                         )
                         if (not grounded.no_coverage and not is_english_text(grounded.text)
                                 and normalised_query):  #v2.4
                             # The slip needs English steps; ask again in English.
                             grounded = self._llm.generate_grounded(
-                                normalised_query, evidence=evidence_text
+                                normalised_query, evidence=evidence_text,
+                                persona=self._persona,  #v2.6
                             )
                         if grounded.no_coverage:  #v1.9
                             # Layer 3: discard the text; never speak a partial
@@ -426,6 +441,10 @@ class TurnPipeline:  #v1.1
                     reply_text = composed.text  #v2.3
                     language = composed.language  #v2.3
                     speech_segments = composed.segments  #v2.3
+                    # WP6.8 (owner decision, 21-Sep-2026): reply_text and
+                    # display_text both keep the written form. The spoken
+                    # form is produced inside the say adapter, so only the
+                    # bytes handed to the engine carry its control sequences.
                     display_text = reply_text  #v1.6
                     source_chunks = _source_chunks(evidence, cited)  #v2.1
                     sources = [chunk.source for chunk in source_chunks]  #v2.1
@@ -471,7 +490,9 @@ class TurnPipeline:  #v1.1
                 slip_text=slip_text,  #v1.7
                 language=language,
                 state=state,  #v1.9
-                case_id=None,
+                # WP6.7: only a booking sets this today; every other path
+                # leaves the WP1 field null exactly as before.
+                case_id=action.case_id if action is not None else None,  #v2.7
                 sources=sources,  #v1.7
             )
 

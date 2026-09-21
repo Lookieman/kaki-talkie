@@ -1,3 +1,4 @@
+# v1.7 | 21-Sep-2026 | WP6.8: append the selected reply persona to the grounded prompt.
 # v1.6 | 14-Sep-2026 | Grounded prompt: answer in English whatever the question's language.
 # v1.5 | 14-Sep-2026 | Tell the render pass to keep numbers as digits for the digit check.
 # v1.4 | 13-Sep-2026 | WP5.1: configurable rewrite timeout; render a grounded reply into Malay.
@@ -65,6 +66,41 @@ _CITATION_MARKER = re.compile(  #v1.2
     r"\n?\s*\[?\s*SOURCE\s*\]?\s*[:\-]?\s*\[?\s*(?P<index>\d{1,3})\s*\]?\s*\.?\s*$",
     re.IGNORECASE,
 )
+
+# WP6.8 reply persona. The persona is appended to GROUNDED_SYSTEM_PROMPT
+# inside the same system message, so a persona costs no extra call and no
+# render pass. It is deliberately short: the grounded prompt already carries
+# the 50-word cap, the numbered-step form and the SOURCE line contract, and a
+# long persona crowds them out. The closing sentence restates the contract
+# because a warm register is exactly what tempts a model to add a friendly
+# line after the citation (WP6-AT-21).
+#
+# The wording is provisional and editable, like the push message's
+# (scripts/seed_push_message.py): edit it here and restart the backend.
+PLAIN_PERSONA = ""  #v1.7
+A1_WARM_PERSONA = (  #v1.7
+    " Speak like a kind neighbourhood auntie helping an elderly neighbour: "
+    "warm, plain and unhurried. Use short everyday words and short sentences. "
+    "You may begin with one brief reassuring word such as 'Okay' or "
+    "'Don't worry'. Every rule above still applies, especially the word "
+    "limit, the numbered steps and the final SOURCE line; write nothing "
+    "after that line."
+)
+PERSONAS = {"plain": PLAIN_PERSONA, "a1_warm": A1_WARM_PERSONA}  #v1.7
+DEFAULT_PERSONA = "plain"  #v1.7
+
+
+def grounded_system_prompt(persona: str = DEFAULT_PERSONA) -> str:  #v1.7
+    """Return the grounded prompt with the named persona appended.
+
+    An unknown persona name raises rather than silently answering in the
+    wrong register; `config.PersonaSettings` validates at startup, so this
+    only fires for a programming error.
+    """
+    if persona not in PERSONAS:
+        raise ValueError(f"unknown persona {persona!r}; expected one of {sorted(PERSONAS)}.")
+    return GROUNDED_SYSTEM_PROMPT + PERSONAS[persona]
+
 
 REWRITE_SYSTEM_PROMPT = (  #v1.1
     "Rewrite the user's message as one concise English search query for "
@@ -147,8 +183,14 @@ class QwenLlm:
             raise LlmError("invalid_response")
         return _extract_reply(self._complete(SYSTEM_PROMPT, transcript))
 
-    def generate_grounded(self, transcript: str, *, evidence: str) -> GroundedReply:  #v1.2
+    def generate_grounded(  #v1.7
+        self, transcript: str, *, evidence: str, persona: str = DEFAULT_PERSONA,
+    ) -> GroundedReply:
         """Answer strictly from `evidence`, or report that it does not cover it.
+
+        `persona` selects the WP6.8 register appended to the system prompt.
+        It is a per-call argument rather than adapter state so the pipeline
+        can decide it per turn without rebuilding the port.
 
         The citation marker is removed here rather than downstream, so it can
         never reach the spoken or displayed reply. A missing, malformed or
@@ -164,7 +206,9 @@ class QwenLlm:
         if not evidence.strip() or len(evidence) > MAX_EVIDENCE_CHARS:
             raise LlmError("invalid_response")
         user_content = f"Official information:\n{evidence}\n\nQuestion: {transcript}"
-        reply = _extract_reply(self._complete(GROUNDED_SYSTEM_PROMPT, user_content))
+        reply = _extract_reply(
+            self._complete(grounded_system_prompt(persona), user_content)  #v1.7
+        )
         text, cited_index = _split_citation(reply)
         if cited_index == 0:  #v1.3
             return GroundedReply(text="", cited_index=None, no_coverage=True)

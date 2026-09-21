@@ -1,3 +1,4 @@
+# v1.8 | 21-Sep-2026 | WP6.8: generate_grounded takes the reply persona.
 # v1.7 | 13-Sep-2026 | WP5.1: render a reply into another language; speak in a given language.
 # v1.6 | 12-Sep-2026 | Carry the model's no-coverage signal on the grounded reply.
 # v1.5 | 12-Sep-2026 | Return the cited evidence block from grounded generation.
@@ -98,13 +99,16 @@ class LlmPort(Protocol):
     def generate(self, transcript: str) -> str:  #v1.5
         """Return conversational response text for the current turn or raise LlmError."""
 
-    def generate_grounded(self, transcript: str, *, evidence: str) -> GroundedReply:  #v1.5
+    def generate_grounded(  #v1.8
+        self, transcript: str, *, evidence: str, persona: str = "plain",
+    ) -> GroundedReply:
         """Answer strictly from `evidence` and report which block was used.
 
         `evidence` is preformatted application-retrieved context, numbered
         from one; it is reference data and never instructions to the model.
-        Raises LlmError for blank or oversized input and on any transport or
-        parsing failure.
+        `persona` names the WP6.8 reply register; engines without personas
+        ignore it. Raises LlmError for blank or oversized input and on any
+        transport or parsing failure.
         """
 
     def rewrite_query(self, transcript: str) -> str:  #v1.4

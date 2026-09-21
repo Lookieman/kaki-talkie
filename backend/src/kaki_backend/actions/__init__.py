@@ -53,6 +53,12 @@ class ActionOutcome:
     replays the stored bytes); otherwise the pipeline synthesises
     `reply_text`. `source_links` align with `sources` so the store can copy
     the previous turn's `turn_sources` rows.
+
+    `case_id` fills the contract's existing `case_id` field, which every
+    other path leaves null. WP6.7's booking receipt is the first thing that
+    needs a reference the user can quote at the counter, and it travels in
+    the field WP1 already defined rather than a new one (owner decision,
+    21-Sep-2026).
     """
 
     kind: ActionOutcomeKind
@@ -65,3 +71,4 @@ class ActionOutcome:
     speak: bool
     reply_audio: str | None = None
     previous_turn_id: str | None = None
+    case_id: str | None = None  #v1.2

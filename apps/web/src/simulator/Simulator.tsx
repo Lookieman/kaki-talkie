@@ -1,3 +1,5 @@
+// v1.7 | 21-Sep-2026 | WP6.7: draw the booking receipt as a 58 mm slip.
+// v1.6 | 21-Sep-2026 | WP6.8: play the thinking filler once per turn.
 // v1.6 | 19-Sep-2026 | WP6.6: show the nudge inside the device frame and clear it on the next turn.
 // v1.5 | 18-Sep-2026 | WP6.6: poll pending every 3 s while idle and play a nudge once.
 // v1.4 | 13-Sep-2026 | Apply the client print policy and keep the last printed slip (WP4.2).
@@ -13,9 +15,11 @@ import type { PointerEvent } from "react"; //v1.1
 
 import { fetchPending, submitTurn, TurnResponse } from "../api-client/device"; //v1.5
 import { createIdentifier } from "./identifiers"; //v1.3
+import { ThinkingFiller } from "./filler"; //v1.6
 import { RecordingLimitController, RecordingStopReason } from "./recorder";
 import { DEFAULT_PRINT_POLICY, PRINT_POLICIES, PrintPolicy, shouldPrint } from "./printPolicy"; //v1.4
 import { wrapReceipt } from "./receipt";
+import { buildBookingReceipt } from "./bookingReceipt"; //v1.7
 import { DeviceState, DEVICE_STATES } from "./states";
 import { NudgeTracker, parsePendingItems, PENDING_POLL_SECONDS, PendingNudge } from "./pending"; //v1.5
 
@@ -95,6 +99,9 @@ export function Simulator() {
   const [error, setError] = useState<string | null>(null);
   const [printPolicy, setPrintPolicy] = useState<PrintPolicy>(DEFAULT_PRINT_POLICY); //v1.4
   const [printedSlip, setPrintedSlip] = useState(""); //v1.4
+  // WP6.7: a booking turn draws the full receipt; every other turn keeps
+  // the plain slip rendering.
+  const [bookingReceipt, setBookingReceipt] = useState<ReturnType<typeof buildBookingReceipt>>(null); //v1.7
   const [nudge, setNudge] = useState<PendingNudge | null>(null); //v1.5
   const printPolicyRef = useRef<PrintPolicy>(DEFAULT_PRINT_POLICY); //v1.4
   const sessionId = useRef(createIdentifier("session"));
@@ -103,6 +110,7 @@ export function Simulator() {
   const recordedChunks = useRef<Blob[]>([]);
   const limitController = useRef(new RecordingLimitController());
   const mounted = useRef(true);
+  const filler = useRef(new ThinkingFiller()); //v1.6
   const pointerHeld = useRef(false); //v1.1
   const nudgeTracker = useRef(new NudgeTracker()); //v1.5
   const deviceStateRef = useRef<DeviceState>("idle"); //v1.5
@@ -132,9 +140,11 @@ export function Simulator() {
 
   useEffect(() => {
     const recordingController = limitController.current; //v1.2
+    const thinkingFiller = filler.current; //v1.6
     return () => {
       mounted.current = false;
       recordingController.stop(); //v1.2
+      thinkingFiller.stop(); //v1.6
       mediaRecorder.current?.stop();
       mediaStream.current?.getTracks().forEach((track) => track.stop());
       window.speechSynthesis?.cancel();
@@ -144,6 +154,10 @@ export function Simulator() {
   const completeTurn = useCallback(async (audio: Blob) => {
     try {
       setDeviceState("thinking");
+      // WP6.8: one short canned line covers the grounded turn's silence.
+      // It is never awaited, so a slow or refused clip cannot delay the
+      // answer, and never looped (see filler.ts).
+      void filler.current.play();
       const turnResponse = await submitTurn(audio, {
         deviceId: DEVICE_ID,
         sessionId: sessionId.current,
@@ -153,6 +167,7 @@ export function Simulator() {
         return;
       }
       setResponse(turnResponse);
+      filler.current.stop(); // the answer speaks; the filler must not overlap
       setDeviceState("speaking");
       await playReply(turnResponse);
       if (!mounted.current) {
@@ -164,12 +179,14 @@ export function Simulator() {
         return;
       }
       setPrintedSlip(turnResponse.slip_text); //v1.4
+      setBookingReceipt(buildBookingReceipt(turnResponse)); //v1.7
       setDeviceState("printing");
       await wait(PRINT_PREVIEW_MS);
       if (mounted.current) {
         setDeviceState("idle");
       }
     } catch (caughtError) {
+      filler.current.stop();
       if (mounted.current) {
         const message = caughtError instanceof Error ? caughtError.message : "The turn could not be completed.";
         setError(message);
@@ -322,7 +339,32 @@ export function Simulator() {
           ))}
         </fieldset>
         <div className="receipt-paper" aria-live="polite">
-          {receiptLines.length ? receiptLines.map((line, index) => <div key={`${index}-${line}`}>{line || "\u00a0"}</div>) : <p>Your English slip will appear here.</p>}
+          {bookingReceipt ? ( //v1.7
+            <div className="slip">
+              <p className="slip-title">{bookingReceipt.title}</p>
+              <p className="slip-subtitle">{bookingReceipt.subtitle}</p>
+              <p className="slip-subtitle">{bookingReceipt.printedAt}</p>
+              <hr />
+              {bookingReceipt.bodyLines.map((line, index) => (
+                <div key={`body-${index}-${line}`}>{line || "\u00a0"}</div>
+              ))}
+              <hr />
+              <p className="slip-field">
+                <span>{bookingReceipt.caseLabel}</span>
+                <span>{bookingReceipt.caseId}</span>
+              </p>
+              <p className="slip-field">
+                <span>{bookingReceipt.kakiLabel}</span>
+                <span>{bookingReceipt.kakiValue}</span>
+              </p>
+              {/* Printed illustration only: no case, no follow-up state. */}
+              <div className="slip-qr" aria-hidden="true">
+                {bookingReceipt.qrLines.map((line) => <div key={line}>{line}</div>)}
+              </div>
+              <p className="slip-caption">{bookingReceipt.qrCaption}</p>
+              <p className="slip-followup">{bookingReceipt.followUp}</p>
+            </div>
+          ) : receiptLines.length ? receiptLines.map((line, index) => <div key={`${index}-${line}`}>{line || "\u00a0"}</div>) : <p>Your English slip will appear here.</p>}
         </div>
       </aside>
     </main>

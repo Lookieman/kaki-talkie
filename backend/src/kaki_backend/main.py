@@ -1,3 +1,5 @@
+# v2.5 | 21-Sep-2026 | WP6.8: build the pipeline with the configured reply persona.
+# v2.4 | 20-Sep-2026 | WP6.4: KAKI_BACKEND_HOST selects the bind; default stays loopback.
 # v2.3 | 20-Sep-2026 | WP6.4: carry the device service token; the device path fails closed.
 # v2.2 | 18-Sep-2026 | WP6.6: mount the admin surface and the per-device language override.
 # v2.1 | 13-Sep-2026 | WP5.1: pass the language settings and log them at startup.
@@ -35,6 +37,7 @@ from kaki_backend.config import LlmSettings, RetrievalSettings, SttSettings, Tts
 from kaki_backend.config import StorageSettings  #v1.9
 from kaki_backend.config import AdminSettings, LanguageSettings  #v2.2
 from kaki_backend.config import DeviceAuthSettings  #v2.3
+from kaki_backend.config import PersonaSettings  #v2.5
 from kaki_backend.persistence.database import Database  #v1.9
 from kaki_backend.persistence.admin_store import AdminStore  #v2.2
 from kaki_backend.persistence.repositories import TurnRepository  #v1.9
@@ -69,13 +72,16 @@ print(  #v2.3
 )
 retrieval_settings = RetrievalSettings.from_environment()  #v1.6
 language_settings = LanguageSettings.from_environment()  #v2.1
+persona_settings = PersonaSettings.from_environment()  #v2.5
 tts_settings = TtsSettings.from_environment()  #v2.1
 # The evidence harness reads the active Malay reply mode from this line
 # (runbook 10.2 WP5.1).
 print(  #v2.1
     f"kaki_backend: reply language preference {language_settings.preference}, "
     f"Malay reply mode {language_settings.malay_reply_mode}, "
-    f"Malay voice {tts_settings.malay_voice}",
+    f"Malay voice {tts_settings.malay_voice}, "
+    f"English voice {tts_settings.english_voice} at {tts_settings.rate_wpm} wpm, "
+    f"persona {persona_settings.name}",  #v2.5
     file=sys.stderr, flush=True,
 )
 app.state.model_ports = {  #v1.5
@@ -96,6 +102,7 @@ app.state.turn_service = TurnService(TurnPipeline(  #v1.4
     language_preference=language_settings.preference,  #v2.1
     malay_reply_mode=language_settings.malay_reply_mode,  #v2.1
     reply_language_for=app.state.admin_store.reply_language_for,  #v2.2
+    persona=persona_settings.name,  #v2.5
 ), turn_repository)  #v2.0
 app.include_router(health_router)
 app.include_router(pending_router)  #v1.1
@@ -105,10 +112,19 @@ app.include_router(admin_router)  #v2.2
 
 
 def run() -> None:  #v1.2
-    """Start FastAPI on loopback regardless of generic Uvicorn environment settings."""
+    """Start FastAPI on KAKI_BACKEND_HOST, defaulting to loopback (WP1-AT-11).
+
+    Generic Uvicorn overrides (UVICORN_HOST and friends) stay ignored; the
+    bind is this application's own explicit setting. `KAKI_BACKEND_HOST=0.0.0.0`
+    is the WP6.4 demo configuration that lets the Pi reach the backend over
+    the Tailscale/demo-network boundary (setup.md 29.5); every /api/device/*
+    request still requires KAKI_DEVICE_TOKEN, and the model services keep
+    their loopback-only binds (setup.md 15.5).
+    """
+    import os  #v2.4
     import uvicorn  #v1.2
 
-    uvicorn.run(app, host="127.0.0.1", port=8000)  #v1.2
+    uvicorn.run(app, host=os.environ.get("KAKI_BACKEND_HOST", "127.0.0.1"), port=8000)  #v2.4
 
 
 if __name__ == "__main__":  #v1.2

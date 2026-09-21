@@ -1,3 +1,4 @@
+# v1.9 | 21-Sep-2026 | WP6.8: reply persona, English voice and speaking rate.
 # v1.8 | 20-Sep-2026 | WP6.4: device service bearer token for /api/device/*.
 # v1.7 | 18-Sep-2026 | WP6.6: admin bearer token and the admin default device.
 # v1.6 | 13-Sep-2026 | WP5.1: language preference, Malay reply mode, Malay voice, rewrite timeout.
@@ -35,6 +36,17 @@ DEFAULT_SQLITE_RELATIVE_PATH = "sqlite/kaki.db"  #v1.5
 DEFAULT_LANGUAGE_PREFERENCE = "en"  #v1.6
 DEFAULT_MALAY_REPLY_MODE = "full"  #v1.6
 DEFAULT_MALAY_VOICE = "Amira"  #v1.6
+# WP6.8 (execution-plan.md 7, 19-Sep-2026): Jamie for English, Amira for
+# Malay, both Enhanced, at 150 words per minute — slower than the macOS
+# default, for an elderly listener standing at the kiosk.
+DEFAULT_ENGLISH_VOICE = "Jamie"  #v1.9
+DEFAULT_SPEECH_RATE_WPM = 150  #v1.9
+MIN_SPEECH_RATE_WPM = 80  #v1.9
+MAX_SPEECH_RATE_WPM = 300  #v1.9
+# WP6.8 reply persona. The names are the adapter's; `plain` is the
+# pre-WP6.8 register and remains selectable (WP6-AT-21).
+PERSONA_NAMES = ("plain", "a1_warm")  #v1.9
+DEFAULT_PERSONA_NAME = "plain"  #v1.9
 # Malay retrieval depends on the normalised English query, so the rewrite gets
 # more room than the WP3.3 2 s bound (owner decision, 13-Sep-2026).
 DEFAULT_QUERY_REWRITE_TIMEOUT_SECONDS = "4"  #v1.6
@@ -50,6 +62,21 @@ def _bounded_timeout(env: Mapping[str, str], name: str, default: str, upper: flo
     if not math.isfinite(timeout) or not 0.1 <= timeout <= upper:
         raise ValueError(message)
     return timeout
+
+
+def _speech_rate(env: Mapping[str, str]) -> int:  #v1.9
+    """Parse KAKI_TTS_RATE_WPM within the documented speaking-rate bounds."""
+    message = (
+        f"KAKI_TTS_RATE_WPM must be a whole number between "
+        f"{MIN_SPEECH_RATE_WPM} and {MAX_SPEECH_RATE_WPM}."
+    )
+    try:
+        rate = int(env.get("KAKI_TTS_RATE_WPM", str(DEFAULT_SPEECH_RATE_WPM)))
+    except ValueError:
+        raise ValueError(message) from None
+    if not MIN_SPEECH_RATE_WPM <= rate <= MAX_SPEECH_RATE_WPM:
+        raise ValueError(message)
+    return rate
 
 
 @dataclass(frozen=True)
@@ -276,6 +303,8 @@ class TtsSettings:
     mode: str = "canned"
     timeout_seconds: float = 30.0
     malay_voice: str = DEFAULT_MALAY_VOICE  #v1.6
+    english_voice: str = DEFAULT_ENGLISH_VOICE  #v1.9
+    rate_wpm: int = DEFAULT_SPEECH_RATE_WPM  #v1.9
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> "TtsSettings":
@@ -288,7 +317,11 @@ class TtsSettings:
         voice = env.get("KAKI_TTS_VOICE_MS", DEFAULT_MALAY_VOICE).strip()  #v1.6
         if not voice:
             raise ValueError("KAKI_TTS_VOICE_MS must name a say voice, for example Amira.")
-        return cls(mode, timeout, voice)
+        english = env.get("KAKI_TTS_VOICE_EN", DEFAULT_ENGLISH_VOICE).strip()  #v1.9
+        if not english:
+            raise ValueError("KAKI_TTS_VOICE_EN must name a say voice, for example Jamie.")
+        rate = _speech_rate(env)  #v1.9
+        return cls(mode, timeout, voice, english, rate)
 
     def create_port(self) -> TtsPort:
         """Construct the selected adapter; perform no synthesis or readiness I/O."""
@@ -296,7 +329,40 @@ class TtsSettings:
             return CannedTtsPort()
         from kaki_say_tts.adapter import SayTts
 
-        return SayTts(timeout_seconds=self.timeout_seconds, malay_voice=self.malay_voice)  #v1.6
+        return SayTts(
+            timeout_seconds=self.timeout_seconds, malay_voice=self.malay_voice,
+            english_voice=self.english_voice, rate_wpm=self.rate_wpm,  #v1.9
+        )
+
+
+@dataclass(frozen=True)
+class PersonaSettings:  #v1.9
+    """Select the WP6.8 reply persona (design brief, 19-Sep-2026).
+
+    `plain` is the pre-WP6.8 register and stays selectable so the persona can
+    be switched off without a code change (WP6-AT-21). The persona is
+    appended to the grounded system prompt inside the same system message, so
+    selecting one costs no extra model call and no render pass.
+
+    Read at startup like every other `KAKI_*` switch, so a change needs a
+    backend restart. Per-turn switching would need a device_config column and
+    a schema migration; that was deliberately not taken in WP6.8.
+    """
+
+    name: str = DEFAULT_PERSONA_NAME
+
+    @classmethod
+    def from_environment(
+        cls, environment: Mapping[str, str] | None = None
+    ) -> "PersonaSettings":
+        """Read KAKI_PERSONA; reject a name the adapter does not define."""
+        env = os.environ if environment is None else environment
+        name = env.get("KAKI_PERSONA", DEFAULT_PERSONA_NAME).strip()
+        if name not in PERSONA_NAMES:
+            raise ValueError(
+                f"KAKI_PERSONA must be one of {sorted(PERSONA_NAMES)}, got {name!r}."
+            )
+        return cls(name)
 
 
 @dataclass(frozen=True)

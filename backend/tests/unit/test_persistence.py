@@ -85,7 +85,9 @@ class FakeLlm:
     def generate(self, transcript: str) -> str:
         return "An ungrounded reply."
 
-    def generate_grounded(self, transcript: str, *, evidence: str) -> GroundedReply:
+    def generate_grounded(
+        self, transcript: str, *, evidence: str, persona: str = "plain",
+    ) -> GroundedReply:  # WP6.8 persona argument
         return GroundedReply(text="1. Open the SMS link. 2. Show the code.", cited_index=2)
 
     def rewrite_query(self, transcript: str) -> str:

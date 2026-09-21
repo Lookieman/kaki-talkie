@@ -334,7 +334,9 @@ class FailingLlm:
     def generate(self, transcript: str) -> str:  #v1.2
         raise LlmError("unavailable")
 
-    def generate_grounded(self, transcript: str, *, evidence: str):  #v1.2
+    def generate_grounded(
+        self, transcript: str, *, evidence: str, persona: str = "plain",
+    ):  #v1.2, WP6.8 persona argument
         raise LlmError("unavailable")
 
     def rewrite_query(self, transcript: str) -> str:  #v1.1

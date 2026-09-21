@@ -136,7 +136,9 @@ class FakeLlm:
     def generate(self, transcript: str) -> str:
         return ENGLISH_REPLY
 
-    def generate_grounded(self, transcript: str, *, evidence: str) -> GroundedReply:
+    def generate_grounded(
+        self, transcript: str, *, evidence: str, persona: str = "plain",
+    ) -> GroundedReply:  # WP6.8 persona argument
         self.grounded_calls.append((transcript, evidence))
         return GroundedReply(text=ENGLISH_REPLY, cited_index=1)
 
@@ -167,7 +169,9 @@ class MalayAnsweringLlm(FakeLlm):
         super().__init__(render=MALAY_RENDER)
         self.english_on_retry = english_on_retry
 
-    def generate_grounded(self, transcript: str, *, evidence: str) -> GroundedReply:
+    def generate_grounded(
+        self, transcript: str, *, evidence: str, persona: str = "plain",
+    ) -> GroundedReply:  # WP6.8 persona argument
         self.grounded_calls.append((transcript, evidence))
         if transcript == NORMALISED_QUERY and self.english_on_retry:
             return GroundedReply(text=ENGLISH_REPLY, cited_index=1)

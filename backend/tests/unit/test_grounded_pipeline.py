@@ -90,7 +90,9 @@ class FakeLlm:
         self.generate_calls.append((transcript, None))
         return self._reply
 
-    def generate_grounded(self, transcript: str, *, evidence: str) -> GroundedReply:
+    def generate_grounded(
+        self, transcript: str, *, evidence: str, persona: str = "plain",
+    ) -> GroundedReply:  # WP6.8 persona argument
         self.generate_calls.append((transcript, evidence))
         return GroundedReply(text=self._reply, cited_index=self._cited_index)
 

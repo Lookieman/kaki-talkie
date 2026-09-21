@@ -1,3 +1,4 @@
+# v1.5 | 21-Sep-2026 | WP6.7: route a direct booking request to a canned action.
 # v1.4 | 13-Sep-2026 | WP5.1: Malay refusal and action wording.
 # v1.3 | 13-Sep-2026 | Refuse any credential mention without a procedural marker (WP3.4 defect).
 # v1.2 | 13-Sep-2026 | Route repeat_previous and print_previous; own their fixed wording.
@@ -49,9 +50,12 @@ class Intent(str, Enum):
     REFUSE = "refuse"
     REPEAT_PREVIOUS = "repeat_previous"  #v1.2
     PRINT_PREVIOUS = "print_previous"  #v1.2
+    BOOK_APPOINTMENT = "book_appointment"  #v1.5
 
 
-ACTION_INTENTS = frozenset({Intent.REPEAT_PREVIOUS, Intent.PRINT_PREVIOUS})  #v1.2
+ACTION_INTENTS = frozenset({  #v1.5
+    Intent.REPEAT_PREVIOUS, Intent.PRINT_PREVIOUS, Intent.BOOK_APPOINTMENT,
+})
 
 
 class RefusalReason(str, Enum):
@@ -239,6 +243,21 @@ _REPEAT_REQUEST = re.compile(  #v1.2
 )
 
 
+# WP6.7: a request to arrange something in person, which the kiosk answers
+# with a canned direction to the community centre rather than a generated
+# one. Deliberately narrow and imperative: it is tested only after the
+# credential and procedural rules, so "how do I book my vouchers?" stays a
+# question the grounded path answers, and only a direct instruction -
+# "book voucher collection", "make an appointment" - routes here. Malay
+# "tempah"/"buat temujanji" match the same way.
+_BOOKING_REQUEST = re.compile(  #v1.5
+    r"\b(?:book|booking|reserve|arrange|schedule|"
+    r"make\s+(?:an?\s+)?appointment|set\s+up\s+(?:an?\s+)?appointment|"
+    r"tempah|temujanji|buat\s+temu\s*janji)\b",
+    re.IGNORECASE,
+)
+
+
 def route(transcript: str) -> Routing:
     """Return the intent for one transcript, refusing or acting before retrieval.
 
@@ -249,7 +268,10 @@ def route(transcript: str) -> Routing:
     A procedural question is never refused or treated as an action, which
     keeps the Singpass reset procedure and "How do I print my CDC vouchers?"
     answerable (design.md 8, runbook 9.1 WP4.2). Print is checked before
-    repeat because "print it again" names the more specific act.
+    repeat because "print it again" names the more specific act. Booking is
+    checked last, so a procedural "how do I book ...?" is still answered
+    from the corpus and only a direct instruction reaches the canned
+    booking reply (WP6.7).
 
     The credential rule matches on the word, not on a secret value: the
     system still does not inspect transcripts for secrets (design.md 8). A
@@ -273,4 +295,6 @@ def route(transcript: str) -> Routing:
         return Routing(Intent.PRINT_PREVIOUS)
     if _REPEAT_REQUEST.search(transcript):  #v1.2
         return Routing(Intent.REPEAT_PREVIOUS)
+    if _BOOKING_REQUEST.search(transcript):  #v1.5
+        return Routing(Intent.BOOK_APPOINTMENT)
     return Routing(Intent.ANSWER)

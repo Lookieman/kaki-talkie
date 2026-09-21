@@ -1,3 +1,4 @@
+# v1.2 | 21-Sep-2026 | WP6.8: English voice, speaking rate and the spoken form.
 # v1.1 | 13-Sep-2026 | WP5.1: Malay speech uses the configured voice; English stays unchanged.
 # v1.0 | 09-Sep-2026 | Cover say synthesis bounds, sanitised failures and TTS settings.
 
@@ -65,12 +66,41 @@ class SayAdapterTests(unittest.TestCase):
         self.assertEqual(runner.command[0], "say")
         self.assertEqual(runner.command[-2:], ["-f", "-"])
 
-    def test_english_runs_without_a_voice_flag(self) -> None:  #v1.1
+    # WP6.8 replaced the WP5.1 behaviour asserted here: English no longer
+    # falls through to the system voice, it names Jamie like Malay names
+    # Amira, and both speak at the configured rate.
+    def test_english_uses_the_configured_voice_and_rate(self) -> None:  #v1.2
         for call in (lambda adapter: adapter.synthesize("Hello."),
                      lambda adapter: adapter.synthesize("Hello.", language="en")):
             runner = FakeRunner(output=pcm_wav())
             call(SayTts(runner=runner))
-            self.assertNotIn("-v", runner.command)
+            self.assertEqual(runner.command[runner.command.index("-v") + 1], "Jamie")
+            self.assertEqual(runner.command[runner.command.index("-r") + 1], "150")
+
+    def test_a_configured_rate_reaches_the_command(self) -> None:  #v1.2
+        runner = FakeRunner(output=pcm_wav())
+        SayTts(runner=runner, rate_wpm=120).synthesize("Hello.")
+        self.assertEqual(runner.command[runner.command.index("-r") + 1], "120")
+
+    def test_rates_outside_the_documented_range_are_rejected(self) -> None:  #v1.2
+        for rate in (0, 79, 301, 1000):
+            with self.subTest(rate=rate), self.assertRaises(ValueError):
+                SayTts(rate_wpm=rate)
+
+    def test_an_unknown_language_falls_back_to_the_system_voice(self) -> None:  #v1.2
+        runner = FakeRunner(output=pcm_wav())
+        SayTts(runner=runner).synthesize("Hello.", language="ta")
+        self.assertNotIn("-v", runner.command)
+
+    def test_the_spoken_form_reaches_say_while_the_caller_text_is_untouched(self) -> None:
+        # WP6-AT-22: only the bytes handed to `say` carry the spoken form.
+        runner = FakeRunner(output=pcm_wav())
+        written = "1. Open the SMS link. 2. Show your CDC card (it is free)."
+        SayTts(runner=runner).synthesize(written)
+        self.assertNotIn("1.", runner.text)
+        self.assertIn("[[char LTRL]]CDC[[char NORM]]", runner.text)
+        self.assertIn("[[slnc 400]]", runner.text)
+        self.assertNotIn("(", runner.text)
 
     def test_malay_uses_the_configured_voice(self) -> None:  #v1.1
         runner = FakeRunner(output=pcm_wav())
@@ -85,6 +115,9 @@ class SayAdapterTests(unittest.TestCase):
         for voice in ("", "   ", "-o", "x" * 65):
             with self.subTest(voice=voice), self.assertRaises(ValueError):
                 SayTts(malay_voice=voice)
+            with self.subTest(voice=voice, language="en"):  #v1.2
+                with self.assertRaises(ValueError):
+                    SayTts(english_voice=voice)
 
     def test_blank_and_oversized_text_are_rejected_before_running(self) -> None:
         runner = FakeRunner(output=pcm_wav())
@@ -146,11 +179,27 @@ class TtsSettingsTests(unittest.TestCase):
         self.assertEqual(settings.timeout_seconds, 5.0)
         self.assertIsInstance(settings.create_port(), SayTts)
 
-    def test_say_mode_passes_the_malay_voice(self) -> None:  #v1.1
+    def test_say_mode_passes_both_voices(self) -> None:  #v1.2
+        # WP6.8 added the English voice beside the WP5.1 Malay one.
         port = TtsSettings.from_environment(
             {"KAKI_TTS_MODE": "say", "KAKI_TTS_VOICE_MS": "Damayanti"}
         ).create_port()
-        self.assertEqual(port._voices, {"ms": "Damayanti"})
+        self.assertEqual(port._voices, {"ms": "Damayanti", "en": "Jamie"})
+
+    def test_say_mode_passes_the_configured_english_voice_and_rate(self) -> None:  #v1.2
+        port = TtsSettings.from_environment({
+            "KAKI_TTS_MODE": "say", "KAKI_TTS_VOICE_EN": "Daniel",
+            "KAKI_TTS_RATE_WPM": "130",
+        }).create_port()
+        self.assertEqual(port._voices["en"], "Daniel")
+        self.assertEqual(port._rate, 130)
+
+    def test_defaults_are_jamie_amira_at_150_wpm(self) -> None:  #v1.2
+        settings = TtsSettings.from_environment({})
+        self.assertEqual(
+            (settings.english_voice, settings.malay_voice, settings.rate_wpm),
+            ("Jamie", "Amira", 150),
+        )
 
     def test_invalid_mode_and_timeout_fail_startup(self) -> None:
         for environment in (

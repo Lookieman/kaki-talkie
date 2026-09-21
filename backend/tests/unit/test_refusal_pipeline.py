@@ -88,7 +88,9 @@ class RecordingLlm:
         self.plain_calls.append(transcript)
         return self._reply
 
-    def generate_grounded(self, transcript: str, *, evidence: str) -> GroundedReply:
+    def generate_grounded(
+        self, transcript: str, *, evidence: str, persona: str = "plain",
+    ) -> GroundedReply:  # WP6.8 persona argument
         self.grounded_calls.append(transcript)
         if self._no_coverage:
             return GroundedReply(text="", cited_index=None, no_coverage=True)
