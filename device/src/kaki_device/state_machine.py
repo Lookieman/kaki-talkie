@@ -1,3 +1,4 @@
+# v1.3 | 23-Sep-2026 | WP6.5: poll for admin pushes from idle and play each nudge once.
 # v1.2 | 20-Sep-2026 | WP6.4: drive the retrying frame and the connection-failure copy.
 # v1.1 | 20-Sep-2026 | WP6.2: the recording frame counts down live via the microphone's progress.
 # v1.0 | 16-Sep-2026 | WP6.1 turn loop: idle, record, wait, speak, print, error.
@@ -21,6 +22,12 @@ and starts a new recording. There is no double-press gesture: the owner
 withdrew the AT-03 double-press repeat on 16-Sep-2026, so one button does one
 thing at every moment, which is also easier to explain to an elderly user.
 
+**Nudges (WP6.5).** An idle kiosk polls for admin pushes every three seconds
+and plays each one once: text on the answer frame, audio through the same
+button-watching playback as an answer, so a press interrupts it into a new
+recording. Delivery is at-most-once - the backend marks a nudge delivered as
+it hands it over - and a failed poll changes nothing visible.
+
 **Sessions.** A session groups turns so "repeat that" and "print that" resolve
 against the right answer (WP4.2). The Pi owns the boundary that WP4.5 left to
 it: a new session at start-up, and a new one whenever the kiosk has been idle
@@ -28,6 +35,7 @@ past the configured interval, so the next user never inherits a stranger's
 answer.
 """
 
+import sys  #v1.3
 from dataclasses import dataclass
 from threading import Thread
 from time import monotonic
@@ -45,6 +53,13 @@ from kaki_device.io_ports import AudioCaptureError, PlaybackError, PrinterError
 # How long an idle wait blocks before the loop looks around again: short
 # enough to rotate a stale session promptly, long enough not to spin.
 IDLE_POLL_SECONDS = 1.0
+# WP6.5: how often an idle kiosk asks for admin pushes. Deliberately slower
+# than the idle wake - the 3-second cadence matches the simulator's and keeps
+# the backend quiet - and never polled outside the idle state.
+PENDING_POLL_SECONDS = 3.0
+# How long a text-only nudge stays on screen when there is no audio to pace
+# it: long enough to read two short sentences at a metre.
+NUDGE_HOLD_SECONDS = 4.0
 
 
 @dataclass(frozen=True)
@@ -257,16 +272,67 @@ class TurnLoop:
     # -- the loop ---------------------------------------------------------
 
     def poll_pending(self) -> list[dict]:
-        """Ask the backend for due follow-ups.
+        """Ask the backend for this kiosk's due nudges, failing to an empty list.
 
-        The MVP backend always returns an empty list (handoff and calendar are
-        deferred beyond the MVP), so this exists to keep the contract exercised
-        and to fail safely if it ever returns something.
-        """
+        Sends the configured device_id (WP6.5): the backend's atomic
+        fetch-and-mark hands each queued push over exactly once and marks it
+        delivered as it leaves (WP6-AT-16), so whatever is returned here is
+        this kiosk's to play and will never be offered again - a crash before
+        playback loses the nudge, by the at-most-once contract. A network or
+        backend failure reads as nothing due (WP6-AT-24): the kiosk stays
+        idle, logs nothing, and asks again on the next poll.
+        """  #v1.3
         try:
-            return self._client.pending()
+            return self._client.pending(self._config.device_id)  #v1.3
         except ApiError:
             return []
+
+    def _deliver_nudge(self, item: dict) -> bool:  #v1.3
+        """Show one nudge's text and play its audio; True when a press interrupted.
+
+        Null or unplayable audio degrades to the text alone with a short
+        hold, never an error frame (WP6-AT-24): the push is reassurance, and
+        a scary screen would invert its purpose. The one delivery log line
+        lives here (design decision: per delivered nudge only).
+        """
+        text = str(item.get("text") or "").strip()
+        if not text:
+            return False
+        self._show_answer(text)
+        try:
+            audio = decode_reply_audio(item.get("audio"))
+        except UnplayableAudio:
+            audio = None
+        interrupted = False
+        if audio is not None:
+            try:
+                interrupted = self._play_watching_button(audio)  # WP6-AT-25
+            except PlaybackError:
+                audio = None  # degrade to the text hold below
+        if audio is None:
+            self._sleep(NUDGE_HOLD_SECONDS)
+        print(
+            f"nudge {item.get('id')} delivered ({item.get('language')})",
+            file=sys.stderr,
+        )
+        return interrupted
+
+    def _deliver_nudges(self, items: list[dict]) -> bool:  #v1.3
+        """Deliver due nudges in order; True when a press should start a turn.
+
+        An interrupting press abandons any remaining items: they were marked
+        delivered when fetched, so they are lost rather than replayed, per
+        the at-most-once contract the docstring above records.
+        """
+        if not items:
+            return False
+        for item in items:
+            if self._stopped:
+                break
+            if self._deliver_nudge(item):
+                return True
+        self.show_idle()
+        return False
 
     def run_forever(self) -> None:
         """Wait for presses and run turns until `stop` is called.
@@ -275,10 +341,19 @@ class TurnLoop:
         that stopped the speech is the press that starts the new turn.
         """
         self.show_idle()
+        last_poll = self._clock()  #v1.3
         while not self._stopped:
             if not self._button.wait_for_press(timeout_seconds=IDLE_POLL_SECONDS):
                 self._rotate_session_if_idle()
-                continue
+                # WP6.5: ask for admin pushes from idle only, every third
+                # wake or so; a turn in progress is never interrupted by one.
+                if self._clock() - last_poll < PENDING_POLL_SECONDS:  #v1.3
+                    continue
+                last_poll = self._clock()  #v1.3
+                if not self._deliver_nudges(self.poll_pending()):  #v1.3
+                    continue
+                # An interrupting press falls through: the press that stopped
+                # the nudge is the press that starts the new turn (WP6-AT-25).
             outcome = self.run_turn()
             while outcome.interrupted and not self._stopped:
                 outcome = self.run_turn()

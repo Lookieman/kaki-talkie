@@ -1,3 +1,4 @@
+# v1.2 | 23-Sep-2026 | WP6.5: pending carries the device identity beside the bearer.
 # v1.1 | 20-Sep-2026 | WP6.4: bearer token on every request; same-turn_id retry.
 # v1.0 | 16-Sep-2026 | WP6.1 backend client: contract fields, audio decoding, safe failures.
 """Exercise the device's HTTP client with an injected transport; no backend runs.
@@ -174,9 +175,37 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(client.pending(), [])
         self.assertEqual(seen, [HEALTH_PATH, PENDING_PATH])
 
-    def test_pending_is_empty_for_the_whole_mvp(self):
-        client = client_for(lambda request: httpx.Response(200, json=[]))
+    def test_pending_sends_the_device_identity_when_given(self):
+        # WP6.5: the identity is what makes the backend hand pushes over;
+        # without it the pre-WP6.5 empty default applies (WP1-AT-05).
+        seen = []
+
+        def handler(request):
+            seen.append(str(request.url))
+            return httpx.Response(200, json=[])
+
+        client = client_for(handler)
+        self.assertEqual(client.pending("kaki-pi-01"), [])
         self.assertEqual(client.pending(), [])
+        self.assertEqual(seen[0], "http://127.0.0.1:8000" + PENDING_PATH
+                         + "?device_id=kaki-pi-01")
+        self.assertEqual(seen[1], "http://127.0.0.1:8000" + PENDING_PATH)
+
+    def test_pending_carries_the_bearer_alongside_the_identity(self):
+        seen = {}
+
+        def handler(request):
+            seen["authorization"] = request.headers.get("authorization")
+            seen["device_id"] = request.url.params.get("device_id")
+            return httpx.Response(200, json=[{"id": "n1", "kind": "nudge"}])
+
+        client = BackendClient(
+            "http://127.0.0.1:8000", timeout_seconds=5, token="device-secret",
+            transport=httpx.MockTransport(handler),
+        )
+        self.assertEqual(client.pending("kaki-pi-01"), [{"id": "n1", "kind": "nudge"}])
+        self.assertEqual(seen, {"authorization": "Bearer device-secret",
+                                "device_id": "kaki-pi-01"})
 
     def test_a_path_outside_the_contract_is_rejected_before_any_request(self):
         def handler(request):

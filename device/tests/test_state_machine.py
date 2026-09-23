@@ -1,3 +1,4 @@
+# v1.3 | 23-Sep-2026 | WP6.5: idle pending poll cadence and nudge delivery.
 # v1.2 | 20-Sep-2026 | WP6.4: retrying frame during client retries; connection copy.
 # v1.1 | 20-Sep-2026 | WP6.2: countdown frames from microphone progress ticks.
 # v1.0 | 16-Sep-2026 | WP6.1 turn loop: turn ids, recording cap, interruption, print, recovery.
@@ -8,6 +9,7 @@ without a Pi. Everything is injected, so the run is deterministic except the
 one interruption test that needs real playback timing.
 """
 
+import contextlib  #v1.3
 import io
 import unittest
 import wave
@@ -15,6 +17,7 @@ from base64 import b64encode
 from itertools import count
 from pathlib import Path
 from time import monotonic
+from unittest.mock import patch  #v1.3
 
 from kaki_device.api_client import AUDIO_DATA_URL_PREFIX, ApiError, TurnResult
 from kaki_device.config import DeviceConfig, MockSettings
@@ -30,7 +33,7 @@ from kaki_device.mock_io import (
     fixed_measure,
     silent_wav,
 )
-from kaki_device.state_machine import TurnLoop
+from kaki_device.state_machine import NUDGE_HOLD_SECONDS, TurnLoop  #v1.3
 
 ANSWER_TEXT = "Open the SMS link from CDC and show the QR code."
 SLIP_TEXT = "KAKI-TALKIE HELP\nOpen the SMS link.\nSource: vouchers.cdc.gov.sg"
@@ -55,11 +58,16 @@ def turn_result(**overrides) -> TurnResult:
 class FakeClient:
     """Record submissions and return scripted results or raise scripted errors."""
 
-    def __init__(self, results=None, error: ApiError | None = None) -> None:
+    def __init__(self, results=None, error: ApiError | None = None,
+                 nudges=None, pending_error: ApiError | None = None) -> None:
         self.results = list(results or [turn_result()])
         self.error = error
         self.submissions: list[dict] = []
+        # WP6.5: one scripted list per poll; exhausted polls return [].
+        self.nudges = [list(batch) for batch in (nudges or [])]
+        self.pending_error = pending_error
         self.pending_calls = 0
+        self.pending_device_ids: list[str | None] = []
 
     def submit_turn(self, *, device_id: str, session_id: str, turn_id: str, audio: bytes,
                     on_retry=None):  # WP6.4: the loop passes its retry callback
@@ -71,9 +79,12 @@ class FakeClient:
             raise self.error
         return self.results[min(len(self.submissions), len(self.results)) - 1]
 
-    def pending(self):
+    def pending(self, device_id=None):
         self.pending_calls += 1
-        return []
+        self.pending_device_ids.append(device_id)
+        if self.pending_error is not None:
+            raise self.pending_error
+        return self.nudges.pop(0) if self.nudges else []
 
 
 class FakeClock:
@@ -167,11 +178,14 @@ class HappyPathTests(unittest.TestCase):
                 self.assertEqual(ports["display"].frames[-1].state, DisplayState.ANSWER)
                 self.assertIsNone(outcome.error_code)
 
-    def test_pending_is_polled_without_acting_on_it(self):
+    def test_pending_sends_the_configured_device_id(self):
+        # WP6.5: the poll names this kiosk, so the backend can hand its
+        # queued pushes over; a failure still reads as nothing due.
         client = FakeClient()
         loop, _, _ = build_loop(client=client)
         self.assertEqual(loop.poll_pending(), [])
         self.assertEqual(client.pending_calls, 1)
+        self.assertEqual(client.pending_device_ids, [DeviceConfig().device_id])
 
 
 class RecordingCapTests(unittest.TestCase):
@@ -391,6 +405,126 @@ class LoopTests(unittest.TestCase):
         loop.run_turn()
         with wave.open(io.BytesIO(fixture.read_bytes()), "rb") as recording:
             self.assertGreater(recording.getnframes(), 0)
+
+
+class NudgeTests(unittest.TestCase):
+    """WP6.5: an idle kiosk polls for admin pushes and plays each one once."""
+
+    class IdleButton:
+        """Time out idle wakes, advancing the fake clock, then stop the loop."""
+
+        def __init__(self, clock, wakes: int) -> None:
+            self._clock = clock
+            self._wakes = wakes
+            self.loop = None
+
+        def wait_for_press(self, timeout_seconds: float) -> bool:
+            self._clock.advance(timeout_seconds)
+            self._wakes -= 1
+            if self._wakes <= 0:
+                self.loop.stop()
+            return False
+
+        def is_pressed(self) -> bool:
+            return False
+
+    def idle_loop(self, wakes: int, **kwargs):
+        """Build a loop whose button idles `wakes` times and then stops it."""
+        clock = FakeClock()
+        button = self.IdleButton(clock, wakes)
+        loop, ports, _ = build_loop(clock=clock, button=button, **kwargs)
+        button.loop = loop
+        return loop, ports
+
+    @staticmethod
+    def nudge(**overrides) -> dict:
+        item = {
+            "id": "cdc-vouchers-available", "kind": "nudge",
+            "text": "Good news: new CDC vouchers are available.",
+            "language": "en", "audio": wav_data_url(),
+            "pushed_at": "2026-09-23T00:00:00Z",
+        }
+        item.update(overrides)
+        return item
+
+    def test_idle_polls_every_three_seconds_not_every_wake(self):
+        # Four 1-second wakes cross the 3-second gate exactly once.
+        client = FakeClient()
+        loop, _ = self.idle_loop(4, client=client)
+        loop.run_forever()
+        self.assertEqual(client.pending_calls, 1)
+        self.assertEqual(client.pending_device_ids, [DeviceConfig().device_id])
+
+    def test_a_nudge_is_shown_played_once_and_logged_once(self):
+        # WP6-AT-23: seven wakes give two polls; the nudge arrives on the
+        # first and must not replay on the second.
+        client = FakeClient(nudges=[[self.nudge()]])
+        loop, ports = self.idle_loop(7, client=client)
+        with contextlib.redirect_stderr(io.StringIO()) as log:
+            loop.run_forever()
+        self.assertEqual(client.pending_calls, 2)
+        answers = [frame for frame in ports["display"].frames
+                   if frame.state is DisplayState.ANSWER]
+        self.assertEqual(len(answers), 1)
+        self.assertIn("Good news", answers[0].text)
+        self.assertEqual(len(ports["speaker"].played), 1)
+        self.assertTrue(ports["speaker"].played[0].startswith(b"RIFF"))
+        self.assertEqual(ports["display"].states[-1], DisplayState.IDLE.value)
+        lines = [line for line in log.getvalue().splitlines() if line.strip()]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("cdc-vouchers-available", lines[0])
+
+    def test_text_only_and_unplayable_audio_hold_then_idle(self):
+        # WP6-AT-24: no audio still shows the text; never an error frame.
+        for audio in (None, "https://example.gov.sg/nudge.wav"):
+            with self.subTest(audio=audio):
+                client = FakeClient(nudges=[[self.nudge(audio=audio)]])
+                loop, ports = self.idle_loop(4, client=client)
+                naps: list[float] = []
+                loop._sleep = naps.append
+                with contextlib.redirect_stderr(io.StringIO()) as log:
+                    loop.run_forever()
+                self.assertEqual(ports["speaker"].played, [])
+                self.assertIn(NUDGE_HOLD_SECONDS, naps)
+                frames = ports["display"].frames
+                self.assertTrue(any(f.state is DisplayState.ANSWER for f in frames))
+                self.assertNotIn(DisplayState.ERROR, [f.state for f in frames])
+                self.assertEqual(frames[-1].state, DisplayState.IDLE)
+                lines = [line for line in log.getvalue().splitlines() if line.strip()]
+                self.assertEqual(len(lines), 1)
+
+    def test_a_failed_poll_changes_nothing_and_logs_nothing(self):
+        # WP6-AT-24, failure half: idle stays idle, silently.
+        client = FakeClient(pending_error=ApiError("unavailable"))
+        loop, ports = self.idle_loop(4, client=client)
+        with contextlib.redirect_stderr(io.StringIO()) as log:
+            loop.run_forever()
+        self.assertEqual(client.pending_calls, 1)
+        self.assertEqual(ports["display"].states, [DisplayState.IDLE.value])
+        self.assertEqual(log.getvalue(), "")
+
+    def test_a_press_during_nudge_playback_interrupts_it(self):
+        # WP6-AT-25, playback half. Real timing, like the answer
+        # interruption test: the press lands while the clip is sounding.
+        speaker = RecordingSpeaker(realtime=True, clock=monotonic)
+        button = ScriptedButton()
+        loop, _, _ = build_loop(speaker=speaker, button=button, clock=monotonic)
+        loop._sleep = lambda seconds: button.press()
+        with contextlib.redirect_stderr(io.StringIO()):
+            interrupted = loop._deliver_nudges([self.nudge(audio=wav_data_url(0.4))])
+        self.assertTrue(interrupted)
+        self.assertEqual(speaker.interruptions, 1)
+        self.assertFalse(speaker.is_playing())
+
+    def test_the_interrupting_press_starts_a_new_turn(self):
+        # WP6-AT-25, wiring half: run_forever answers an interrupting press
+        # with a recording, exactly like an interrupted answer.
+        client = FakeClient(nudges=[[self.nudge()]])
+        loop, _ = self.idle_loop(4, client=client)
+        with patch.object(loop, "_deliver_nudges", return_value=True):
+            loop.run_forever()
+        self.assertEqual(len(client.submissions), 1)
+
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+# v3.5 | 23-Sep-2026 | Add WP6.5 tier A: the Pi consumes admin pushes (scripted delivery, no hardware).
 # v3.4 | 21-Sep-2026 | WP6.8 step 5: pin the released Auntie retry/failure copy; acronyms spoken as plain letters.
 # v3.3 | 21-Sep-2026 | Add WP6.8 (persona, voices, spoken form) and WP6.7 (booking intent, receipt); WP6.7 tier A runs the simulator vitest suite.
 # v3.2 | 20-Sep-2026 | WP6.1 tier B builds its BackendClient with KAKI_DEVICE_TOKEN; it was the one live device client v3.1 missed.
@@ -140,6 +141,15 @@ Currently registered:
   Synthesises one line per voice and submits one fixture turn, checking the
   answer keeps its attribution and its citation marker never reaches the
   reply.
+- WP6.5 tier A - push consumption without hardware (WP6-AT-23/24). Runs
+  the device suite (idle poll cadence, interruption wiring), the WP6-AT-13
+  inspection, and one scripted delivery against a mock transport serving
+  the committed push fixture: the poll must name the device and carry the
+  bearer, the nudge text must reach the answer frame, the audio must play
+  exactly once with no replay on the next poll, unplayable audio must
+  degrade to text without an error frame, and a dead backend must change
+  nothing and log nothing. WP6-AT-25 and the live path are owner Tier C
+  at the Pi. No backend, no network.
 - WP6.6 tier A - the admin-surface suites (auth, config, push, override) run
   hermetically from the checkout root, the thin-client inspection stays clean
   and the packaged schema version is 4. No backend, no network.
@@ -2618,6 +2628,150 @@ def check_wp67_tier_b() -> tuple[dict[str, object], dict[str, bool]]:  #v3.3
     return report, checks
 
 
+# ---------------------------------------------------------------------------
+# WP6.5 (first slice): the Pi consumes admin pushes.
+# ---------------------------------------------------------------------------
+
+WP65_NUDGE_TEXT = "Good news: new CDC vouchers are available."  #v3.5
+
+
+def check_wp65_tier_a() -> tuple[dict[str, object], dict[str, bool]]:  #v3.5
+    """Prove push consumption deterministically (WP6-AT-23/24 at tier A).
+
+    Runs the device suite (which covers the 3-second idle cadence and the
+    interruption wiring), re-runs the WP6-AT-13 inspection, then drives one
+    scripted delivery in-process: a mock transport serves one nudge built
+    from the committed push fixture, and the check reads what the loop
+    showed, played, logged and asked for. WP6-AT-25 and the live path stay
+    with the owner at the Pi (runbook 11.2 WP6.5). No backend, no network.
+    """
+    import contextlib
+
+    _import_kaki_device()
+    from kaki_device.api_client import BackendClient
+    from kaki_device.config import DeviceConfig
+    from kaki_device.mock_io import (
+        CollectingDisplay, FixtureMicrophone, LoggingPrinter, RecordingSpeaker,
+        ScriptedButton, fixed_measure,
+    )
+    from kaki_device.state_machine import PENDING_POLL_SECONDS, TurnLoop
+
+    report: dict[str, object] = {}
+    checks: dict[str, bool] = {}
+    suite, suite_record = run_suite(
+        "device_tests",
+        [sys.executable, "-m", "unittest", "discover", "-s", str(DEVICE_ROOT / "tests"),
+         "-t", str(DEVICE_ROOT / "tests")],
+    )
+    report["device_suite"] = suite_record
+    checks["device_suite_passed"] = suite.returncode == 0
+    checks["device_suite_ran_tests"] = suite_record["tests_ran"] > 0
+    findings = thin_client_findings()
+    report["thin_client_findings"] = findings
+    checks["device_still_a_thin_client"] = not any(findings.values())
+    checks["poll_cadence_is_three_seconds"] = PENDING_POLL_SECONDS == 3.0
+
+    fixture = files("kaki_backend").joinpath("fixtures", "push_cdc_en.wav")
+    audio_url = None
+    if fixture.is_file():
+        from base64 import b64encode
+        audio_url = "data:audio/wav;base64," + b64encode(fixture.read_bytes()).decode()
+    report["push_fixture_present"] = fixture.is_file()
+    checks["push_fixture_present"] = fixture.is_file()
+
+    def nudge(audio: str | None) -> dict:
+        return {"id": "cdc-vouchers-available", "kind": "nudge",
+                "text": WP65_NUDGE_TEXT, "language": "en", "audio": audio,
+                "pushed_at": "2026-09-23T00:00:00Z"}
+
+    seen: list[httpx.Request] = []
+    batches: list[list[dict]] = [[nudge(audio_url)], []]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=batches.pop(0) if batches else [])
+
+    def build_loop(client: BackendClient) -> tuple[TurnLoop, CollectingDisplay,
+                                                   RecordingSpeaker]:
+        display, speaker = CollectingDisplay(), RecordingSpeaker()
+        loop = TurnLoop(
+            DeviceConfig(), client, button=ScriptedButton(),
+            microphone=FixtureMicrophone(), speaker=speaker,
+            printer=LoggingPrinter(), display=display, measure=fixed_measure(),
+            sleep=lambda seconds: None,
+        )
+        return loop, display, speaker
+
+    client = BackendClient(
+        "http://127.0.0.1:8000", timeout_seconds=5, token="wp65-check-token",
+        transport=httpx.MockTransport(handler),
+    )
+    loop, display, speaker = build_loop(client)
+    log = io.StringIO()
+    with contextlib.redirect_stderr(log):
+        interrupted = loop._deliver_nudges(loop.poll_pending())
+        replayed = loop._deliver_nudges(loop.poll_pending())
+    request = seen[0]
+    report["pending_request"] = {
+        "device_id": request.url.params.get("device_id"),
+        "authorized": request.headers.get("authorization", "").startswith("Bearer "),
+    }
+    checks["poll_names_this_device"] = (
+        request.url.params.get("device_id") == DeviceConfig().device_id
+    )
+    checks["poll_carries_the_bearer"] = (
+        request.headers.get("authorization") == "Bearer wp65-check-token"
+    )
+    answer_frames = [frame for frame in display.frames if frame.state.value == "answer"]
+    # The layout wraps long lines, so compare with whitespace collapsed.
+    checks["nudge_text_shown_on_the_answer_frame"] = any(
+        WP65_NUDGE_TEXT in " ".join(frame.text.split()) for frame in answer_frames
+    )
+    checks["nudge_audio_played_once"] = len(speaker.played) == 1
+    checks["kiosk_returned_to_idle"] = (
+        bool(display.frames) and display.frames[-1].state.value == "idle"
+    )
+    checks["second_poll_replays_nothing"] = (
+        replayed is False and len(speaker.played) == 1
+    )
+    checks["playback_was_not_interrupted_by_the_fakes"] = interrupted is False
+    delivery_lines = [line for line in log.getvalue().splitlines() if line.strip()]
+    report["delivery_log"] = delivery_lines
+    checks["exactly_one_delivery_log_line"] = (
+        len(delivery_lines) == 1 and "cdc-vouchers-available" in delivery_lines[0]
+    )
+
+    # WP6-AT-24: unplayable audio degrades to the text; a dead backend is
+    # silent and changes nothing visible.
+    seen.clear()
+    batches[:] = [[nudge("https://example.gov.sg/nudge.wav")]]
+    loop, display, speaker = build_loop(client)
+    with contextlib.redirect_stderr(io.StringIO()):
+        loop._deliver_nudges(loop.poll_pending())
+    checks["unplayable_audio_still_shows_the_text"] = (
+        any(WP65_NUDGE_TEXT in " ".join(frame.text.split()) for frame in display.frames)
+        and not speaker.played
+        and display.frames[-1].state.value == "idle"
+        and all(frame.state.value != "error" for frame in display.frames)
+    )
+
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("down")
+
+    dead_client = BackendClient(
+        "http://127.0.0.1:8000", timeout_seconds=5, token="wp65-check-token",
+        transport=httpx.MockTransport(down),
+    )
+    loop, display, speaker = build_loop(dead_client)
+    failure_log = io.StringIO()
+    with contextlib.redirect_stderr(failure_log):
+        loop._deliver_nudges(loop.poll_pending())
+    checks["a_failed_poll_is_silent"] = (
+        not display.frames and not speaker.played and failure_log.getvalue() == ""
+    )
+    return report, checks
+
+
 REGISTRY = {
     ("WP2.3", "B"): check_wp23_tier_b,
     ("WP2.4", "B"): check_wp24_tier_b,
@@ -2635,6 +2789,7 @@ REGISTRY = {
     ("WP6.2", "C"): check_wp62_tier_c,  #v3.0
     ("WP6.4", "A"): check_wp64_tier_a,  #v3.1
     ("WP6.4", "B"): check_wp64_tier_b,  #v3.1
+    ("WP6.5", "A"): check_wp65_tier_a,  #v3.5
     ("WP6.6", "A"): check_wp66_tier_a,  #v2.8
     ("WP6.6", "B"): check_wp66_tier_b,  #v2.8
     ("WP6.7", "A"): check_wp67_tier_a,  #v3.3

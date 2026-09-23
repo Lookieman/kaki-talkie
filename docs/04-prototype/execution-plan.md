@@ -606,7 +606,7 @@ WP6.1 -> WP6-AT-13
 WP6.2 -> WP6-AT-01, 02
 WP6.3 -> WITHDRAWN
 WP6.4 -> WP6-AT-04, 05, 10
-WP6.5 -> WP6-AT-06, 07, 08, 11, 12, 14
+WP6.5 -> WP6-AT-08, 11, 12, 14, 23, 24, 25
 WP6.6 -> WP6-AT-15, 16, 17, 18
 WP6.7 -> WP6-AT-19, 20
 WP6.8 -> WP6-AT-21, 22
@@ -645,8 +645,17 @@ WP6-AT-20 a booking turn carries a receipt payload the simulator renders
           as a 58 mm slip, within the WP1-AT-10 40-word limit
 WP6-AT-21 the persona is switchable by configuration, and the
           'SOURCE: n' citation line survives it
-WP6-AT-22 display_text keeps the written form while reply_text carries
-          the spoken form
+WP6-AT-22 the spoken audio is produced from a normalised form of
+          reply_text; display_text and reply_text keep the written form
+WP6-AT-23 an admin push queued for the Pi's device_id shows its text and
+          plays its audio on the Pi within 10 seconds of idle, exactly
+          once; repeated polling does not replay it
+WP6-AT-24 a nudge with null or unplayable audio still shows its text and
+          the kiosk returns to idle; a failed pending poll changes
+          nothing visible
+WP6-AT-25 a button press during nudge playback stops the speech and
+          starts a new recording, matching the 16-Sep-2026 answer
+          interruption behaviour
 ```
 
 ### WP6.2 - physical I/O
@@ -709,8 +718,9 @@ text split it introduces.
 - the persona sits behind configuration so it can be switched off;
 - a deterministic normaliser in the TTS adapter produces the spoken form
   of reply_text: strip numbered-list markers, spell URLs from a lookup,
-  wrap acronyms in literal-character mode, remove round brackets, insert
-  an explicit silence between sentences;
+  rewrite acronyms as plain spaced letters (literal-character mode was
+  withdrawn 21-Sep-2026: it read "Capital C" aloud at the Pi), remove
+  round brackets, insert an explicit silence between sentences;
 - display_text keeps the written form;
 - voices are Jamie (Enhanced) for English and Amira (Enhanced) for
   Malay, at 150 words per minute.
@@ -719,8 +729,11 @@ text split it introduces.
 The normaliser is pure string handling, and its control sequences are
 specific to macOS `say`. A different speech engine needs it rewritten.
 
-Tier A only. The WP2.4 test asserting `display_text == reply_text` now
-asserts a deliberate difference, and is updated rather than deleted.
+Tier A and Tier B (owner decision, 21-Sep-2026: the citation contract
+and the Enhanced voices are only observable live). The WP2.4 test
+asserting `display_text == reply_text` stands unchanged, because the
+normalised form never reaches the response (owner decision, 21-Sep-2026,
+superseding the earlier reply_text/display_text split).
 
 ### WP6.7 - booking intent + on-screen receipt
 
@@ -749,6 +762,33 @@ branch, consistent with section 5.
 Tailscale Serve remains optional. Long-press reprint remains deferred. Caregiver UI remains out of scope.
 
 Runbook: section 11, expanded by `Prepare WP6.x`.
+
+### WP6.5 - Pi push consumption (first slice)
+
+Pi push consumption (planned 23-Sep-2026, first WP6.5 slice):
+
+```text
+- the device polls /api/device/pending with its configured device_id
+  every 3 seconds, in the idle state only; the 1-second idle wake for
+  session rotation is unchanged;
+- each "nudge" item shows its text on the answer frame and plays its
+  audio through the button-watching playback; a press during playback
+  stops the speech and starts a new recording (16-Sep-2026 behaviour);
+- null or unplayable audio degrades to text with a short hold, never an
+  error frame; a failed poll changes nothing and logs nothing; one log
+  line per delivered nudge;
+- delivery is at-most-once by the WP6.6 contract: take_due marks the
+  nudge delivered at fetch, so a crash between poll and playback loses
+  it, accepted for the demo;
+- the committed push fixtures (Samantha EN / Amira MS, 19-Sep-2026)
+  predate the WP6.8 voices; recapture before Tier C is an owner task,
+  via wp6_6_evidence.sh --capture-fixtures from a desktop session
+  (the capture now uses Jamie (Enhanced) / Amira (Enhanced) at 150 wpm).
+```
+
+The canned-mode scenarios, the BOM ceiling and the remaining WP6.5
+acceptance tests (WP6-AT-08, 11, 12, 14) stay open for the unit's next
+slice.
 
 ---
 

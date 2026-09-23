@@ -119,7 +119,10 @@ capture_one() {
         printf 'SKIP: %s already exists; delete it first to re-capture.\n' "$name"
         return 0
     fi
-    say -v "$voice" --file-format=WAVE --data-format=LEI16@22050 -o "$target" "$text" \
+    # WP6.8 voices: -r 150 matches the kiosk's speaking rate, and the
+    # Enhanced voices synthesise silence outside a logged-in desktop
+    # session, which the empty-file check below catches.
+    say -v "$voice" -r 150 --file-format=WAVE --data-format=LEI16@22050 -o "$target" "$text" \
         || fail "say failed for $name"
     if [ ! -s "$target" ]; then
         rm -f "$target"
@@ -131,8 +134,11 @@ capture_one() {
 
 if [ "$CAPTURE" = 1 ]; then
     command -v say >/dev/null || precondition "say is not on PATH." "run on the Mac"
-    capture_one push_cdc_en.wav Samantha "$PUSH_EN_TEXT"
-    capture_one push_cdc_ms.wav Amira "$PUSH_MS_TEXT"
+    # WP6.8 (owner decision, 23-Sep-2026): the push speaks with the same
+    # voices as the kiosk's answers, so the nudge does not sound like a
+    # different machine. Run from a desktop-session Terminal.
+    capture_one push_cdc_en.wav "Jamie (Enhanced)" "$PUSH_EN_TEXT"
+    capture_one push_cdc_ms.wav "Amira (Enhanced)" "$PUSH_MS_TEXT"
     has_tty || { printf 'No terminal: listen to both files and confirm them yourself.\n'; exit 3; }
     printf '\nBoth files exist under %s.\n' "$FIXTURE_DIR_RELATIVE"
     read -r -p 'Did both recordings sound right (yes/no)? ' verdict </dev/tty

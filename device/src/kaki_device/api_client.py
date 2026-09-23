@@ -1,3 +1,4 @@
+# v1.2 | 23-Sep-2026 | WP6.5: pending sends the device identity so pushes are handed over.
 # v1.1 | 20-Sep-2026 | WP6.4: bearer token on every call; same-turn_id retry for turns.
 """Call the backend's device contract and nothing else.
 
@@ -182,9 +183,20 @@ class BackendClient:
             raise ApiError("invalid_response")
         return payload
 
-    def pending(self, timeout_seconds: float = 10.0) -> list[dict[str, Any]]:
-        """Return due follow-up items; the MVP backend always returns an empty list."""
-        payload = self._request("GET", PENDING_PATH, timeout_seconds)
+    def pending(
+        self, device_id: str | None = None, timeout_seconds: float = 10.0,
+    ) -> list[dict[str, Any]]:  #v1.2
+        """Return this device's due nudges as dictionaries, or raise ApiError.
+
+        `device_id` names this kiosk (WP6.5): the backend's atomic
+        fetch-and-mark hands over every push queued for that identity and
+        marks it delivered in the same transaction (WP6-AT-16), so anything
+        returned here will not be offered again. Without an identity the
+        backend deliberately returns `[]` (WP1-AT-05), which keeps the
+        pre-WP6.5 callers exactly as they were.
+        """
+        params = {"device_id": device_id} if device_id else {}  #v1.2
+        payload = self._request("GET", PENDING_PATH, timeout_seconds, params=params)
         if not isinstance(payload, list):
             raise ApiError("invalid_response")
         return [item for item in payload if isinstance(item, dict)]

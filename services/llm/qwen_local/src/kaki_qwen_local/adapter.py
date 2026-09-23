@@ -1,3 +1,4 @@
+# v1.8 | 23-Sep-2026 | WP6.8: a1_warm persona uses the owner-tested wording (19-Sep brief).
 # v1.7 | 21-Sep-2026 | WP6.8: append the selected reply persona to the grounded prompt.
 # v1.6 | 14-Sep-2026 | Grounded prompt: answer in English whatever the question's language.
 # v1.5 | 14-Sep-2026 | Tell the render pass to keep numbers as digits for the digit check.
@@ -78,13 +79,10 @@ _CITATION_MARKER = re.compile(  #v1.2
 # The wording is provisional and editable, like the push message's
 # (scripts/seed_push_message.py): edit it here and restart the backend.
 PLAIN_PERSONA = ""  #v1.7
-A1_WARM_PERSONA = (  #v1.7
-    " Speak like a kind neighbourhood auntie helping an elderly neighbour: "
-    "warm, plain and unhurried. Use short everyday words and short sentences. "
-    "You may begin with one brief reassuring word such as 'Okay' or "
-    "'Don't worry'. Every rule above still applies, especially the word "
-    "limit, the numbered steps and the final SOURCE line; write nothing "
-    "after that line."
+A1_WARM_PERSONA = (  #v1.8
+    " Address the user as Auntie. Keep the sentences short and warm, the way "
+    "a patient helper speaks to an elderly neighbour. Keep the final "
+    "'SOURCE: n' line exactly as instructed above, and write nothing after it."
 )
 PERSONAS = {"plain": PLAIN_PERSONA, "a1_warm": A1_WARM_PERSONA}  #v1.7
 DEFAULT_PERSONA = "plain"  #v1.7
