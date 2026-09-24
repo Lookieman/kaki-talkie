@@ -1,3 +1,4 @@
+# v1.3 | 24-Sep-2026 | WP6.8 voice revision: thinking-filler flag and second-clip delay.
 # v1.2 | 20-Sep-2026 | WP6.4: the service token, retry schedule and retuned timeout.
 # v1.1 | 20-Sep-2026 | WP6.2: the [audio] and [button] tables, overrides and bounds.
 # v1.0 | 16-Sep-2026 | WP6.1 device configuration: defaults, overrides and rejection.
@@ -179,6 +180,35 @@ class RejectionTests(unittest.TestCase):
         path = write_config("backend_url = \n")
         with self.assertRaises(ConfigError):
             load_config(path, {})
+
+
+class ThinkingFillerConfigTests(unittest.TestCase):  #v1.3
+    def test_filler_defaults_on_with_a_five_second_second_clip(self):
+        config = load_config(None, environment={})
+        self.assertTrue(config.thinking_filler)
+        self.assertEqual(config.filler_second_delay_seconds, 5.0)
+
+    def test_file_and_environment_can_switch_it_off_and_retune_the_delay(self):
+        path = write_config("thinking_filler = false\nfiller_second_delay_seconds = 3.5\n")
+        config = load_config(path, environment={})
+        self.assertFalse(config.thinking_filler)
+        self.assertEqual(config.filler_second_delay_seconds, 3.5)
+        config = load_config(None, environment={
+            "KAKI_DEVICE_THINKING_FILLER": "false",
+            "KAKI_DEVICE_FILLER_SECOND_DELAY_SECONDS": "8",
+        })
+        self.assertFalse(config.thinking_filler)
+        self.assertEqual(config.filler_second_delay_seconds, 8.0)
+
+    def test_bad_flag_and_delay_are_rejected(self):
+        for environment in (
+            {"KAKI_DEVICE_THINKING_FILLER": "maybe"},
+            {"KAKI_DEVICE_FILLER_SECOND_DELAY_SECONDS": "-1"},
+            {"KAKI_DEVICE_FILLER_SECOND_DELAY_SECONDS": "61"},
+        ):
+            with self.subTest(environment=environment):
+                with self.assertRaises(ConfigError):
+                    load_config(None, environment=environment)
 
 
 if __name__ == "__main__":

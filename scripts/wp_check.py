@@ -1,3 +1,4 @@
+# v3.6 | 24-Sep-2026 | WP6.8 voice revision: report both filler stages on the Pi and the simulator.
 # v3.5 | 23-Sep-2026 | Add WP6.5 tier A: the Pi consumes admin pushes (scripted delivery, no hardware).
 # v3.4 | 21-Sep-2026 | WP6.8 step 5: pin the released Auntie retry/failure copy; acronyms spoken as plain letters.
 # v3.3 | 21-Sep-2026 | Add WP6.8 (persona, voices, spoken form) and WP6.7 (booking intent, receipt); WP6.7 tier A runs the simulator vitest suite.
@@ -132,7 +133,7 @@ Currently registered:
   selectable, that `plain` leaves the grounded prompt byte-identical, that
   the persona keeps the `SOURCE: n` contract and the word limit, and pins
   one written-to-spoken golden through the normaliser. Reports whether the
-  thinking-filler asset has been captured without gating on it. No model
+  thinking-filler clips have been captured without gating on it. No model
   service, no `say`, no network.
 - WP6.8 tier B - the configured voices actually speak and the persona
   survives a live turn. Requires macOS `say` with Jamie and Amira
@@ -2281,7 +2282,12 @@ WP68_PERSONAS = ("plain", "a1_warm")  #v3.3
 WP68_ENGLISH_VOICE = "Jamie"  #v3.3
 WP68_MALAY_VOICE = "Amira"  #v3.3
 WP68_RATE_WPM = 150  #v3.3
-WP68_FILLER_ASSET = "apps/web/public/thinking-filler.wav"  #v3.3
+WP68_FILLER_ASSETS = (  #v3.6
+    "apps/web/public/thinking-filler-1.wav",
+    "apps/web/public/thinking-filler-2.wav",
+    "device/src/kaki_device/clips/thinking_filler_1.en.wav",
+    "device/src/kaki_device/clips/thinking_filler_2.en.wav",
+)
 # One written reply and the spoken form the normaliser must produce from it.
 # Pinned here so a rule change is visible in the check, not only in the unit
 # suite (execution-plan.md 7, WP6.8).
@@ -2379,14 +2385,16 @@ def check_wp68_tier_a() -> tuple[dict[str, object], dict[str, bool]]:  #v3.3
     checks["brackets_are_removed"] = "(" not in produced and ")" not in produced
     checks["sentences_are_separated_by_silence"] = "[[slnc 400]]" in produced
 
-    filler = root / WP68_FILLER_ASSET
-    report["filler_asset"] = {
-        "path": WP68_FILLER_ASSET, "present": filler.is_file(),
-        "bytes": filler.stat().st_size if filler.is_file() else 0,
-    }
-    # Presence is reported, not gated: the clip is captured once by the owner
-    # in a desktop session (apps/web/public/README.md), like every other
-    # spoken fixture. The play-once behaviour is covered by the web suite.
+    report["filler_assets"] = [  #v3.6
+        {
+            "path": asset, "present": (root / asset).is_file(),
+            "bytes": (root / asset).stat().st_size if (root / asset).is_file() else 0,
+        }
+        for asset in WP68_FILLER_ASSETS
+    ]
+    # Presence is reported, not gated: the clips are recorded once by the
+    # owner (device/src/kaki_device/clips/README.md), like every other spoken
+    # fixture. The stage behaviour is covered by the web and device suites.
     return report, checks
 
 

@@ -1,3 +1,4 @@
+# v1.1 | 24-Sep-2026 | WP6.8 voice revision: new English booking reply; Malay unchanged.
 # v1.0 | 21-Sep-2026 | WP6.7 canned booking reply and its on-screen receipt.
 """Answer a booking request from fixed wording, never from the model (WP6-AT-19).
 
@@ -11,8 +12,10 @@ The wording is authored, not generated, so it is written here in the WP6.8
 `a1_warm` register by hand: the booking path bypasses the persona prompt
 entirely, and a canned line in the plain register beside persona-voiced
 answers would sound like a different kiosk. It still flows through the
-ordinary reply/display/slip fields, so WP6.8's spoken-form normaliser applies
-to it in the TTS adapter exactly as it does to a generated answer.
+ordinary reply/display/slip fields. When a recorded clip of the exact reply
+exists (`orchestration/canned_clips.py`), that clip is played; otherwise
+WP6.8's spoken-form normaliser applies to it in the TTS adapter exactly as it
+does to a generated answer.
 
 The receipt the simulator draws is built from the existing contract fields:
 `slip_text` carries the body, `case_id` the reference. The QR code and the
@@ -39,8 +42,9 @@ OFFICE_LOCATION = "the main office on level 1"
 # two sound like one kiosk.
 BOOKING_REPLIES = {
     "en": (
-        "Okay, don't worry. Go to the main office on level 1. "
-        "The staff there will book it for you. Show them this slip."
+        "Okay Auntie, done already! I book for you. "
+        "Go to the main office on level 1 to collect your vouchers, can? "
+        "Your receipt is on the screen."
     ),
     "ms": (
         "Baik, jangan risau. Pergi ke pejabat utama di tingkat 1. "

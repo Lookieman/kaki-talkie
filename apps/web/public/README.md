@@ -1,36 +1,40 @@
 # Simulator public assets
 
-## `thinking-filler.wav` (WP6.8)
+## Thinking-filler clips (WP6.8 voice revision)
 
-The canned "Wait ah" line the simulator plays once while a grounded turn is
-in flight. It is a committed asset, captured once on the Mac Mini and never
-regenerated, following the spoken-fixture convention in
-`backend/src/kaki_backend/fixtures/README.md`.
+The simulator plays two canned lines while a grounded turn is in flight
+(`src/simulator/filler.ts`):
 
-| Property | Value |
-| --- | --- |
-| Exact spoken text | `Wait ah, I check for you.` |
-| Voice | Jamie (Enhanced), `en_GB` |
-| Rate | 150 wpm |
-| Format | PCM WAV, 22.05 kHz, 16-bit, mono |
+1. `thinking-filler-1.wav` plays once, as the thinking state starts.
+2. `thinking-filler-2.wav` plays once, only if the answer has not arrived
+   5 s later.
 
-Capture command, run once by the owner in a logged-in GUI session (Enhanced
-voices produce a zero-length file outside one):
+The answer stops whichever clip is sounding, and neither clip plays after the
+answer starts. A missing clip means silence, never a failed turn.
+
+The owner records the clips with ElevenLabs. The Pi plays the same recordings
+from `device/src/kaki_device/clips/`, under underscore names. That folder's
+`README.md` holds the full import steps.
+
+The table below lists the exact text, copied from `FILLER_TEXTS` in
+`src/simulator/filler.ts`, and the format.
+
+| File | Exact spoken text | Format |
+| --- | --- | --- |
+| `thinking-filler-1.wav` | `Wait ah, I check for you.` | PCM WAV, 22.05 kHz, 16-bit, mono |
+| `thinking-filler-2.wav` | `Almost there ah, Auntie. Wait a bit more.` | PCM WAV, 22.05 kHz, 16-bit, mono |
+
+Copy each clip into place, then verify that it is non-empty before
+committing:
 
 ```bash
-say -v Jamie -r 150 -o apps/web/public/thinking-filler.wav \
-    --data-format=LEI16@22050 "Wait ah, I check for you."
+cp /tmp/thinking_filler_1.en.wav apps/web/public/thinking-filler-1.wav
+python3 -c "import wave;w=wave.open('apps/web/public/thinking-filler-1.wav');print(w.getnframes()/w.getframerate(),'s')"
 ```
 
-Verify it is non-empty before committing:
+Expected: roughly 1.5 s for the first clip and 2-3 s for the second. A 0.0 s
+file means the export is empty.
 
-```bash
-python3 -c "import wave;w=wave.open('apps/web/public/thinking-filler.wav');print(w.getnframes()/w.getframerate(),'s')"
-```
-
-Expected: roughly 1.5 seconds. A 0.0 s file means `say` could not reach the
-speech service; re-run it from a Terminal window in the desktop session.
-
-The wording is provisional and is the owner's to change: re-run the capture
-with new words and update the table above. The simulator plays whatever is
-committed here, once per turn, never looped (`src/simulator/filler.ts`).
+The wording is the owner's to change. If it changes, update `FILLER_TEXTS`
+and the Pi's `FIRST_CLIP_TEXT` and `SECOND_CLIP_TEXT` together, then
+re-record both copies.

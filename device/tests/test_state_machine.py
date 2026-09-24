@@ -1,3 +1,4 @@
+# v1.4 | 24-Sep-2026 | WP6.8 voice revision: the two-stage thinking filler.
 # v1.3 | 23-Sep-2026 | WP6.5: idle pending poll cadence and nudge delivery.
 # v1.2 | 20-Sep-2026 | WP6.4: retrying frame during client retries; connection copy.
 # v1.1 | 20-Sep-2026 | WP6.2: countdown frames from microphone progress ticks.
@@ -17,6 +18,7 @@ from base64 import b64encode
 from itertools import count
 from pathlib import Path
 from time import monotonic
+from time import sleep as real_sleep  #v1.4
 from unittest.mock import patch  #v1.3
 
 from kaki_device.api_client import AUDIO_DATA_URL_PREFIX, ApiError, TurnResult
@@ -34,6 +36,7 @@ from kaki_device.mock_io import (
     silent_wav,
 )
 from kaki_device.state_machine import NUDGE_HOLD_SECONDS, TurnLoop  #v1.3
+from kaki_device.thinking_filler import ThinkingFiller  #v1.4
 
 ANSWER_TEXT = "Open the SMS link from CDC and show the QR code."
 SLIP_TEXT = "KAKI-TALKIE HELP\nOpen the SMS link.\nSource: vouchers.cdc.gov.sg"
@@ -101,7 +104,8 @@ class FakeClock:
 
 
 def build_loop(*, client=None, config: DeviceConfig | None = None, clock=None,
-               microphone=None, speaker=None, printer=None, button=None):
+               microphone=None, speaker=None, printer=None, button=None,
+               filler=None):  #v1.4
     """Assemble a loop from mocks, returning it with the parts a test asserts on."""
     config = config or DeviceConfig()
     clock = clock or FakeClock()
@@ -116,7 +120,7 @@ def build_loop(*, client=None, config: DeviceConfig | None = None, clock=None,
     loop = TurnLoop(
         config, client or FakeClient(), measure=fixed_measure(), clock=clock,
         sleep=lambda seconds: None,
-        new_id=lambda: f"id-{next(identifiers)}", **ports,
+        new_id=lambda: f"id-{next(identifiers)}", filler=filler, **ports,  #v1.4
     )
     return loop, ports, clock
 
@@ -525,6 +529,106 @@ class NudgeTests(unittest.TestCase):
             loop.run_forever()
         self.assertEqual(len(client.submissions), 1)
 
+
+# -- WP6.8 voice revision: the two-stage thinking filler ------------------  #v1.4
+
+FIRST_FILLER = silent_wav(0.11)
+SECOND_FILLER = silent_wav(0.13)
+ANSWER_AUDIO = silent_wav(0.2)
+
+
+class SlowClient(FakeClient):
+    """Answer after a real delay, so the filler thread has time to act."""
+
+    def __init__(self, delay_seconds: float, **kwargs) -> None:
+        super().__init__(
+            results=[turn_result(reply_audio=AUDIO_DATA_URL_PREFIX
+                                 + b64encode(ANSWER_AUDIO).decode("ascii"))],
+            **kwargs,
+        )
+        self.delay_seconds = delay_seconds
+
+    def submit_turn(self, **kwargs):
+        real_sleep(self.delay_seconds)
+        return super().submit_turn(**kwargs)
+
+
+class ThinkingFillerTests(unittest.TestCase):
+    """Filler 1 at once, filler 2 only when slow, never after the answer starts.
+
+    These use real time on short scales: the filler runs on its own thread
+    while the loop is blocked in submit_turn, exactly as on the Pi.
+    """
+
+    def run_with_filler(self, *, answer_after: float, second_delay: float,
+                        first=FIRST_FILLER, second=SECOND_FILLER, speaker=None):
+        speaker = speaker or RecordingSpeaker()
+        filler = ThinkingFiller(speaker, first, second, second_delay_seconds=second_delay)
+        loop, _, _ = build_loop(
+            client=SlowClient(answer_after), speaker=speaker, filler=filler,
+        )
+        outcome = loop.run_turn()
+        return outcome, speaker
+
+    def test_fast_answer_plays_only_the_first_filler(self):
+        outcome, speaker = self.run_with_filler(answer_after=0.05, second_delay=5.0)
+        self.assertEqual(speaker.played, [FIRST_FILLER, ANSWER_AUDIO])
+        self.assertEqual(outcome.state, "answered")
+
+    def test_slow_answer_plays_both_fillers_before_the_answer(self):
+        _, speaker = self.run_with_filler(answer_after=0.4, second_delay=0.1)
+        self.assertEqual(speaker.played, [FIRST_FILLER, SECOND_FILLER, ANSWER_AUDIO])
+
+    def test_no_filler_plays_after_the_answer_starts(self):
+        # The second filler's delay falls after the answer arrived: it must
+        # be cancelled, not played late.
+        _, speaker = self.run_with_filler(answer_after=0.05, second_delay=0.2)
+        real_sleep(0.4)
+        self.assertEqual(speaker.played, [FIRST_FILLER, ANSWER_AUDIO])
+
+    def test_answer_cuts_a_filler_that_is_still_sounding(self):
+        # A real-time speaker holds the long first clip; the answer arrives
+        # mid-clip, stops it and plays at once rather than waiting it out.
+        speaker = RecordingSpeaker(realtime=True)
+        long_first = silent_wav(2.0)
+        started = monotonic()
+        outcome, speaker = self.run_with_filler(
+            answer_after=0.1, second_delay=5.0, first=long_first, speaker=speaker,
+        )
+        self.assertLess(monotonic() - started, 1.5)
+        self.assertEqual(speaker.played, [long_first, ANSWER_AUDIO])
+        self.assertEqual(speaker.interruptions, 1)
+        self.assertFalse(outcome.failed_locally)
+
+    def test_missing_clips_are_silence_and_never_fail_the_turn(self):
+        speaker = RecordingSpeaker()
+        filler = ThinkingFiller.from_package(
+            speaker, second_delay_seconds=0.05, reader=lambda name: None,
+        )
+        loop, _, _ = build_loop(client=SlowClient(0.2), speaker=speaker, filler=filler)
+        outcome = loop.run_turn()
+        self.assertEqual(speaker.played, [ANSWER_AUDIO])
+        self.assertEqual(outcome.state, "answered")
+
+    def test_invalid_clip_is_silence_for_its_stage_only(self):
+        _, speaker = self.run_with_filler(
+            answer_after=0.3, second_delay=0.05, first=b"not a wav",
+        )
+        self.assertEqual(speaker.played, [SECOND_FILLER, ANSWER_AUDIO])
+
+    def test_failed_turn_stops_the_filler_before_the_error_frame(self):
+        speaker = RecordingSpeaker()
+        filler = ThinkingFiller(speaker, FIRST_FILLER, SECOND_FILLER,
+                                second_delay_seconds=0.1)
+        loop, ports, _ = build_loop(
+            client=FakeClient(error=ApiError("unavailable")),
+            speaker=speaker, filler=filler,
+        )
+        outcome = loop.run_turn()
+        real_sleep(0.3)
+        self.assertEqual(outcome.error_code, "unavailable")
+        self.assertEqual(speaker.played, [FIRST_FILLER])
+        self.assertEqual(ports["display"].states[-1], DisplayState.ERROR.value)
 
 
 if __name__ == "__main__":

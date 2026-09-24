@@ -1,3 +1,4 @@
+# v1.6 | 24-Sep-2026 | WP6.8 voice revision: English no-coverage reply in the Auntie register.
 # v1.5 | 21-Sep-2026 | WP6.7: route a direct booking request to a canned action.
 # v1.4 | 13-Sep-2026 | WP5.1: Malay refusal and action wording.
 # v1.3 | 13-Sep-2026 | Refuse any credential mention without a procedural marker (WP3.4 defect).
@@ -78,10 +79,10 @@ class RefusalMessage:
 REFUSAL_MESSAGES: dict[str, dict[RefusalReason, RefusalMessage]] = {
     "en": {
         RefusalReason.NO_COVERAGE: RefusalMessage(
-            reply_text=(
-                "Sorry, I do not have official information about that. I can help with "
-                "Singpass, CDC Vouchers, CHAS and CareShield Life. For anything else, "
-                "please ask a staff member at your community centre."
+            reply_text=(  #v1.6
+                "Aiyo, sorry Auntie, this one I cannot find leh. I can help with "
+                "Singpass, CDC Vouchers, CHAS and CareShield Life. For other things, "
+                "you go ask the community centre staff, they sure can help you."
             ),
             display_text="No official information on that. Please ask a community centre staff member.",
         ),

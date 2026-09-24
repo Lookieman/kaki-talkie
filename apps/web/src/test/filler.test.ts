@@ -1,8 +1,14 @@
+// v1.1 | 24-Sep-2026 | WP6.8 voice revision: the second clip after a delay, never after stop.
 // v1.0 | 21-Sep-2026 | WP6.8 thinking filler: once per turn, never looping, never fatal.
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { FILLER_SOURCE, ThinkingFiller } from "../simulator/filler";
+import {
+  DEFAULT_SECOND_DELAY_MS,
+  FILLER_SOURCE,
+  SECOND_FILLER_SOURCE,
+  ThinkingFiller,
+} from "../simulator/filler";
 
 function fakeAudio(play: () => Promise<void> = async () => {}) {
   return {
@@ -72,5 +78,85 @@ describe("ThinkingFiller", () => {
 
   it("stop is safe before anything has played", () => {
     expect(() => new ThinkingFiller(() => fakeAudio()).stop()).not.toThrow();
+  });
+});
+
+describe("ThinkingFiller second stage", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function recordingFactory() {
+    const sources: string[] = [];
+    const clips: HTMLAudioElement[] = [];
+    const factory = (source: string) => {
+      sources.push(source);
+      const audio = fakeAudio();
+      clips.push(audio);
+      return audio;
+    };
+    return { factory, sources, clips };
+  }
+
+  it("defaults to a five-second delay", () => {
+    expect(DEFAULT_SECOND_DELAY_MS).toBe(5000);
+  });
+
+  it("plays only the first clip when the answer is fast", async () => {
+    vi.useFakeTimers();
+    const { factory, sources } = recordingFactory();
+    const filler = new ThinkingFiller(factory, 5000);
+
+    await filler.play();
+    await vi.advanceTimersByTimeAsync(1000);
+    filler.stop(); // the answer arrived
+    await vi.advanceTimersByTimeAsync(10000);
+
+    expect(sources).toEqual([FILLER_SOURCE]);
+  });
+
+  it("plays the second clip once when the answer is slow", async () => {
+    vi.useFakeTimers();
+    const { factory, sources, clips } = recordingFactory();
+    const filler = new ThinkingFiller(factory, 5000);
+
+    await filler.play();
+    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(10000);
+
+    expect(sources).toEqual([FILLER_SOURCE, SECOND_FILLER_SOURCE]);
+    expect(clips[1].loop).toBe(false);
+    expect(clips[0].pause).toHaveBeenCalled(); // never two clips at once
+  });
+
+  it("stop cuts the second clip and nothing plays afterwards", async () => {
+    vi.useFakeTimers();
+    const { factory, sources, clips } = recordingFactory();
+    const filler = new ThinkingFiller(factory, 100);
+
+    await filler.play();
+    await vi.advanceTimersByTimeAsync(100);
+    filler.stop();
+    await vi.advanceTimersByTimeAsync(10000);
+
+    expect(sources).toEqual([FILLER_SOURCE, SECOND_FILLER_SOURCE]);
+    expect(clips[1].pause).toHaveBeenCalled();
+  });
+
+  it("a missing first clip still lets the second play, and never rejects", async () => {
+    vi.useFakeTimers();
+    const sources: string[] = [];
+    const filler = new ThinkingFiller((source) => {
+      sources.push(source);
+      return fakeAudio(async () => {
+        if (source === FILLER_SOURCE) {
+          throw new Error("404");
+        }
+      });
+    }, 100);
+
+    await expect(filler.play()).resolves.toBe(false);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(sources).toEqual([FILLER_SOURCE, SECOND_FILLER_SOURCE]);
   });
 });

@@ -1,3 +1,4 @@
+// v1.8 | 24-Sep-2026 | WP6.8 voice revision: the filler now has two stages.
 // v1.7 | 21-Sep-2026 | WP6.7: draw the booking receipt as a 58 mm slip.
 // v1.6 | 21-Sep-2026 | WP6.8: play the thinking filler once per turn.
 // v1.6 | 19-Sep-2026 | WP6.6: show the nudge inside the device frame and clear it on the next turn.
@@ -154,9 +155,9 @@ export function Simulator() {
   const completeTurn = useCallback(async (audio: Blob) => {
     try {
       setDeviceState("thinking");
-      // WP6.8: one short canned line covers the grounded turn's silence.
-      // It is never awaited, so a slow or refused clip cannot delay the
-      // answer, and never looped (see filler.ts).
+      // WP6.8: two short canned lines cover the grounded turn's silence,
+      // the second only when the answer is slow. Never awaited, so a slow
+      // or refused clip cannot delay the answer (see filler.ts). //v1.8
       void filler.current.play();
       const turnResponse = await submitTurn(audio, {
         deviceId: DEVICE_ID,

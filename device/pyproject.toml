@@ -1,3 +1,4 @@
+# v1.1 | 24-Sep-2026 | Package the WP6.8 thinking-filler clips.
 # v1.0 | 16-Sep-2026 | Package the WP6.1 thin Raspberry Pi client; stdlib plus httpx.
 [build-system]
 requires = ["setuptools>=68"]
@@ -21,3 +22,7 @@ display = ["pygame>=2.5,<3"]
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["kaki_device*"]
+
+# WP6.8 voice revision: the thinking-filler clips ship with the device.
+[tool.setuptools.package-data]
+kaki_device = ["clips/*.wav", "clips/README.md"]

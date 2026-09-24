@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# v1.3 | 24-Sep-2026 | WP6.8 voice revision: build the two-stage thinking filler when enabled.
 # v1.2 | 20-Sep-2026 | WP6.4: pass the service token and retry schedule to the client.
 # v1.1 | 20-Sep-2026 | WP6.2: real mode drives the GPIO button, ALSA audio and the panel.
 # v1.0 | 16-Sep-2026 | WP6.1 device entry point; mock I/O runs the loop on the Mac.
@@ -37,6 +38,7 @@ from kaki_device.mock_io import (
 )
 from kaki_device.io_ports import PrinterError
 from kaki_device.state_machine import TurnLoop
+from kaki_device.thinking_filler import ThinkingFiller  #v1.3
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -154,9 +156,16 @@ def run(arguments: argparse.Namespace) -> int:
     except (ConfigError, RuntimeError) as error:
         print(f"FAIL: {error}", file=sys.stderr)
         return 2
+    # WP6.8 voice revision: the filler shares the answer's speaker, and the
+    # loop stops it before the answer plays. Missing clips mean silence.
+    filler = (  #v1.3
+        ThinkingFiller.from_package(speaker, config.filler_second_delay_seconds)
+        if config.thinking_filler else None
+    )
     loop = TurnLoop(
         config, client, button=button, microphone=microphone, speaker=speaker,
         printer=printer, display=display, measure=measure,
+        filler=filler,  #v1.3
     )
     try:
         if arguments.turns > 0:

@@ -1,3 +1,4 @@
+# v2.6 | 24-Sep-2026 | WP6.8 voice revision: canned replies play recorded clips first.
 # v2.5 | 21-Sep-2026 | WP6.8: build the pipeline with the configured reply persona.
 # v2.4 | 20-Sep-2026 | WP6.4: KAKI_BACKEND_HOST selects the bind; default stays loopback.
 # v2.3 | 20-Sep-2026 | WP6.4: carry the device service token; the device path fails closed.
@@ -31,6 +32,7 @@ from kaki_backend.api.debug import router as debug_router  #v1.5
 from kaki_backend.api.health import router as health_router
 from kaki_backend.api.pending import router as pending_router  #v1.1
 from kaki_backend.api.turn import router as turn_router
+from kaki_backend.orchestration.canned_clips import CannedClipTts  #v2.6
 from kaki_backend.orchestration.idempotency import TurnService  #v1.1
 from kaki_backend.orchestration.turn_pipeline import TurnPipeline  #v1.1
 from kaki_backend.config import LlmSettings, RetrievalSettings, SttSettings, TtsSettings  #v1.6
@@ -87,7 +89,11 @@ print(  #v2.1
 app.state.model_ports = {  #v1.5
     "stt": SttSettings.from_environment().create_port(),
     "llm": LlmSettings.from_environment().create_port(),  #v1.4
-    "tts": tts_settings.create_port(),  #v2.1
+    # WP6.8 voice revision: an exact canned reply plays its recorded clip;
+    # every other reply reaches the configured engine unchanged.
+    "tts": CannedClipTts(  #v2.6
+        tts_settings.create_port(), fallback_source=tts_settings.mode,
+    ),
     "retriever": retrieval_settings.create_port(),  #v1.6
 }
 app.state.turn_service = TurnService(TurnPipeline(  #v1.4

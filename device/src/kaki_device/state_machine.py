@@ -1,3 +1,4 @@
+# v1.4 | 24-Sep-2026 | WP6.8 voice revision: two-stage thinking filler while a turn is in flight.
 # v1.3 | 23-Sep-2026 | WP6.5: poll for admin pushes from idle and play each nudge once.
 # v1.2 | 20-Sep-2026 | WP6.4: drive the retrying frame and the connection-failure copy.
 # v1.1 | 20-Sep-2026 | WP6.2: the recording frame counts down live via the microphone's progress.
@@ -28,6 +29,12 @@ button-watching playback as an answer, so a press interrupts it into a new
 recording. Delivery is at-most-once - the backend marks a nudge delivered as
 it hands it over - and a failed poll changes nothing visible.
 
+**Thinking filler (WP6.8 voice revision).** While a turn is in flight the
+loop runs the optional `ThinkingFiller`: one canned clip at once, a second
+only if the answer is slow. The loop stops it the moment `submit_turn`
+returns or fails, before anything else is shown or spoken, so neither clip
+ever plays over or after the answer.
+
 **Sessions.** A session groups turns so "repeat that" and "print that" resolve
 against the right answer (WP4.2). The Pi owns the boundary that WP4.5 left to
 it: a new session at start-up, and a new one whenever the kiosk has been idle
@@ -49,6 +56,7 @@ from kaki_device.config import DeviceConfig
 from kaki_device.display import layout
 from kaki_device.display.layout import DisplayState, Measure
 from kaki_device.io_ports import AudioCaptureError, PlaybackError, PrinterError
+from kaki_device.thinking_filler import ThinkingFiller  #v1.4
 
 # How long an idle wait blocks before the loop looks around again: short
 # enough to rotate a stale session promptly, long enough not to spin.
@@ -90,8 +98,13 @@ class TurnLoop:
         clock: Callable[[], float] = monotonic,
         sleep: Callable[[float], None] = time_sleep,
         new_id: Callable[[], str] = lambda: str(uuid4()),
+        filler: ThinkingFiller | None = None,  #v1.4
     ) -> None:
-        """Wire the ports; nothing here touches hardware until the loop runs."""
+        """Wire the ports; nothing here touches hardware until the loop runs.
+
+        `filler` is the optional WP6.8 thinking filler; None keeps the
+        thinking state silent, as before.
+        """
         self._config = config
         self._client = client
         self._button = button
@@ -103,6 +116,7 @@ class TurnLoop:
         self._clock = clock
         self._sleep = sleep
         self._new_id = new_id
+        self._filler = filler  #v1.4
         self._session_id = new_id()
         self._last_activity_at = clock()
         self.outcomes: list[TurnOutcome] = []
@@ -188,14 +202,22 @@ class TurnLoop:
             ))
 
         self._show_thinking()
+        if self._filler is not None:  #v1.4
+            self._filler.start()
         try:
-            # WP6-AT-04: the client retries a stall with the same turn_id; the
-            # display shows the retrying frame while it does.
-            result = self._client.submit_turn(
-                device_id=self._config.device_id, session_id=session_id,
-                turn_id=turn_id, audio=audio,
-                on_retry=lambda attempt: self._show_thinking(DisplayState.RETRYING),  #v1.2
-            )
+            try:
+                # WP6-AT-04: the client retries a stall with the same turn_id;
+                # the display shows the retrying frame while it does.
+                result = self._client.submit_turn(
+                    device_id=self._config.device_id, session_id=session_id,
+                    turn_id=turn_id, audio=audio,
+                    on_retry=lambda attempt: self._show_thinking(DisplayState.RETRYING),  #v1.2
+                )
+            finally:
+                # The answer or the error is here: silence the filler before
+                # anything is shown or spoken (WP6.8 voice revision).
+                if self._filler is not None:  #v1.4
+                    self._filler.stop()
         except ApiError as error:
             # A backend the retries could not reach gets the connection
             # wording; every other failure keeps the generic message.

@@ -1,3 +1,4 @@
+# v1.6 | 24-Sep-2026 | Package the WP6.8 canned-reply clips.
 # v1.5 | 13-Sep-2026 | Package the numbered SQL migrations.
 # v1.4 | 12-Sep-2026 | Depend on python-dotenv for project-root .env loading.
 # v1.3 | 07-Sep-2026 | Clarify the non-gating reason for allowing compact comments.
@@ -32,7 +33,7 @@ where = ["src"]
 include = ["kaki_backend*"]
 
 [tool.setuptools.package-data] #v1.1
-kaki_backend = ["fixtures/*.wav", "fixtures/README.md", "persistence/migrations/*.sql"] #v1.5
+kaki_backend = ["fixtures/*.wav", "fixtures/README.md", "clips/*.wav", "clips/README.md", "persistence/migrations/*.sql"] #v1.6
 
 [tool.ruff] #v1.1
 target-version = "py311" #v1.1

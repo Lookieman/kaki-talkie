@@ -1,3 +1,4 @@
+# v1.3 | 24-Sep-2026 | WP6.8 voice revision: two-stage thinking filler flag and delay.
 # v1.2 | 20-Sep-2026 | WP6.4: service token, retry schedule; timeout retuned for retries.
 # v1.1 | 20-Sep-2026 | WP6.2: [audio] card and rates, [button] pin and debounce.
 # v1.0 | 16-Sep-2026 | WP6.1 device configuration from a TOML file and KAKI_DEVICE_* overrides.
@@ -55,6 +56,11 @@ DEFAULT_PLAYBACK_RATE = 48000
 # The dome button wiring (setup.md 29.1): GPIO 17 to ground, internal pull-up.
 DEFAULT_BUTTON_PIN = 17
 DEFAULT_DEBOUNCE_SECONDS = 0.05
+# WP6.8 voice revision: the two-stage thinking filler. The first clip plays
+# as the thinking state starts; the second only if the answer is still
+# missing this many seconds after it started.
+DEFAULT_THINKING_FILLER = True  #v1.3
+DEFAULT_FILLER_SECOND_DELAY_SECONDS = 5.0  #v1.3
 
 ENVIRONMENT_PREFIX = "KAKI_DEVICE_"
 # Configuration tables that may be overridden with a double underscore, for
@@ -115,6 +121,8 @@ class DeviceConfig:
     print_policy: str = DEFAULT_PRINT_POLICY
     display_width: int = DEFAULT_DISPLAY_WIDTH
     display_height: int = DEFAULT_DISPLAY_HEIGHT
+    thinking_filler: bool = DEFAULT_THINKING_FILLER  #v1.3
+    filler_second_delay_seconds: float = DEFAULT_FILLER_SECOND_DELAY_SECONDS  #v1.3
     mock: MockSettings = field(default_factory=MockSettings)
     audio: AudioSettings = field(default_factory=AudioSettings)
     button: ButtonSettings = field(default_factory=ButtonSettings)
@@ -148,6 +156,22 @@ def _positive_integer(values: Mapping[str, Any], name: str, default: int) -> int
     if number <= 0:
         raise ConfigError(f"{name} must be a positive integer, got {number}.")
     return number
+
+
+def _boolean(values: Mapping[str, Any], name: str, default: bool) -> bool:  #v1.3
+    """Return a TOML boolean or a true/false environment string, or raise ConfigError.
+
+    `bool("false")` is True, so environment text is parsed explicitly.
+    """
+    raw = values.get(name, default)
+    if isinstance(raw, bool):
+        return raw
+    text = str(raw).strip().lower()
+    if text in {"true", "1", "yes", "on"}:
+        return True
+    if text in {"false", "0", "no", "off"}:
+        return False
+    raise ConfigError(f"{name} must be true or false, got {raw!r}.")
 
 
 def _validated_backend_url(raw: object) -> str:
@@ -309,6 +333,11 @@ def load_config(
         print_policy=policy,
         display_width=_positive_integer(values, "display_width", DEFAULT_DISPLAY_WIDTH),
         display_height=_positive_integer(values, "display_height", DEFAULT_DISPLAY_HEIGHT),
+        thinking_filler=_boolean(values, "thinking_filler", DEFAULT_THINKING_FILLER),  #v1.3
+        filler_second_delay_seconds=_bounded_number(  #v1.3
+            values, "filler_second_delay_seconds",
+            DEFAULT_FILLER_SECOND_DELAY_SECONDS, 0.0, 60.0,
+        ),
         mock=_mock_settings(values),
         audio=_audio_settings(values),
         button=_button_settings(values),
