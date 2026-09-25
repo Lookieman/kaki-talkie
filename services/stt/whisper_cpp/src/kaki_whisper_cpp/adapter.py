@@ -1,3 +1,4 @@
+# v1.1 | 25-Sep-2026 | Pin the request language to English by default (KAKI_STT_LANGUAGE overrides).
 # v1.0 | 07-Sep-2026 | Transcribe bounded PCM WAV through the local Whisper server.
 """Use whisper.cpp v1.7.6 HTTP responses behind the backend's STT port.
 
@@ -10,6 +11,7 @@ import io
 import ipaddress
 import json
 import math
+import os
 import wave
 from time import monotonic
 from urllib.parse import urlsplit
@@ -18,6 +20,12 @@ import httpx
 from pydantic import ValidationError
 
 from kaki_backend.contracts.ports import LanguageEvidence, SttError, Transcription
+
+# Whisper's auto-detection heard Singlish-accented English as Malay and then
+# transcribed it in Malay, which defeats the word-based booking rule. English
+# is pinned by default; export KAKI_STT_LANGUAGE=auto to restore detection for
+# the Malay path. This per-request field overrides whisper-server's own -l flag.
+STT_LANGUAGE = os.environ.get("KAKI_STT_LANGUAGE", "en").strip() or "en"  #v1.1
 
 MAX_RESPONSE_BYTES = 256 * 1024
 MAX_WAV_BYTES = 16 * 16000 * 2 + 4096
@@ -63,7 +71,7 @@ class WhisperStt:
         payload = self._request(
             "POST", "/inference", self._timeout,
             files={"file": ("audio.wav", audio, "audio/wav")},
-            data={"response_format": "verbose_json", "language": "auto", "temperature": "0"},
+            data={"response_format": "verbose_json", "language": STT_LANGUAGE, "temperature": "0"},  #v1.1
         )
         try:
             if not isinstance(payload, dict) or "error" in payload:

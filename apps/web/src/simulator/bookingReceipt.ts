@@ -1,3 +1,5 @@
+// v1.2 | 25-Sep-2026 | QR image replaces the placeholder; follow-up asks about the voucher.
+// v1.1 | 24-Sep-2026 | Pitch receipt: subtitle reads "your booking slip".
 // v1.0 | 21-Sep-2026 | WP6.7 booking receipt: turn fields plus printed illustration.
 
 import { TurnResponse } from "../api-client/device";
@@ -17,20 +19,22 @@ import { wrapReceipt } from "./receipt";
  * live-pipeline branch. They are constants here precisely so that no reader
  * mistakes them for something the backend promised.
  *
- * `printedAt` is the moment the slip is drawn, taken from the browser clock.
- * The line reads "slip printed for you", so the print time is the honest
- * value; the turn carries no timestamp and none was added for this.
+ * `printedAt` defaults to the moment the slip is drawn, taken from the
+ * browser clock, because the turn carries no timestamp. The /receipt page
+ * passes the booking's completion time instead.
  */
 
 export const RECEIPT_TITLE = "Your KaKi Talkie";
-export const RECEIPT_SUBTITLE = "slip printed for you";
+export const RECEIPT_SUBTITLE = "your booking slip";
 export const RECEIPT_KAKI_LABEL = "Your kaki";
 export const RECEIPT_KAKI_VALUE = "Community centre staff";
 export const RECEIPT_CASE_LABEL = "Case ID";
 export const QR_PLACEHOLDER_LINES = ["QR code", "(in the real", "product)"];
+// The illustrative QR image drawn in place of the placeholder lines.
+export const QR_IMAGE_SOURCE = "/kaki-qr.svg";
 export const QR_CAPTION = "Family can scan this code";
 export const FOLLOW_UP_LINE =
-  'KaKi Talkie will ask on Saturday: "Did you see the doctor?"';
+  'KaKi Talkie will ask on Saturday: "Did you collect your voucher?"';
 
 export interface BookingReceipt {
   title: string;

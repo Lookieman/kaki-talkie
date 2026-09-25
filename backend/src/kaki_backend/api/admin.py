@@ -1,5 +1,6 @@
+# v1.1 | 24-Sep-2026 | Pitch receipt page: GET the most recent booking.
 # v1.0 | 18-Sep-2026 | WP6.6 admin surface: per-device language, one canned push, state.
-"""Serve the demo admin surface (design.md 5.5): three routes, state only.
+"""Serve the demo admin surface (design.md 5.5): four routes, state only.
 
 The admin surface lets a second operator steer the demo from a phone: switch
 one device's reply language, and release one canned push. It writes state and
@@ -13,6 +14,10 @@ Cloudflare Access guards the tunnel path on top of this; the token is what
 guards the loopback path, which exists for the times the tunnel is down. The
 WP6.4 device service credential is a different secret and is never accepted
 here.
+
+`GET /api/admin/booking/latest` feeds the standalone `/receipt` page shown on
+the projector: the newest booking from whichever client made it. It reads
+state only and sits behind the same admin token.
 
 Every write names its `device_id` explicitly. No route infers a target from
 recent activity (owner decision, 18-Sep-2026; design.md 5.5).
@@ -137,3 +142,22 @@ def admin_state(
             for message in store.message_states()
         ],
     }
+
+
+@router.get("/api/admin/booking/latest", dependencies=[Depends(require_admin_token)])  #v1.1
+def latest_booking(
+    store: Annotated[AdminStore, Depends(get_admin_store)],
+) -> dict[str, object]:
+    """Return the most recent booking as `{"booking": {...}}`, or `{"booking": null}`.
+
+    The booking carries `case_id`, `completed_at` (UTC ISO 8601), `slip_text`
+    and `device_id`. Before any booking the value is null, which the receipt
+    page shows as its waiting state.
+    """
+    booking = store.latest_booking()
+    if booking is None:
+        return {"booking": None}
+    return {"booking": {
+        "case_id": booking.case_id, "completed_at": booking.completed_at,
+        "slip_text": booking.slip_text, "device_id": booking.device_id,
+    }}

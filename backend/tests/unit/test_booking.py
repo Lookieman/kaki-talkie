@@ -1,3 +1,4 @@
+# v1.1 | 25-Sep-2026 | Booking rule v1.7: inflected verbs route to booking; how-to questions still answer.
 # v1.0 | 21-Sep-2026 | WP6.7 booking: routing, canned reply, receipt fields, no LLM.
 """Prove the booking path is deterministic and cannot shadow a refusal.
 
@@ -30,6 +31,10 @@ BOOKING_UTTERANCES = (
     "Can you arrange a collection for me?",
     "schedule a collection",
     "saya nak tempah temujanji",
+    # v1.7: inflections and phrasings STT produced in rehearsal.
+    "Can book voucher collection for me?",
+    "Can booked voucher collection for me?",
+    "Please book voucher collection for me.",
 )
 
 # Requests that must never reach booking, with the intent that must win.
@@ -44,6 +49,9 @@ NOT_BOOKING = {
     "Can you repeat that?": Intent.REPEAT_PREVIOUS,
     "Please print that for me.": Intent.PRINT_PREVIOUS,
     "How do I use my CDC vouchers?": Intent.ANSWER,
+    # v1.7: the voucher-collection pattern must not capture how-to questions.
+    "How do I claim my CDC vouchers?": Intent.ANSWER,
+    "How do I collect my vouchers?": Intent.ANSWER,
 }
 
 

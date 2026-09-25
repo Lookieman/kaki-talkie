@@ -1,3 +1,5 @@
+# v1.8 | 25-Sep-2026 | Booking rule: Malay backstop for a mis-transcribed English booking request.
+# v1.7 | 25-Sep-2026 | Booking rule: verb inflections and voucher-collection requests.
 # v1.6 | 24-Sep-2026 | WP6.8 voice revision: English no-coverage reply in the Auntie register.
 # v1.5 | 21-Sep-2026 | WP6.7: route a direct booking request to a canned action.
 # v1.4 | 13-Sep-2026 | WP5.1: Malay refusal and action wording.
@@ -250,11 +252,17 @@ _REPEAT_REQUEST = re.compile(  #v1.2
 # credential and procedural rules, so "how do I book my vouchers?" stays a
 # question the grounded path answers, and only a direct instruction -
 # "book voucher collection", "make an appointment" - routes here. Malay
-# "tempah"/"buat temujanji" match the same way.
-_BOOKING_REQUEST = re.compile(  #v1.5
-    r"\b(?:book|booking|reserve|arrange|schedule|"
+# "tempah"/"buat temujanji" match the same way. v1.7 adds the inflections
+# STT produces ("booked", "books") and a voucher-collection request with no
+# booking verb at all. v1.8 adds a Malay backstop: when STT mishears English
+# as Malay it renders "book voucher collection" as "koleksi voucher" (and
+# "book" as "buka"/"membaca"), so the collection nouns are matched instead.
+_BOOKING_REQUEST = re.compile(  #v1.7
+    r"\b(?:book(?:s|ed|ing)?|reserve|arrange|schedule|"
     r"make\s+(?:an?\s+)?appointment|set\s+up\s+(?:an?\s+)?appointment|"
-    r"tempah|temujanji|buat\s+temu\s*janji)\b",
+    r"tempah|temujanji|buat\s+temu\s*janji)\b"
+    r"|\bcollect(?:ion)?\b.*\bvouchers?\b|\bvouchers?\b.*\bcollect(?:ion)?\b"
+    r"|\b(?:koleksi|kutip|kutipan|ambil)\b.*\b(?:vouchers?|vau[ct]h?er|baucar)\b",  #v1.8
     re.IGNORECASE,
 )
 

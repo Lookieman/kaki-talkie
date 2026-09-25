@@ -1,3 +1,4 @@
+// v1.9 | 24-Sep-2026 | Draw the booking slip through the shared BookingReceiptSlip.
 // v1.8 | 24-Sep-2026 | WP6.8 voice revision: the filler now has two stages.
 // v1.7 | 21-Sep-2026 | WP6.7: draw the booking receipt as a 58 mm slip.
 // v1.6 | 21-Sep-2026 | WP6.8: play the thinking filler once per turn.
@@ -21,6 +22,7 @@ import { RecordingLimitController, RecordingStopReason } from "./recorder";
 import { DEFAULT_PRINT_POLICY, PRINT_POLICIES, PrintPolicy, shouldPrint } from "./printPolicy"; //v1.4
 import { wrapReceipt } from "./receipt";
 import { buildBookingReceipt } from "./bookingReceipt"; //v1.7
+import { BookingReceiptSlip } from "./BookingReceiptSlip"; //v1.9
 import { DeviceState, DEVICE_STATES } from "./states";
 import { NudgeTracker, parsePendingItems, PENDING_POLL_SECONDS, PendingNudge } from "./pending"; //v1.5
 
@@ -341,30 +343,7 @@ export function Simulator() {
         </fieldset>
         <div className="receipt-paper" aria-live="polite">
           {bookingReceipt ? ( //v1.7
-            <div className="slip">
-              <p className="slip-title">{bookingReceipt.title}</p>
-              <p className="slip-subtitle">{bookingReceipt.subtitle}</p>
-              <p className="slip-subtitle">{bookingReceipt.printedAt}</p>
-              <hr />
-              {bookingReceipt.bodyLines.map((line, index) => (
-                <div key={`body-${index}-${line}`}>{line || "\u00a0"}</div>
-              ))}
-              <hr />
-              <p className="slip-field">
-                <span>{bookingReceipt.caseLabel}</span>
-                <span>{bookingReceipt.caseId}</span>
-              </p>
-              <p className="slip-field">
-                <span>{bookingReceipt.kakiLabel}</span>
-                <span>{bookingReceipt.kakiValue}</span>
-              </p>
-              {/* Printed illustration only: no case, no follow-up state. */}
-              <div className="slip-qr" aria-hidden="true">
-                {bookingReceipt.qrLines.map((line) => <div key={line}>{line}</div>)}
-              </div>
-              <p className="slip-caption">{bookingReceipt.qrCaption}</p>
-              <p className="slip-followup">{bookingReceipt.followUp}</p>
-            </div>
+            <BookingReceiptSlip receipt={bookingReceipt} /> //v1.9
           ) : receiptLines.length ? receiptLines.map((line, index) => <div key={`${index}-${line}`}>{line || "\u00a0"}</div>) : <p>Your English slip will appear here.</p>}
         </div>
       </aside>

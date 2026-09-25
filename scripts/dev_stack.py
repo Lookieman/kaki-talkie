@@ -1,3 +1,4 @@
+# v1.6 | 25-Sep-2026 | Start whisper-server in English by default; KAKI_WHISPER_LANGUAGE overrides.
 # v1.5 | 13-Sep-2026 | Refuse a KAKI_SQLITE_PATH outside the data root; print the data root on up.
 # v1.4 | 13-Sep-2026 | Run MLX-LM with PYTHONUNBUFFERED=1 so llm.log is current per request.
 # v1.3 | 13-Sep-2026 | Require backend storage readiness; document the inherited data root.
@@ -25,6 +26,7 @@ retrieval grounded, `retrieval_ready`, whose first probe loads the embedding
 model. `down` signals those recorded processes and removes their
 pidfiles. Requires an absolute `KAKI_DATA_ROOT`. Paths follow setup.md and
 may be overridden: `KAKI_WHISPER_SERVER`, `KAKI_WHISPER_MODEL`,
+`KAKI_WHISPER_LANGUAGE` (default `en`; set `auto` for the Malay path),
 `KAKI_LLM_PYTHON`, `HF_HOME`. Pidfiles, logs and the backend database all
 follow `KAKI_DATA_ROOT`, so `up --only backend` under a second data root runs
 a backend against a restored copy while whisper and MLX-LM keep serving the
@@ -82,6 +84,10 @@ def build_services(environment: dict[str, str]) -> list[Service]:
     whisper_model = environment.get(
         "KAKI_WHISPER_MODEL", str(home / "models/whisper/ggml-large-v3-turbo.bin")
     )
+    # Auto-detection heard Singlish-accented English as Malay and transcribed
+    # it in Malay, so English is pinned by default. Export
+    # KAKI_WHISPER_LANGUAGE=auto to restore detection for the Malay path.
+    whisper_language = environment.get("KAKI_WHISPER_LANGUAGE", "en")  #v1.6
     llm_python = environment.get("KAKI_LLM_PYTHON", str(home / ".venvs/kaki-llm/bin/python"))
     hf_home = environment.get("HF_HOME", str(home / "models/huggingface"))
     backend_settings = (
@@ -100,7 +106,7 @@ def build_services(environment: dict[str, str]) -> list[Service]:
             name="whisper", port=8081, health_url="http://127.0.0.1:8081/health",
             command=(
                 whisper_server, "--host", "127.0.0.1", "--port", "8081",
-                "-m", whisper_model, "-l", "auto",
+                "-m", whisper_model, "-l", whisper_language,  #v1.6
             ),
             marker="whisper-server", readiness_deadline_seconds=180,
         ),

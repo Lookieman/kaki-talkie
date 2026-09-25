@@ -1,3 +1,4 @@
+# v1.2 | 24-Sep-2026 | Pitch receipt: the English slip reads "Booking confirmed."
 # v1.1 | 24-Sep-2026 | WP6.8 voice revision: new English booking reply; Malay unchanged.
 # v1.0 | 21-Sep-2026 | WP6.7 canned booking reply and its on-screen receipt.
 """Answer a booking request from fixed wording, never from the model (WP6-AT-19).
@@ -58,7 +59,7 @@ BOOKING_SLIPS = {
     "en": (
         "KAKI-TALKIE BOOKING\n"
         "Go to the main office, level 1.\n"
-        "The staff will book your collection.\n"
+        "Booking confirmed.\n"
         "Bring your NRIC.\n"
         "Show this slip at the counter."
     ),

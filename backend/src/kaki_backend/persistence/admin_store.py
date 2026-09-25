@@ -1,3 +1,4 @@
+# v1.1 | 24-Sep-2026 | Pitch receipt page: read the most recent booking turn.
 # v1.0 | 18-Sep-2026 | WP6.6 admin state: per-device reply language and the push queue.
 """Read and write the demo admin surface's state (design.md 5.5).
 
@@ -11,6 +12,10 @@ Two responsibilities, both plain SQLite and nothing else:
   fetch-and-mark, so a 3-second poll delivers a push exactly once (the
   design.md 5.4 delivery-state rule, at-most-once). Only the next push
   re-arms a delivered message; nothing resets on a timer.
+
+A third, read-only responsibility serves the pitch's receipt page:
+`latest_booking` reads the newest booking turn from the `turns` table the
+turn repository writes, whichever device made it. It never writes there.
 
 No route through this module touches the turn pipeline, calls a model or
 synthesises audio: push audio is pre-synthesised fixture WAV, read from the
@@ -74,6 +79,16 @@ def _fixture_data_url(fixture_name: str) -> str | None:
     if not audio:
         return None
     return AUDIO_DATA_URL_PREFIX + b64encode(audio).decode("ascii")
+
+
+@dataclass(frozen=True)
+class LatestBooking:  #v1.1
+    """The newest booking turn: its reference, completion time, slip body and device."""
+
+    case_id: str
+    completed_at: str
+    slip_text: str
+    device_id: str
 
 
 class AdminStore:
@@ -190,3 +205,18 @@ class AdminStore:
                 "delivered_count FROM pending_messages ORDER BY message_key"
             ).fetchall()
         return [MessageState(**dict(row)) for row in rows]
+
+    # -- the receipt page ------------------------------------------------
+
+    def latest_booking(self) -> LatestBooking | None:  #v1.1
+        """Return the most recent turn that carried a booking reference, or None.
+
+        Only a WP6.7 booking sets `case_id`, so the newest row with one is the
+        latest booking from any device - the Pi or the simulator. Read-only.
+        """
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT case_id, completed_at, slip_text, device_id FROM turns "
+                "WHERE case_id IS NOT NULL ORDER BY completed_at DESC, rowid DESC LIMIT 1"
+            ).fetchone()
+        return LatestBooking(**dict(row)) if row is not None else None

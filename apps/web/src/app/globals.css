@@ -1,3 +1,5 @@
+/* v1.4 | 25-Sep-2026 | Size and centre the booking slip's QR image. */
+/* v1.3 | 24-Sep-2026 | Booking slip text wraps inside the paper instead of clipping. */
 /* v1.2 | 19-Sep-2026 | Style the WP6.6 announcement banner inside the device. */
 /* v1.1 | 13-Sep-2026 | Style the WP4.2 print-policy control. */
 /* v1.0 | 04-Sep-2026 | Style the responsive WP1.3 simulator and receipt. */
@@ -288,6 +290,14 @@ button {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  /* The paper's `pre` suits the plain slip; inside the booking slip every
+     line wraps within the paper, so no value is ever clipped. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.receipt-paper .slip > div {
+  white-space: pre-wrap;
 }
 
 .receipt-paper .slip hr {
@@ -321,10 +331,20 @@ button {
 
 .receipt-paper .slip-field span:first-child {
   min-width: 5.5rem;
+  flex-shrink: 0;
 }
 
 .receipt-paper .slip-field span:last-child {
+  min-width: 0;
   color: #201d18;
+}
+
+.receipt-paper .slip-qr-image {
+  align-self: center;
+  display: block;
+  width: 140px;
+  height: 140px;
+  margin: 0.5rem 0 0.25rem;
 }
 
 .receipt-paper .slip-qr {
